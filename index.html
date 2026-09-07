@@ -718,19 +718,14 @@ echo "======================================================================"
 echo -e "\n\033[1;33m======================================================================"
 echo "          AUTORIZAÇÃO DO GOOGLE DRIVE (RCLONE)                                "
 echo "======================================================================\033[0m"
-echo "O link abaixo aparecerá em instantes."
-echo "Copie o endereço (http://127.0.0.1:53682/...), cole no seu navegador e faça login na sua conta Google:"
+echo "O link de autorização aparecerá abaixo."
+echo "Abra o link no navegador, faça login na conta Google e autorize o acesso:"
 echo "----------------------------------------------------------------------"
+
 mkdir -p /root/.config/rclone
-RCLONE_TOKEN=$(rclone authorize "drive")
+/usr/bin/rclone config create gdrive drive scope drive
 
-cat &lt;&lt; EOF_RCLONE &gt; /root/.config/rclone/rclone.conf
-[gdrive]
-type = drive
-token = $RCLONE_TOKEN
-EOF_RCLONE
-
-/usr/bin/rclone --config /root/.config/rclone/rclone.conf mkdir gdrive:Backup_Koha 2&gt;/dev/null || true
+/usr/bin/rclone --config /root/.config/rclone/rclone.conf mkdir gdrive:Backup_Koha 2>/dev/null || true
 echo ">>> Rclone configurado com sucesso e pasta remota vinculada!"
 
 # 10. AGUARDA VOCÊ TERMINAR O WEB INSTALLER
