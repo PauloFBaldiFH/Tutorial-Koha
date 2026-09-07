@@ -903,7 +903,7 @@ fi
 # CANCELA A TAREFA DO 'AT' PARA MANTER O FIREWALL PERMANENTEMENTE ATIVO
 for job in $(atq 2>/dev/null | cut -f1); do
   atrm "$job" 2>/dev/null || true
-done
+fi
 
 echo ""
 echo "======================================================================"
