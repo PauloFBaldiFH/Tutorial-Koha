@@ -693,7 +693,6 @@ ln -sf "$REAL_HOME/backup_aut.sh" /root/backup_aut.sh
 
 cat &lt;&lt; EOF &gt; /tmp/koha_cron
 30 0 * * * /usr/bin/journalctl --vacuum-time=14d
-0 2 * * 1 /usr/bin/apt update -y &amp;&amp; /usr/bin/apt upgrade -y &amp;&amp; /usr/bin/apt autoremove -y &amp;&amp; /usr/bin/apt clean
 0 1 5 * * /usr/bin/mysqlcheck --check --auto-repair --databases koha_library
 0 5 * * * /usr/sbin/koha-plack --restart library
 40 17 * * * /bin/bash $REAL_HOME/backup_aut.sh
