@@ -277,13 +277,13 @@
 
   <header>
     <h1>Manual Completo de Instalação e Configuração do Koha</h1>
-    <p class="lead">Guia estruturado com foco em estabilidade operacional: preparação minuciosa do sistema operacional em 5 cenários, script automatizado com Elasticsearch, primeiro acesso web, restauração de banco de dados e publicação via Cloudflare Tunnel.</p>
+    <p class="lead">Guia estruturado com foco em estabilidade operacional de longo prazo: preparação minuciosa do sistema operacional em 5 cenários, script automatizado com branch estável fixo, primeiro acesso web, restauração de banco de dados e publicação segura via Cloudflare Tunnel.</p>
   </header>
 
   <!-- 1. INTRODUÇÃO -->
   <section>
     <h2>1. O que é e como funciona o Koha</h2>
-    <p>O <strong>Koha</strong> é o sistema integrado de gestão de bibliotecas (ILS) de código aberto mais utilizado no mundo. Ele opera sobre a stack <strong>LAMP</strong> (Linux, Apache, MariaDB e Perl), funcionando como um servidor central corporativo.</p>
+    <p>O <strong>Koha</strong> é o sistema integrado de gestão de bibliotecas (ILS) de código aberto mais utilizado no mundo. Ele opera sobre a stack <strong>LAMP</strong> (Linux, Apache, MariaDB e Perl), funcionando como um servidor corporativo centralizado.</p>
 
     <div class="info-box">
       <strong>Acesso Universal por Navegador:</strong>
@@ -302,7 +302,7 @@
   <!-- 2. HOSPEDAGEM E PREPARAÇÃO DOS SISTEMAS -->
   <section>
     <h2>2. Escolhendo a Hospedagem e Preparando o Sistema Operacional</h2>
-    <p>O Koha foi concebido nativamente para rodar sobre Linux (Debian ou Ubuntu). A forma como você chega à linha de comando depende exclusivamente do método de instalação escolhido abaixo. <strong>Siga rigorosamente apenas o cenário que você escolheu:</strong></p>
+    <p>O Koha foi concebido nativamente para rodar sobre distribuições Debian ou Ubuntu LTS. A forma como você chega à linha de comando depende exclusivamente do método de instalação escolhido abaixo. <strong>Siga rigorosamente apenas o cenário que você escolheu:</strong></p>
 
     <!-- CENÁRIO 1 -->
     <div class="card">
@@ -344,7 +344,7 @@
       <ol>
         <li>Crie uma conta na empresa escolhida e acerte o método de pagamento.</li>
         <li>Clique em <strong>Create Instance</strong> (ou <em>Create Droplet</em>).</li>
-        <li><strong>Sistema Operacional:</strong> Escolha <strong>Ubuntu Server</strong> (versão LTS recente: 22.04 ou 24.04).</li>
+        <li><strong>Sistema Operacional:</strong> Escolha <strong>Ubuntu Server LTS</strong> (22.04, 24.04 ou posterior).</li>
         <li><strong>Plano de Hardware (Obrigatório):</strong> Selecione um plano que ofereça <strong>no mínimo 4GB de RAM</strong> e 2 vCPUs. Planos com 1GB ou 2GB travarão durante a indexação de buscas do Elasticsearch.</li>
         <li><strong>Autenticação:</strong> Escolha autenticação por senha root ou adicione sua chave SSH pública.</li>
         <li>Finalize a criação. Em poucos segundos o painel da VPS fornecerá um <strong>Endereço de IP público</strong> e o usuário de login (normalmente <code>root</code> ou <code>ubuntu</code>).</li>
@@ -361,15 +361,15 @@
       <ol>
         <li><strong>Download da ISO:</strong>
           <ul>
-            <li>Opção 1 (Recomendada para iniciantes): <a href="https://linuxmint.com/download.php" target="_blank">Download Linux Mint (Cinnamon Edition)</a>.</li>
+            <li>Opção 1 (Recomendada para computadores de mesa): <a href="https://linuxmint.com/download.php" target="_blank">Download Linux Mint (Cinnamon Edition)</a>.</li>
             <li>Opção 2: <a href="https://ubuntu.com/download/desktop" target="_blank">Download Ubuntu Desktop</a>.</li>
           </ul>
         </li>
         <li>Grave a ISO no pendrive utilizando o <a href="https://etcher.balena.io/" target="_blank">BalenaEtcher</a> da mesma forma explicada no Cenário 1.</li>
         <li>Desative o <strong>Secure Boot</strong> na BIOS do computador e inicie o sistema pelo pendrive.</li>
-        <li>Na área de trabalho do instalador, dê dois cliques no ícone "Install Linux Mint" (ou Install Ubuntu). O assistente é totalmente visual em português: escolha seu fuso horário, layout do teclado, crie seu nome de usuário e senha.</li>
+        <li>Na área de trabalho do instalador, dê dois cliques no ícone "Install Linux Mint" (ou Install Ubuntu). O assistente é visual em português: escolha seu fuso horário, layout do teclado, crie seu nome de usuário e senha.</li>
         <li>Conclua a instalação e reinicie o PC.</li>
-        <li><strong style="color: #38bdf8;">Vantagem Operacional deste Cenário:</strong> <strong>Você NÃO precisa usar SSH!</strong> Abra o terminal nativo do sistema pressionando as teclas <code>Ctrl + Alt + T</code> e execute os comandos diretamente nele. Toda transferência de arquivos de backup poderá ser feita simplesmente arrastando pastas pela interface visual.</li>
+        <li><strong style="color: #38bdf8;">Vantagem Operacional deste Cenário:</strong> <strong>Você NÃO precisa usar SSH!</strong> Abra o terminal nativo do sistema pressionando as teclas <code>Ctrl + Alt + T</code> e execute os comandos diretamente nele. Toda transferência de arquivos de backup poderá ser feita simplesmente gerenciando pastas pela interface visual.</li>
       </ol>
     </div>
 
@@ -392,7 +392,7 @@
             <li>Abra o VirtualBox e clique no botão <strong>Novo</strong> (New).</li>
             <li><strong>Nome:</strong> Digite <code>Koha-Server</code>.</li>
             <li><strong>Imagem ISO:</strong> Clique na seta, escolha <em>Outro...</em> e aponte para o arquivo ISO do Ubuntu Server que você baixou.</li>
-            <li><strong style="color: #f87171;">ATENÇÃO CRÍTICA (Checkbox de Instalação Desatendida):</strong> Na tela de criação do VirtualBox existe a opção sobre instalação desatendida. Marque a caixa <strong>"Pular Instalação Desatendida" (Skip Unattended Installation)</strong>. Se na sua versão do VirtualBox aparecer a caixa <em>"Proceed with Unattended Installation"</em>, <strong>NÃO A DEIXE SELECIONADA</strong>. Se você permitir a instalação desatendida, o VirtualBox criará um usuário padrão aleatório e ignorará a instalação manual do OpenSSH, trancando você fora do sistema!</li>
+            <li><strong style="color: #f87171;">ATENÇÃO CRÍTICA (Instalação Desatendida):</strong> Na tela de criação do VirtualBox existe a opção sobre instalação desatendida. Marque a caixa <strong>"Pular Instalação Desatendida" (Skip Unattended Installation)</strong>. Se você permitir a instalação desatendida, o VirtualBox criará um usuário padrão aleatório e ignorará a instalação manual do OpenSSH, trancando você fora do sistema!</li>
           </ul>
         </li>
         <li><strong>Recursos de Hardware:</strong>
@@ -509,7 +509,7 @@
 
     <p>Digite a senha do usuário do Linux. Em seguida, copie e cole o bloco completo abaixo:</p>
 
-<div class="code-container">
+    <div class="code-container">
       <div class="code-header">
         <span>script_instalacao_koha.sh</span>
         <button class="copy-btn" onclick="copySnippet(this)">Copiar Script Completo</button>
@@ -545,9 +545,6 @@ export DEBIAN_FRONTEND=noninteractive
 
 # 1. SWAP PREVENTIVO (4GB)
 echo ">>> Verificando SWAP..."
-
-# 1. SWAP PREVENTIVO (4GB)
-echo ">>> Verificando SWAP..."
 if [ "$(swapon --show | wc -l)" -le 1 ]; then
   fallocate -l 4G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=4096
   chmod 600 /swapfile
@@ -556,38 +553,29 @@ if [ "$(swapon --show | wc -l)" -le 1 ]; then
   echo '/swapfile none swap sw 0 0' >> /etc/fstab
 fi
 
-echo ">>> Configuração de Fuso Horário..."
-echo "Por favor, selecione sua região e fuso horário na tela que vai aparecer."
-dpkg-reconfigure tzdata
-timedatectl set-ntp true
-
-export DEBIAN_FRONTEND=noninteractive
-
-# 1. SWAP PREVENTIVO (4GB)
-echo ">>> Verificando SWAP..."
-if [ "$(swapon --show | wc -l)" -le 1 ]; then
-  fallocate -l 4G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=4096
-  chmod 600 /swapfile
-  mkswap /swapfile
-  swapon /swapfile
-  echo '/swapfile none swap sw 0 0' &gt;&gt; /etc/fstab
-fi
-
 # 2. DEPENDÊNCIAS E REPOSITÓRIOS OFICIAIS
-echo ">>> Instalando dependências e repositórios..."
-apt update &amp;&amp; apt upgrade -y
+echo ">>> Instalando dependências básicas e ferramentas de segurança..."
+apt update && apt upgrade -y
 apt install -y nano curl wget gpg ufw software-properties-common default-jre-headless \
               libapache2-mod-security2 fail2ban postfix libsasl2-modules glabels \
-              at rclone avahi-daemon memcached
+              at rclone avahi-daemon memcached unattended-upgrades
 
 systemctl enable --now avahi-daemon
 systemctl enable --now fail2ban
 
-wget -qO - https://debian.koha-community.org/koha/gpg.asc | gpg --dearmor --yes -o /usr/share/keyrings/koha-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/koha-keyring.gpg] https://debian.koha-community.org/koha oldstable main" &gt; /etc/apt/sources.list.d/koha.list
+# Ativação de patches de segurança automáticos sem quebras de pacotes no cron
+echo 'APT::Periodic::Update-Package-Lists "1";' > /etc/apt/apt.conf.d/20auto-upgrades
+echo 'APT::Periodic::Unattended-Upgrade "1";' >> /etc/apt/apt.conf.d/20auto-upgrades
+systemctl restart unattended-upgrades
 
-wget -qO - https://artifacts.elastic.co/GPG-KEY-elasticsearch | gpg --dearmor --yes -o /usr/share/keyrings/elasticsearch-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/elasticsearch-keyring.gpg] https://artifacts.elastic.co/packages/7.x/apt stable main" &gt; /etc/apt/sources.list.d/elastic-7.x.list
+# Repositório Koha (Fixado na versão LTS estável 24.11 para máxima longevidade)
+mkdir -p /usr/share/keyrings
+wget -q --timeout=20 --tries=3 -O - https://debian.koha-community.org/koha/gpg.asc | gpg --dearmor --yes -o /usr/share/keyrings/koha-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/koha-keyring.gpg] https://debian.koha-community.org/koha 24.11 main" > /etc/apt/sources.list.d/koha.list
+
+# Repositório Elasticsearch 7.x
+wget -q --timeout=20 --tries=3 -O - https://artifacts.elastic.co/GPG-KEY-elasticsearch | gpg --dearmor --yes -o /usr/share/keyrings/elasticsearch-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/elasticsearch-keyring.gpg] https://artifacts.elastic.co/packages/7.x/apt stable main" > /etc/apt/sources.list.d/elastic-7.x.list
 
 apt update
 apt install -y mariadb-server elasticsearch koha-common koha-elasticsearch
@@ -595,16 +583,16 @@ apt install -y mariadb-server elasticsearch koha-common koha-elasticsearch
 # 3. ELASTICSEARCH E PLUGIN ICU
 echo ">>> Configurando Elasticsearch..."
 mkdir -p /etc/elasticsearch/jvm.options.d
-cat &lt;&lt; 'EOF' &gt; /etc/elasticsearch/jvm.options.d/koha.options
+cat << 'EOF' > /etc/elasticsearch/jvm.options.d/koha.options
 -Xms1g
 -Xmx1g
 EOF
 
-/usr/share/elasticsearch/bin/elasticsearch-plugin install --batch analysis-icu 2&gt;/dev/null || true
+/usr/share/elasticsearch/bin/elasticsearch-plugin install --batch analysis-icu 2>/dev/null || true
 systemctl daemon-reload
 systemctl enable --now elasticsearch
 
-until curl -s http://localhost:9200 &gt;/dev/null; do sleep 1; done
+until curl -s http://localhost:9200 >/dev/null; do sleep 1; done
 
 # 4. REDE, APACHE E MEMCACHED
 echo ">>> Configurando Apache, portas e memcached..."
@@ -619,33 +607,33 @@ systemctl restart apache2
 
 # --- LIMPEZA DE TENTATIVAS ANTERIORES (evita "Duplicate entry" no Web Installer) ---
 echo ">>> Removendo qualquer instância/banco anterior chamado 'library'..."
-koha-remove library 2&gt;/dev/null || true
-mysql -e "DROP DATABASE IF EXISTS koha_library;" 2&gt;/dev/null || true
-mysql -e "DROP USER IF EXISTS 'koha_library'@'localhost';" 2&gt;/dev/null || true
-curl -s -X DELETE 'localhost:9200/koha_library_biblios' &gt;/dev/null 2&gt;&amp;1 || true
-curl -s -X DELETE 'localhost:9200/koha_library_authorities' &gt;/dev/null 2&gt;&amp;1 || true
+koha-remove library 2>/dev/null || true
+mysql -e "DROP DATABASE IF EXISTS koha_library;" 2>/dev/null || true
+mysql -e "DROP USER IF EXISTS 'koha_library'@'localhost';" 2>/dev/null || true
+curl -s -X DELETE 'localhost:9200/koha_library_biblios' >/dev/null 2>&1 || true
+curl -s -X DELETE 'localhost:9200/koha_library_authorities' >/dev/null 2>&1 || true
 rm -rf /etc/koha/sites/library
 
 # 5. CRIAÇÃO DA INSTÂNCIA (limpa, SEM Elasticsearch por enquanto)
-echo ">>> Criando instância 'library' (Zebra por enquanto, ES vem depois)..."
+echo ">>> Criando instância 'library' (Zebra inicial para o instalador web)..."
 koha-create --create-db library
 
-systemctl stop koha-zebra-daemon@library 2&gt;/dev/null || true
-systemctl disable koha-zebra-daemon@library 2&gt;/dev/null || true
-koha-zebra --stop library 2&gt;/dev/null || true
-koha-zebra --disable library 2&gt;/dev/null || true
+systemctl stop koha-zebra-daemon@library 2>/dev/null || true
+systemctl disable koha-zebra-daemon@library 2>/dev/null || true
+koha-zebra --stop library 2>/dev/null || true
+koha-zebra --disable library 2>/dev/null || true
 
 sed -i 's/__MEMCACHED_SERVERS__/127.0.0.1:11211/g' /etc/koha/sites/library/koha-conf.xml
 sed -i 's/__MEMCACHED_PREFIX__/koha_library:/g' /etc/koha/sites/library/koha-conf.xml
 
-# --- Permissões dos logs do indexador ES (evita "Permission denied" no daemon) ---
+# Permissões dos logs do indexador ES
 mkdir -p /var/log/koha/library
 touch /var/log/koha/library/es-indexer-error.log
 touch /var/log/koha/library/es-indexer-output.log
 chown library-koha:library-koha /var/log/koha/library/es-indexer-error.log /var/log/koha/library/es-indexer-output.log
 chmod 664 /var/log/koha/library/es-indexer-error.log /var/log/koha/library/es-indexer-output.log
 
-a2dissite 000-default 2&gt;/dev/null || true
+a2dissite 000-default 2>/dev/null || true
 a2ensite library
 systemctl restart apache2
 systemctl restart memcached
@@ -655,16 +643,16 @@ koha-plack --enable library
 koha-plack --start library
 systemctl restart koha-common
 
-# 6. ROTINAS DE BACKUP E CRON
+# 6. ROTINAS DE BACKUP E CRON RESILIENTE
 echo ">>> Configurando backup e crontab..."
 ARQUIVO_CONF="/etc/koha/sites/library/koha-conf.xml"
-DB_PASS=$(grep -oP '(?&lt;=&lt;pass&gt;)[^&lt;]+' "$ARQUIVO_CONF" | head -n 1)
+DB_PASS=$(grep -oP '(?<=<pass>)[^<]+' "$ARQUIVO_CONF" | head -n 1)
 DB_USER="koha_library"
 
 mkdir -p "$REAL_HOME/logs" "/var/backups"
-chown -R "$REAL_USER":"$REAL_USER" "$REAL_HOME/logs" 2&gt;/dev/null || true
+chown -R "$REAL_USER":"$REAL_USER" "$REAL_HOME/logs" 2>/dev/null || true
 
-cat &lt;&lt; EOF &gt; "$REAL_HOME/backup_aut.sh"
+cat << EOF > "$REAL_HOME/backup_aut.sh"
 #!/bin/bash
 set -o pipefail
 DATA=\$(date +%Y-%m-%d_%Hh%M)
@@ -674,24 +662,24 @@ DIR_LOG="$REAL_HOME/logs"
 mkdir -p "\$DIR_BACKUP" "\$DIR_LOG"
 LOG_FILE="\$DIR_LOG/backup_\$DATA.log"
 
-echo "Iniciando backup em \$DATA" &gt;&gt; "\$LOG_FILE"
-mysqldump -u"$DB_USER" -p'$DB_PASS' "koha_library" | gzip &gt; "\$DIR_BACKUP/koha_library_\$DATA.sql.gz"
+echo "Iniciando backup em \$DATA" >> "\$LOG_FILE"
+mysqldump -u"$DB_USER" -p'$DB_PASS' "koha_library" | gzip > "\$DIR_BACKUP/koha_library_\$DATA.sql.gz"
 
 if [ \$? -ne 0 ]; then
-  echo "ERRO: Falha ao gerar o dump do banco!" &gt;&gt; "\$LOG_FILE"
+  echo "ERRO: Falha ao gerar o dump do banco!" >> "\$LOG_FILE"
   exit 1
 fi
 
-/usr/bin/rclone --config /root/.config/rclone/rclone.conf move "\$DIR_BACKUP/koha_library_\$DATA.sql.gz" gdrive:Backup_Koha &gt;&gt; "\$LOG_FILE" 2&gt;&amp;1
+/usr/bin/rclone --config /root/.config/rclone/rclone.conf move "\$DIR_BACKUP/koha_library_\$DATA.sql.gz" gdrive:Backup_Koha >> "\$LOG_FILE" 2>&1
 find "\$DIR_BACKUP" -name "koha_library_*.sql.gz" -mtime +7 -exec rm {} \;
-echo "Finalizado em \$(date)" &gt;&gt; "\$LOG_FILE"
+echo "Finalizado em \$(date)" >> "\$LOG_FILE"
 EOF
 
 chmod +x "$REAL_HOME/backup_aut.sh"
-chown "$REAL_USER":"$REAL_USER" "$REAL_HOME/backup_aut.sh" 2&gt;/dev/null || true
+chown "$REAL_USER":"$REAL_USER" "$REAL_HOME/backup_aut.sh" 2>/dev/null || true
 ln -sf "$REAL_HOME/backup_aut.sh" /root/backup_aut.sh
 
-cat &lt;&lt; EOF &gt; /tmp/koha_cron
+cat << EOF > /tmp/koha_cron
 30 0 * * * /usr/bin/journalctl --vacuum-time=14d
 0 1 5 * * /usr/bin/mysqlcheck --check --auto-repair --databases koha_library
 0 5 * * * /usr/sbin/koha-plack --restart library
@@ -713,16 +701,16 @@ echo "y" | ufw enable
 
 # 8. MENSAGEM DO SISTEMA
 IP_REAL=$(hostname -I | awk '{print $1}')
-[ -z "$IP_REAL" ] &amp;&amp; IP_REAL="ipdoservidor"
+[ -z "$IP_REAL" ] && IP_REAL="ipdoservidor"
 
-cat &lt;&lt; EOF &gt; /etc/issue
+cat << EOF > /etc/issue
 Ubuntu \n \l
 
 ======================================================================
                  SISTEMA KOHA PRONTO PARA O WEB INSTALLER!
 ======================================================================
  Enderecos de Acesso:
- - Staff (Adm):  http://${IP_REAL}:8080
+ - Staff (Adm):   http://${IP_REAL}:8080
  - OPAC (Leitor): http://${IP_REAL}:80
 ----------------------------------------------------------------------
  Primeiro Acesso / Web Installer:
@@ -765,24 +753,24 @@ echo " (verifica a cada 10s; continua sozinho quando detectar que o usuário"
 echo " bibliotecário foi criado, ou seja, o wizard chegou ao fim)"
 echo "======================================================================"
 while true; do
-  COUNT=$(mysql -N -e "SELECT COUNT(*) FROM koha_library.borrowers;" 2&gt;/dev/null || echo 0)
-  if [ "$COUNT" -gt 0 ] 2&gt;/dev/null; then
-        break
+  COUNT=$(mysql -N -e "SELECT COUNT(*) FROM koha_library.borrowers;" 2>/dev/null || echo 0)
+  if [ "$COUNT" -gt 0 ] 2>/dev/null; then
+    break
   fi
   sleep 10
 done
 echo ">>> Web Installer concluído. Configurando Elasticsearch agora..."
 
 CONF="/etc/koha/sites/library/koha-conf.xml"
-if ! grep -q "&lt;elasticsearch&gt;" "$CONF"; then
-  sed -i "/&lt;\/config&gt;/i \\  &lt;elasticsearch&gt;\\n    &lt;server&gt;127.0.0.1:9200&lt;/server&gt;\\n    &lt;index_name&gt;koha_library<\/index_name>\\n  &lt;/elasticsearch&gt;" "$CONF"
+if ! grep -q "<elasticsearch>" "$CONF"; then
+  sed -i "/<\/config>/i \\  <elasticsearch>\\n    <server>127.0.0.1:9200</server>\\n    <index_name>koha_library</index_name>\\n  </elasticsearch>" "$CONF"
 fi
 
 echo ">>> Definindo SearchEngine = Elasticsearch e ativando commit imediato..."
 mysql -e "UPDATE koha_library.systempreferences SET value='Elasticsearch' WHERE variable='SearchEngine';"
 mysql -e "UPDATE koha_library.systempreferences SET value='1' WHERE variable='ElasticsearchCommitImmediately';"
 
-# --- Permissões dos logs do indexador ES (evita "Permission denied" no daemon) ---
+# Permissões dos logs do indexador ES
 mkdir -p /var/log/koha/library
 touch /var/log/koha/library/es-indexer-error.log
 touch /var/log/koha/library/es-indexer-output.log
@@ -795,8 +783,8 @@ koha-plack --restart library
 sleep 3
 
 echo ">>> Apagando índices antigos (se existirem) e reindexando do zero..."
-curl -s -X DELETE 'localhost:9200/koha_library_biblios' &gt;/dev/null 2&gt;&amp;1 || true
-curl -s -X DELETE 'localhost:9200/koha_library_authorities' &gt;/dev/null 2&gt;&amp;1 || true
+curl -s -X DELETE 'localhost:9200/koha_library_biblios' >/dev/null 2>&1 || true
+curl -s -X DELETE 'localhost:9200/koha_library_authorities' >/dev/null 2>&1 || true
 koha-elasticsearch --rebuild -d library
 
 echo ">>> Reiniciando serviços mais uma vez..."
@@ -813,13 +801,14 @@ else
 fi
 
 # CANCELA A TAREFA DO 'AT' PARA MANTER O FIREWALL PERMANENTEMENTE ATIVO
-for job in $(atq 2&gt;/dev/null | cut -f1); do
-  atrm "$job" 2&gt;/dev/null || true
+for job in $(atq 2>/dev/null | cut -f1); do
+  atrm "$job" 2>/dev/null || true
 done
 
 echo ""
 echo "======================================================================"
 echo " INSTALAÇÃO COMPLETA COM ELASTICSEARCH ATIVO."
+echo "======================================================================"
 </code></pre>
     </div>
   </section>
@@ -930,7 +919,7 @@ echo " INSTALAÇÃO COMPLETA COM ELASTICSEARCH ATIVO."
     
     <div class="card">
       <h3>Se você está no Linux Mint / Ubuntu Desktop (Cenário 3):</h3>
-      <p>Abra o gerenciador de arquivos visual do Linux, vá na sua pasta pessoal (Home) e simplesmente cole o arquivo <code>koha_library.sql</code> lá dentro.</p>
+      <p>Abra o gerenciador de arquivos visual do Linux, vá na sua pasta pessoal (Home) e cole o arquivo <code>koha_library.sql</code> lá dentro.</p>
     </div>
 
     <div class="card">
@@ -991,7 +980,7 @@ echo ">>> Recriando o banco de dados koha_library do zero..."
 mysql -e "DROP DATABASE IF EXISTS koha_library; CREATE DATABASE koha_library;"
 
 echo ">>> Restaurando o backup (isso pode demorar alguns minutos)..."
-mysql koha_library &lt; "$BACKUP_FILE"
+mysql koha_library < "$BACKUP_FILE"
 
 echo ">>> Reiniciando memcached..."
 systemctl restart memcached
@@ -1004,8 +993,8 @@ mysql -e "INSERT INTO koha_library.systempreferences (variable, value, type) VAL
 mysql -e "INSERT INTO koha_library.systempreferences (variable, value, type) VALUES ('ElasticsearchCommitImmediately', '1', 'YesNo') ON DUPLICATE KEY UPDATE value='1';"
 
 echo ">>> Apagando índices antigos (se existirem) e reindexando do zero..."
-curl -s -X DELETE 'localhost:9200/koha_library_biblios' &gt;/dev/null 2&gt;&amp;1 || true
-curl -s -X DELETE 'localhost:9200/koha_library_authorities' &gt;/dev/null 2&gt;&amp;1 || true
+curl -s -X DELETE 'localhost:9200/koha_library_biblios' >/dev/null 2>&1 || true
+curl -s -X DELETE 'localhost:9200/koha_library_authorities' >/dev/null 2>&1 || true
 koha-elasticsearch --rebuild -d library
 
 echo ">>> Reiniciando serviços..."
@@ -1037,7 +1026,7 @@ echo "======================================================================"</c
     <h3>Passo 1: Domínio Institucional ou Subdomínio Gratuito</h3>
     <p>Para colocar o catálogo na web, é necessário um endereço de domínio:</p>
     <ul>
-      <li><strong>Domínio Próprio (Recomendado):</strong> Registre um domínio institucional (ex: <code>bibliotecamunicipal.org</code>) diretamente no painel da Cloudflare (custo médio de R$ 50 a R$ 60 ao ano).</li>
+      <li><strong>Domínio Próprio (Recomendado):</strong> Registre um domínio institucional (ex: <code>bibliotecamunicipal.org</code>) diretamente no painel da Cloudflare.</li>
       <li><strong>Subdomínio Gratuito (Custo Zero):</strong> Utilize um subdomínio gratuito no <strong>DigitalPlat</strong> seguindo o procedimento abaixo:</li>
     </ul>
 
