@@ -543,7 +543,7 @@
         <li>Aguarde o download e instalação. Ao concluir, reinicie o computador se o sistema pedir.</li>
         <li>Ao reiniciar, a janela preta do terminal do Ubuntu abrirá automaticamente solicitando que você crie um <strong>usuário</strong> e uma <strong>senha</strong> do Linux (anote esses dados).</li>
         <li>No menu Iniciar do Windows, pesquise por <strong>Ubuntu</strong>, clique com o botão direito e escolha <strong>Fixar na barra de tarefas</strong>.</li>
-        <li><strong style="color: #38bdf8;">Vantagem Operacional deste Cenário:</strong> <strong>Você NÃO precisa de SSH!</strong> Basta abrir o atalho do Ubuntu na barra de tarefas e colar os comandos diretamente nele. Para que o Koha continue funcionando, basta manter essa janela aberta minimizada.</li>
+        <li><strong style="color: #38bdf8;">Vantagem Operacional deste Cenário:</strong> <strong>Você NÃO precisa usar SSH!</strong> Basta abrir o atalho do Ubuntu na barra de tarefas e colar os comandos diretamente nele. Para que o Koha continue funcionando, basta manter essa janela aberta minimizada.</li>
       </ol>
     </div>
   </section>
@@ -903,7 +903,7 @@ fi
 # CANCELA A TAREFA DO 'AT' PARA MANTER O FIREWALL PERMANENTEMENTE ATIVO
 for job in $(atq 2>/dev/null | cut -f1); do
   atrm "$job" 2>/dev/null || true
-fi
+done
 
 echo ""
 echo "======================================================================"
