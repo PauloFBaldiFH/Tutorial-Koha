@@ -563,11 +563,6 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y nano curl wget gpg ufw softwar
 systemctl enable --now avahi-daemon
 systemctl enable --now fail2ban
 
-# Ativação de patches de segurança automáticos sem quebras de pacotes no cron
-echo 'APT::Periodic::Update-Package-Lists "1";' > /etc/apt/apt.conf.d/20auto-upgrades
-echo 'APT::Periodic::Unattended-Upgrade "1";' >> /etc/apt/apt.conf.d/20auto-upgrades
-systemctl restart unattended-upgrades
-
 # Repositório Koha (oldstable para máxima compatibilidade de dependências)
 mkdir -p /usr/share/keyrings
 wget -q --timeout=20 --tries=3 -O - https://debian.koha-community.org/koha/gpg.asc | gpg --dearmor --yes -o /usr/share/keyrings/koha-keyring.gpg
