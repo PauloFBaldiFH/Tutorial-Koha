@@ -509,7 +509,7 @@
 
     <p>Digite a senha do usuário do Linux. Em seguida, copie e cole o bloco completo abaixo:</p>
 
-    <div class="code-container">
+<div class="code-container">
       <div class="code-header">
         <span>script_instalacao_koha.sh</span>
         <button class="copy-btn" onclick="copySnippet(this)">Copiar Script Completo</button>
@@ -524,7 +524,37 @@ fi
 
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
-[ -z "$REAL_HOME" ] &amp;&amp; REAL_HOME="/home/$REAL_USER"
+[ -z "$REAL_HOME" ] && REAL_HOME="/home/$REAL_USER"
+
+# ======================================================================
+# PREPARAÇÃO: SINCRONIZAÇÃO DE HORA E FUSO HORÁRIO
+# ======================================================================
+echo ">>> Sincronizando relógio do sistema com a internet (NTP)..."
+apt-get update -o Acquire::Check-Valid-Until=false -y || true
+apt-get install -y systemd-timesyncd
+systemctl enable --now systemd-timesyncd
+
+# Aguarda até 10 segundos pela sincronização com os servidores NTP
+timeout 10 bash -c 'until timedatectl | grep -q "synchronized: yes"; do sleep 1; done' || true
+
+echo ">>> Configuração de Fuso Horário..."
+echo "Por favor, selecione sua região e fuso horário na tela que vai aparecer."
+dpkg-reconfigure tzdata
+
+export DEBIAN_FRONTEND=noninteractive
+
+# 1. SWAP PREVENTIVO (4GB)
+echo ">>> Verificando SWAP..."
+
+# 1. SWAP PREVENTIVO (4GB)
+echo ">>> Verificando SWAP..."
+if [ "$(swapon --show | wc -l)" -le 1 ]; then
+  fallocate -l 4G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=4096
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
 
 echo ">>> Configuração de Fuso Horário..."
 echo "Por favor, selecione sua região e fuso horário na tela que vai aparecer."
