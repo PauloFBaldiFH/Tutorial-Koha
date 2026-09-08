@@ -1,301 +1,278 @@
-#!/bin/bash
-set -e
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manual Definitivo de Instalação e Operação do Koha</title>
+  <style>
+    :root {
+      --bg-body: #0b0f19;
+      --bg-card: #131b2e;
+      --bg-card-alt: #1e293b;
+      --bg-code: #070a12;
+      --border-color: #243049;
+      --text-main: #e2e8f0;
+      --text-muted: #94a3b8;
+      --text-highlight: #38bdf8;
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --success: #16a34a;
+      --warning-bg: #451a03;
+      --warning-border: #b45309;
+      --warning-text: #fde68a;
+      --info-bg: #0c2d48;
+      --info-border: #0284c7;
+      --info-text: #bae6fd;
+    }
 
-if [ "$EUID" -ne 0 ]; then
-  echo "ERRO: Execute este script como root ('sudo -i')."
-  exit 1
-fi
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
 
-REAL_USER="${SUDO_USER:-$USER}"
-REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
-[ -z "$REAL_HOME" ] && REAL_HOME="/home/$REAL_USER"
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background-color: var(--bg-body);
+      color: var(--text-main);
+      line-height: 1.65;
+      padding: 2.5rem 1rem;
+    }
 
-# ======================================================================
-# PREPARAÇÃO: SINCRONIZAÇÃO DE HORA E FUSO HORÁRIO
-# ======================================================================
-echo ">>> Sincronizando relógio do sistema com a internet (NTP)..."
-apt-get update -o Acquire::Check-Valid-Until=false -y || true
-DEBIAN_FRONTEND=noninteractive apt-get install -y systemd-timesyncd
-systemctl enable --now systemd-timesyncd
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+    }
 
-timeout 10 bash -c 'until timedatectl | grep -q "synchronized: yes"; do sleep 1; done' || true
+    .top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+      padding-bottom: 1.25rem;
+      margin-bottom: 2rem;
+      border-bottom: 1px solid var(--border-color);
+      font-size: 0.9rem;
+    }
 
-echo ">>> Configuração de Fuso Horário..."
-dpkg-reconfigure tzdata
+    .update-badge {
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
 
-export DEBIAN_FRONTEND=noninteractive
+    .update-badge strong {
+      color: var(--text-highlight);
+    }
 
-# 1. SWAP PREVENTIVO (4GB)
-echo ">>> Verificando SWAP..."
-if [ "$(swapon --show | wc -l)" -le 1 ]; then
-  fallocate -l 4G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=4096
-  chmod 600 /swapfile
-  mkswap /swapfile
-  swapon /swapfile
-  echo '/swapfile none swap sw 0 0' >> /etc/fstab
-fi
+    header {
+      margin-bottom: 3rem;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 2rem;
+    }
 
-# 2. DEPENDÊNCIAS E REPOSITÓRIOS OFICIAIS
-echo ">>> Instalando dependências básicas e ferramentas de segurança..."
-apt-get update && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
-DEBIAN_FRONTEND=noninteractive apt-get install -y nano curl wget gpg ufw software-properties-common default-jre-headless \
-              libapache2-mod-security2 fail2ban postfix libsasl2-modules glabels \
-              at rclone avahi-daemon memcached python3
+    h1 {
+      font-size: 2.25rem;
+      color: var(--text-main);
+      margin-bottom: 0.75rem;
+      line-height: 1.25;
+    }
 
-systemctl enable --now avahi-daemon
-systemctl enable --now fail2ban
+    .lead {
+      font-size: 1.15rem;
+      color: var(--text-muted);
+    }
 
-# Repositório Koha
-mkdir -p /usr/share/keyrings
-wget -q --timeout=20 --tries=3 -O - https://debian.koha-community.org/koha/gpg.asc | gpg --dearmor --yes -o /usr/share/keyrings/koha-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/koha-keyring.gpg] https://debian.koha-community.org/koha oldstable main" > /etc/apt/sources.list.d/koha.list
+    h2 {
+      font-size: 1.6rem;
+      color: var(--text-highlight);
+      margin: 2.5rem 0 1rem 0;
+      padding-bottom: 0.4rem;
+      border-bottom: 1px solid var(--border-color);
+    }
 
-# Repositório Elasticsearch 7.x
-wget -q --timeout=20 --tries=3 -O - https://artifacts.elastic.co/GPG-KEY-elasticsearch | gpg --dearmor --yes -o /usr/share/keyrings/elasticsearch-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/elasticsearch-keyring.gpg] https://artifacts.elastic.co/packages/7.x/apt stable main" > /etc/apt/sources.list.d/elastic-7.x.list
+    h3 {
+      font-size: 1.25rem;
+      color: var(--text-main);
+      margin: 1.75rem 0 0.75rem 0;
+    }
 
-apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y mariadb-server elasticsearch koha-common koha-elasticsearch
+    p {
+      margin-bottom: 1rem;
+      color: #cbd5e1;
+    }
 
-systemctl enable --now mariadb
+    ul, ol {
+      margin: 0 0 1.5rem 1.5rem;
+      color: #cbd5e1;
+    }
 
-# 3. ELASTICSEARCH E PLUGIN ICU
-echo ">>> Configurando Elasticsearch..."
-mkdir -p /etc/elasticsearch/jvm.options.d
-cat << 'EOF' > /etc/elasticsearch/jvm.options.d/koha.options
--Xms1g
--Xmx1g
-EOF
+    li {
+      margin-bottom: 0.5rem;
+    }
 
-/usr/share/elasticsearch/bin/elasticsearch-plugin install --batch analysis-icu 2>/dev/null || true
-systemctl daemon-reload
-systemctl enable --now elasticsearch
+    a {
+      color: var(--text-highlight);
+      text-decoration: none;
+      word-break: break-all;
+    }
 
-echo ">>> Aguardando inicialização do Elasticsearch (limite de 45s)..."
-timeout 45 bash -c 'until curl -s http://localhost:9200 >/dev/null; do sleep 2; done' || {
-  echo "ERRO: Elasticsearch não respondeu na porta 9200 a tempo."
-  journalctl -u elasticsearch -n 30 --no-pager
-  exit 1
-}
+    a:hover {
+      text-decoration: underline;
+    }
 
-# 4. REDE, APACHE E MEMCACHED
-echo ">>> Configurando Apache, portas e memcached..."
-sed -i 's/^INTRAPORT=.*/INTRAPORT="8080"/' /etc/koha/koha-sites.conf
-sed -i 's/^OPACPORT=.*/OPACPORT="80"/' /etc/koha/koha-sites.conf
-sed -i 's/^#*MEMCACHED_SERVERS=.*/MEMCACHED_SERVERS="127.0.0.1:11211"/' /etc/koha/koha-sites.conf
-sed -i 's/^#*MEMCACHED_PREFIX=.*/MEMCACHED_PREFIX="koha_"/' /etc/koha/koha-sites.conf
+    .alert {
+      background-color: var(--warning-bg);
+      border-left: 4px solid var(--warning-border);
+      color: var(--warning-text);
+      padding: 1rem 1.25rem;
+      border-radius: 4px;
+      margin: 1.5rem 0;
+      font-size: 0.95rem;
+    }
 
-a2enmod rewrite cgi deflate headers proxy_http
-grep -q "^Listen 8080" /etc/apache2/ports.conf || sed -i '/Listen 80/a Listen 8080' /etc/apache2/ports.conf
-systemctl restart apache2
+    .alert strong {
+      display: block;
+      margin-bottom: 0.25rem;
+      color: #fff;
+    }
 
-# --- LIMPEZA DE TENTATIVAS ANTERIORES ---
-echo ">>> Removendo qualquer instância/banco anterior chamado 'library'..."
-koha-remove library 2>/dev/null || true
-mysql -e "DROP DATABASE IF EXISTS koha_library;" 2>/dev/null || true
-mysql -e "DROP USER IF EXISTS 'koha_library'@'localhost';" 2>/dev/null || true
-curl -s -X DELETE 'localhost:9200/koha_library_biblios' >/dev/null 2>&1 || true
-curl -s -X DELETE 'localhost:9200/koha_library_authorities' >/dev/null 2>&1 || true
-rm -rf /etc/koha/sites/library
+    .info-box {
+      background-color: var(--info-bg);
+      border-left: 4px solid var(--info-border);
+      color: var(--info-text);
+      padding: 1rem 1.25rem;
+      border-radius: 4px;
+      margin: 1.5rem 0;
+      font-size: 0.95rem;
+    }
 
-# 5. CRIAÇÃO DA INSTÂNCIA
-echo ">>> Criando instância 'library' (Zebra inicial para o instalador web)..."
-koha-create --create-db library
+    .info-box strong {
+      display: block;
+      margin-bottom: 0.25rem;
+      color: #fff;
+    }
 
-systemctl stop koha-zebra-daemon@library 2>/dev/null || true
-systemctl disable koha-zebra-daemon@library 2>/dev/null || true
-koha-zebra --stop library 2>/dev/null || true
-koha-zebra --disable library 2>/dev/null || true
+    .card {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
 
-sed -i 's/__MEMCACHED_SERVERS__/127.0.0.1:11211/g' /etc/koha/sites/library/koha-conf.xml
-sed -i 's/__MEMCACHED_PREFIX__/koha_library:/g' /etc/koha/sites/library/koha-conf.xml
+    .code-container {
+      position: relative;
+      background-color: var(--bg-code);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      margin: 1.25rem 0 1.75rem 0;
+      overflow: hidden;
+    }
 
-# Permissões dos logs do indexador ES
-mkdir -p /var/log/koha/library
-touch /var/log/koha/library/es-indexer-error.log
-touch /var/log/koha/library/es-indexer-output.log
-chown library-koha:library-koha /var/log/koha/library/es-indexer-error.log /var/log/koha/library/es-indexer-output.log
-chmod 664 /var/log/koha/library/es-indexer-error.log /var/log/koha/library/es-indexer-output.log
+    .code-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background-color: var(--bg-card-alt);
+      padding: 0.5rem 1rem;
+      font-size: 0.8rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border-color);
+    }
 
-a2dissite 000-default 2>/dev/null || true
-a2ensite library
-systemctl restart apache2
-systemctl restart memcached
+    .copy-btn {
+      background-color: var(--accent);
+      color: #ffffff;
+      border: none;
+      padding: 0.35rem 0.75rem;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      transition: background-color 0.2s, transform 0.1s;
+    }
 
-koha-translate --install pt-BR
-koha-plack --enable library
-koha-plack --start library
-systemctl restart koha-common
+    .copy-btn:hover {
+      background-color: var(--accent-hover);
+    }
 
-# 6. ROTINAS DE BACKUP E CRON RESILIENTE (COM REGEX DA SENHA CORRIGIDA)
-echo ">>> Configurando backup e crontab..."
-ARQUIVO_CONF="/etc/koha/sites/library/koha-conf.xml"
-DB_PASS=$(grep -oP '(?<=<pass>)[^<]+' "$ARQUIVO_CONF" | head -n 1)
-DB_USER="koha_library"
+    .copy-btn.copied {
+      background-color: var(--success) !important;
+    }
 
-mkdir -p "$REAL_HOME/logs" "/var/backups"
-chown -R "$REAL_USER":"$REAL_USER" "$REAL_HOME/logs" 2>/dev/null || true
+    pre {
+      margin: 0;
+      padding: 1rem;
+      overflow-x: auto;
+      font-size: 0.875rem;
+      line-height: 1.5;
+    }
 
-cat << EOF > "$REAL_HOME/backup_aut.sh"
-#!/bin/bash
-set -o pipefail
-DATA=\$(date +%Y-%m-%d_%Hh%M)
-DIR_BACKUP="/var/backups"
-DIR_LOG="$REAL_HOME/logs"
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      color: #e2e8f0;
+      white-space: pre;
+    }
+  </style>
+</head>
+<body>
 
-mkdir -p "\$DIR_BACKUP" "\$DIR_LOG"
-LOG_FILE="\$DIR_LOG/backup_\$DATA.log"
+<div class="container">
 
-echo "Iniciando backup em \$DATA" >> "\$LOG_FILE"
-mysqldump -u"$DB_USER" -p'$DB_PASS' "koha_library" | gzip > "\$DIR_BACKUP/koha_library_\$DATA.sql.gz"
+  <div class="top-bar">
+    <div class="update-badge">
+      <span>🕒</span>
+      <span>Última atualização:</span>
+      <strong>Setembro de 2026</strong>
+    </div>
+  </div>
 
-if [ \$? -ne 0 ]; then
-  echo "ERRO: Falha ao gerar o dump do banco!" >> "\$LOG_FILE"
-  exit 1
-fi
+  <header>
+    <h1>Manual de Instalação e Configuração do Koha</h1>
+    <p class="lead">Guia estruturado com foco em estabilidade operacional e automação segura via script.</p>
+  </header>
 
-/usr/bin/rclone --config /root/.config/rclone/rclone.conf move "\$DIR_BACKUP/koha_library_\$DATA.sql.gz" gdrive:Backup_Koha >> "\$LOG_FILE" 2>&1
-find "\$DIR_BACKUP" -name "koha_library_*.sql.gz" -mtime +7 -exec rm {} \;
-echo "Finalizado em \$(date)" >> "\$LOG_FILE"
-EOF
+  <section>
+    <h2>Instalação Automatizada</h2>
+    <p>Para instalar o sistema de forma limpa no servidor executando o script hospedado no repositório, utilize o comando abaixo:</p>
 
-chmod +x "$REAL_HOME/backup_aut.sh"
-chown "$REAL_USER":"$REAL_USER" "$REAL_HOME/backup_aut.sh" 2>/dev/null || true
-ln -sf "$REAL_HOME/backup_aut.sh" /root/backup_aut.sh
+    <div class="code-container">
+      <div class="code-header">
+        <span>Terminal Linux (Root)</span>
+        <button class="copy-btn" onclick="copySnippet(this)">Copiar</button>
+      </div>
+      <pre><code>wget -O instalar.sh https://raw.githubusercontent.com/paulofbaldifh/Koha-/main/instalar.sh && sudo bash instalar.sh</code></pre>
+    </div>
+  </section>
 
-cat << EOF > /tmp/koha_cron
-30 0 * * * /usr/bin/journalctl --vacuum-time=14d
-0 1 5 * * /usr/bin/mysqlcheck --check --auto-repair --databases koha_library
-0 5 * * * /usr/sbin/koha-plack --restart library
-40 17 * * * /bin/bash $REAL_HOME/backup_aut.sh
-EOF
-crontab /tmp/koha_cron
-rm /tmp/koha_cron
+</div>
 
-# 7. FIREWALL COM TRAVA DE SEGURANÇA
-echo ">>> Ativando firewall..."
-echo "ufw disable" | at now + 10 minutes
-ufw allow 22/tcp
-ufw allow 80/tcp
-ufw allow 443/tcp
-ufw allow 8080/tcp
-ufw allow 587/tcp
-ufw allow 53682/tcp
-echo "y" | ufw enable
+<script>
+  function copySnippet(button) {
+    const container = button.closest('.code-container');
+    const code = container.querySelector('code').innerText;
 
-# 8. MENSAGEM DO SISTEMA
-IP_REAL=$(hostname -I | awk '{print $1}')
-[ -z "$IP_REAL" ] && IP_REAL="ipdoservidor"
+    navigator.clipboard.writeText(code).then(() => {
+      const originalText = button.innerHTML;
+      button.innerText = '✓ Copiado!';
+      button.classList.add('copied');
 
-cat << EOF > /etc/issue
-Ubuntu \n \l
+      setTimeout(() => {
+        button.innerHTML = originalText;
+        button.classList.remove('copied');
+      }, 2000);
+    }).catch(err => {
+      console.error('Falha ao copiar:', err);
+    });
+  }
+</script>
 
-======================================================================
-                 SISTEMA KOHA PRONTO PARA O WEB INSTALLER!
-======================================================================
- Enderecos de Acesso:
- - Staff (Adm):   http://${IP_REAL}:8080
- - OPAC (Leitor): http://${IP_REAL}:80
-----------------------------------------------------------------------
- Primeiro Acesso / Web Installer:
- - Usuario: $DB_USER
- - Senha:   $DB_PASS
-======================================================================
-
-EOF
-cp /etc/issue /etc/issue.net
-cp /etc/issue /etc/motd
-
-echo ""
-echo "======================================================================"
-echo " INSTALAÇÃO BASE CONCLUÍDA."
-echo " Acesse http://${IP_REAL}:8080 e complete o Web Installer no navegador."
-echo " Usuário: $DB_USER  | Senha: $DB_PASS"
-echo ""
-echo " Crie uma senha forte para o bibliotecário administrador no Web Installer e anote-a."
-echo "======================================================================"
-
-# 9. AUTORIZAÇÃO DO GOOGLE DRIVE COM CONFIGURAÇÃO AUTOMÁTICA
-echo -e "\n\033[1;33m======================================================================"
-echo "          AUTORIZAÇÃO DO GOOGLE DRIVE (RCLONE)                                "
-echo "======================================================================\033[0m"
-echo "O link de autorização aparecerá abaixo."
-echo "Abra o link no navegador, faça login na conta Google e autorize o acesso:"
-echo "----------------------------------------------------------------------"
-
-mkdir -p /root/.config/rclone
-/usr/bin/rclone config create gdrive drive scope drive
-
-/usr/bin/rclone --config /root/.config/rclone/rclone.conf mkdir gdrive:Backup_Koha 2>/dev/null || true
-echo ">>> Rclone configurado com sucesso e pasta remota vinculada!"
-
-# 10. AGUARDA VOCÊ TERMINAR O WEB INSTALLER
-echo ""
-echo "======================================================================"
-echo " Aguardando você concluir o Web Installer em http://${IP_REAL}:8080 ..."
-echo "======================================================================"
-while true; do
-  COUNT=$(mysql -N -e "SELECT COUNT(*) FROM koha_library.borrowers;" 2>/dev/null || echo 0)
-  if [ "$COUNT" -gt 0 ] 2>/dev/null; then
-    break
-  fi
-  sleep 10
-done
-echo ">>> Web Installer concluído. Configurando Elasticsearch agora..."
-
-# CORREÇÃO SEGURA DA INJEÇÃO DO ELASTICSEARCH VIA PYTHON
-python3 -c '
-path = "/etc/koha/sites/library/koha-conf.xml"
-with open(path, "r") as f:
-    text = f.read()
-import re
-text = re.sub(r"\s*<elasticsearch>.*?</elasticsearch>", "", text, flags=re.DOTALL)
-es_block = "  <elasticsearch>\n    <server>127.0.0.1:9200</server>\n    <index_name>koha_library</index_name>\n  </elasticsearch>\n"
-if "</config>" in text:
-    text = text.replace("</config>", "").strip() + "\n" + es_block + "</config>\n"
-    with open(path, "w") as f:
-        f.write(text)
-print("Bloco Elasticsearch inserido com sucesso via Python!")
-'
-
-echo ">>> Definindo SearchEngine = Elasticsearch e ativando commit imediato..."
-mysql -e "UPDATE koha_library.systempreferences SET value='Elasticsearch' WHERE variable='SearchEngine';"
-mysql -e "UPDATE koha_library.systempreferences SET value='1' WHERE variable='ElasticsearchCommitImmediately';"
-
-# Permissões dos logs do indexador ES
-mkdir -p /var/log/koha/library
-touch /var/log/koha/library/es-indexer-error.log
-touch /var/log/koha/library/es-indexer-output.log
-chown library-koha:library-koha /var/log/koha/library/es-indexer-error.log /var/log/koha/library/es-indexer-output.log
-chmod 664 /var/log/koha/library/es-indexer-error.log /var/log/koha/library/es-indexer-output.log
-
-echo ">>> Reiniciando serviços para carregar a nova config..."
-systemctl restart koha-common
-koha-plack --restart library
-sleep 3
-
-echo ">>> Apagando índices antigos (se existirem) e reindexando do zero..."
-curl -s -X DELETE 'localhost:9200/koha_library_biblios' >/dev/null 2>&1 || true
-curl -s -X DELETE 'localhost:9200/koha_library_authorities' >/dev/null 2>&1 || true
-koha-elasticsearch --rebuild -d library
-
-echo ">>> Reiniciando serviços mais uma vez..."
-systemctl restart koha-common
-koha-plack --restart library
-
-echo ">>> Verificando se o daemon de indexação está de pé..."
-sleep 3
-if ps aux | grep -v grep | grep -q es_indexer_daemon; then
-  echo "OK: daemon es_indexer_daemon está rodando."
-else
-  echo "ATENÇÃO: o daemon não apareceu no ps aux."
-fi
-
-for job in $(atq 2>/dev/null | cut -f1); do
-  atrm "$job" 2>/dev/null || true
-done
-
-echo ""
-echo "======================================================================"
-echo " INSTALAÇÃO COMPLETA COM ELASTICSEARCH ATIVO."
-echo "======================================================================"
+</body>
+</html>
