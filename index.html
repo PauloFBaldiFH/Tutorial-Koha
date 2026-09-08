@@ -17,9 +17,6 @@
       --accent: #2563eb;
       --accent-hover: #1d4ed8;
       --success: #16a34a;
-      --warning-bg: #451a03;
-      --warning-border: #b45309;
-      --warning-text: #fde68a;
       --info-bg: #0c2d48;
       --info-border: #0284c7;
       --info-text: #bae6fd;
@@ -40,63 +37,33 @@
     }
 
     .container {
-      max-width: 960px;
+      max-width: 900px;
       margin: 0 auto;
     }
 
-    .top-bar {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 1rem;
-      padding-bottom: 1.25rem;
-      margin-bottom: 2rem;
-      border-bottom: 1px solid var(--border-color);
-      font-size: 0.9rem;
-    }
-
-    .update-badge {
-      color: var(--text-muted);
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-
-    .update-badge strong {
-      color: var(--text-highlight);
-    }
-
     header {
-      margin-bottom: 3rem;
+      margin-bottom: 2.5rem;
       border-bottom: 1px solid var(--border-color);
-      padding-bottom: 2rem;
+      padding-bottom: 1.5rem;
     }
 
     h1 {
-      font-size: 2.25rem;
+      font-size: 2.2rem;
       color: var(--text-main);
-      margin-bottom: 0.75rem;
-      line-height: 1.25;
+      margin-bottom: 0.5rem;
     }
 
     .lead {
-      font-size: 1.15rem;
+      font-size: 1.1rem;
       color: var(--text-muted);
     }
 
     h2 {
-      font-size: 1.6rem;
+      font-size: 1.5rem;
       color: var(--text-highlight);
       margin: 2.5rem 0 1rem 0;
-      padding-bottom: 0.4rem;
+      padding-bottom: 0.3rem;
       border-bottom: 1px solid var(--border-color);
-    }
-
-    h3 {
-      font-size: 1.25rem;
-      color: var(--text-main);
-      margin: 1.75rem 0 0.75rem 0;
     }
 
     p {
@@ -113,32 +80,6 @@
       margin-bottom: 0.5rem;
     }
 
-    a {
-      color: var(--text-highlight);
-      text-decoration: none;
-      word-break: break-all;
-    }
-
-    a:hover {
-      text-decoration: underline;
-    }
-
-    .alert {
-      background-color: var(--warning-bg);
-      border-left: 4px solid var(--warning-border);
-      color: var(--warning-text);
-      padding: 1rem 1.25rem;
-      border-radius: 4px;
-      margin: 1.5rem 0;
-      font-size: 0.95rem;
-    }
-
-    .alert strong {
-      display: block;
-      margin-bottom: 0.25rem;
-      color: #fff;
-    }
-
     .info-box {
       background-color: var(--info-bg);
       border-left: 4px solid var(--info-border);
@@ -147,12 +88,6 @@
       border-radius: 4px;
       margin: 1.5rem 0;
       font-size: 0.95rem;
-    }
-
-    .info-box strong {
-      display: block;
-      margin-bottom: 0.25rem;
-      color: #fff;
     }
 
     .card {
@@ -179,7 +114,7 @@
       background-color: var(--bg-card-alt);
       padding: 0.5rem 1rem;
       font-size: 0.8rem;
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-family: monospace;
       color: var(--text-muted);
       border-bottom: 1px solid var(--border-color);
     }
@@ -193,10 +128,7 @@
       font-size: 0.8rem;
       font-weight: 600;
       cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 0.35rem;
-      transition: background-color 0.2s, transform 0.1s;
+      transition: background-color 0.2s;
     }
 
     .copy-btn:hover {
@@ -212,11 +144,10 @@
       padding: 1rem;
       overflow-x: auto;
       font-size: 0.875rem;
-      line-height: 1.5;
     }
 
     code {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-family: monospace;
       color: #e2e8f0;
       white-space: pre;
     }
@@ -226,29 +157,45 @@
 
 <div class="container">
 
-  <div class="top-bar">
-    <div class="update-badge">
-      <span>🕒</span>
-      <span>Última atualização:</span>
-      <strong>Setembro de 2026</strong>
-    </div>
-  </div>
-
   <header>
-    <h1>Manual de Instalação e Configuração do Koha</h1>
-    <p class="lead">Guia estruturado com foco em estabilidade operacional e automação segura via script.</p>
+    <h1>Manual de Instalação e Operação do Koha</h1>
+    <p class="lead">Guia definitivo para implantação automatizada do Koha ILS com Elasticsearch em ambientes Ubuntu Server.</p>
   </header>
 
   <section>
-    <h2>Instalação Automatizada</h2>
-    <p>Para instalar o sistema de forma limpa no servidor executando o script hospedado no repositório, utilize o comando abaixo:</p>
+    <h2>Sobre o Projeto</h2>
+    <p>Este manual documenta o processo de implantação de uma biblioteca digital utilizando o Koha integrado ao mecanismo de busca Elasticsearch. O objetivo é fornecer uma solução limpa, robusta e automatizada, garantindo alta performance nas buscas do acervo e segurança nos dados.</p>
+  </section>
+
+  <section>
+    <h2>O que o Script Automatizado Realiza?</h2>
+    <div class="card">
+      <p>Para evitar erros manuais de digitação e inconsistências de pacotes, todo o processo técnico foi encapsulado em um script de automação inteligente. Ele executa as seguintes etapas:</p>
+      <ul>
+        <li><strong>Preparação do Sistema:</strong> Sincronização de relógio via NTP, fuso horário e criação de SWAP preventivo de 4GB.</li>
+        <li><strong>Repositórios Oficiais:</strong> Adição segura das chaves GPG e repositórios oficiais do Koha (oldstable) e Elasticsearch 7.x.</li>
+        <li><strong>Stack de Serviços:</strong> Instalação do MariaDB, Apache2 configurado para portas separadas (Staff 8080 e OPAC 80), Memcached e o plugin ICU para o Elasticsearch.</li>
+        <li><strong>Instância e Configuração Web:</strong> Criação limpa da base de dados, pausa de daemons legados e espera inteligente até que o usuário conclua o assistente de instalação web (Web Installer).</li>
+        <li><strong>Pós-Instalação Automática:</strong> Injeção segura das regras do Elasticsearch no XML, reindexação completa do acervo e ativação do commit imediato.</li>
+        <li><strong>Rotina de Backup:</strong> Configuração de script de dump diário compactado integrado ao Rclone para envio automático ao Google Drive, além de rotinas no Crontab.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Como Executar a Instalação</h2>
+    <p>Com o servidor Ubuntu Server devidamente instalado e acessado como root (<code>sudo -i</code>), execute o comando abaixo para baixar o script direto do repositório e iniciar a automação completa:</p>
 
     <div class="code-container">
       <div class="code-header">
         <span>Terminal Linux (Root)</span>
         <button class="copy-btn" onclick="copySnippet(this)">Copiar</button>
       </div>
-      <pre><code>wget -O instalar.sh https://raw.githubusercontent.com/paulofbaldifh/Koha-/main/instalar.sh && sudo bash instalar.sh</code></pre>
+      <pre><code>bash &lt;(curl -s https://raw.githubusercontent.com/paulofbaldifh/Koha-/main/instalar.sh)</code></pre>
+    </div>
+
+    <div class="info-box">
+      <strong>Nota importante:</strong> O script aguardará interativamente a conclusão do assistente web no navegador e prosseguirá automaticamente com a configuração do Elasticsearch logo em seguida.
     </div>
   </section>
 
@@ -268,8 +215,6 @@
         button.innerHTML = originalText;
         button.classList.remove('copied');
       }, 2000);
-    }).catch(err => {
-      console.error('Falha ao copiar:', err);
     });
   }
 </script>
