@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Manual Definitivo de Instalação e Operação do Koha</title>
+  <title>Manual Completo de Instalação e Configuração do Koha</title>
   <style>
     :root {
       --bg-body: #0b0f19;
@@ -22,62 +22,51 @@
       --info-text: #bae6fd;
     }
 
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
       background-color: var(--bg-body);
       color: var(--text-main);
-      line-height: 1.65;
+      line-height: 1.7;
       padding: 2.5rem 1rem;
     }
 
-    .container {
-      max-width: 900px;
-      margin: 0 auto;
-    }
+    .container { max-width: 900px; margin: 0 auto; }
 
     header {
-      margin-bottom: 2.5rem;
+      margin-bottom: 3rem;
       border-bottom: 1px solid var(--border-color);
-      padding-bottom: 1.5rem;
+      padding-bottom: 2rem;
     }
 
-    h1 {
-      font-size: 2.2rem;
-      color: var(--text-main);
-      margin-bottom: 0.5rem;
-    }
-
-    .lead {
-      font-size: 1.1rem;
-      color: var(--text-muted);
-    }
+    h1 { font-size: 2.25rem; color: var(--text-main); margin-bottom: 0.75rem; }
+    .lead { font-size: 1.15rem; color: var(--text-muted); }
 
     h2 {
-      font-size: 1.5rem;
+      font-size: 1.6rem;
       color: var(--text-highlight);
       margin: 2.5rem 0 1rem 0;
-      padding-bottom: 0.3rem;
+      padding-bottom: 0.4rem;
       border-bottom: 1px solid var(--border-color);
     }
 
-    p {
-      margin-bottom: 1rem;
-      color: #cbd5e1;
+    h3 {
+      font-size: 1.25rem;
+      color: var(--text-main);
+      margin: 1.75rem 0 0.75rem 0;
     }
 
-    ul, ol {
-      margin: 0 0 1.5rem 1.5rem;
-      color: #cbd5e1;
-    }
+    p { margin-bottom: 1rem; color: #cbd5e1; }
+    ul, ol { margin: 0 0 1.5rem 1.5rem; color: #cbd5e1; }
+    li { margin-bottom: 0.5rem; }
 
-    li {
-      margin-bottom: 0.5rem;
+    .card {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
     }
 
     .info-box {
@@ -87,15 +76,6 @@
       padding: 1rem 1.25rem;
       border-radius: 4px;
       margin: 1.5rem 0;
-      font-size: 0.95rem;
-    }
-
-    .card {
-      background-color: var(--bg-card);
-      border: 1px solid var(--border-color);
-      border-radius: 8px;
-      padding: 1.5rem;
-      margin-bottom: 1.5rem;
     }
 
     .code-container {
@@ -121,7 +101,7 @@
 
     .copy-btn {
       background-color: var(--accent);
-      color: #ffffff;
+      color: #fff;
       border: none;
       padding: 0.35rem 0.75rem;
       border-radius: 4px;
@@ -130,27 +110,11 @@
       cursor: pointer;
       transition: background-color 0.2s;
     }
+    .copy-btn:hover { background-color: var(--accent-hover); }
+    .copy-btn.copied { background-color: var(--success) !important; }
 
-    .copy-btn:hover {
-      background-color: var(--accent-hover);
-    }
-
-    .copy-btn.copied {
-      background-color: var(--success) !important;
-    }
-
-    pre {
-      margin: 0;
-      padding: 1rem;
-      overflow-x: auto;
-      font-size: 0.875rem;
-    }
-
-    code {
-      font-family: monospace;
-      color: #e2e8f0;
-      white-space: pre;
-    }
+    pre { margin: 0; padding: 1rem; overflow-x: auto; font-size: 0.875rem; }
+    code { font-family: monospace; color: #e2e8f0; white-space: pre; }
   </style>
 </head>
 <body>
@@ -158,45 +122,172 @@
 <div class="container">
 
   <header>
-    <h1>Manual de Instalação e Operação do Koha</h1>
-    <p class="lead">Guia definitivo para implantação automatizada do Koha ILS com Elasticsearch em ambientes Ubuntu Server.</p>
+    <h1>Manual Completo de Instalação e Configuração do Koha</h1>
+    <p class="lead">Guia estruturado com foco em estabilidade operacional: preparação minuciosa do sistema operacional em 5 cenários, script automatizado com Elasticsearch, primeiro acesso web, restauração de banco de dados e publicação via Cloudflare Tunnel.</p>
   </header>
 
   <section>
-    <h2>Sobre o Projeto</h2>
-    <p>Este manual documenta o processo de implantação de uma biblioteca digital utilizando o Koha integrado ao mecanismo de busca Elasticsearch. O objetivo é fornecer uma solução limpa, robusta e automatizada, garantindo alta performance nas buscas do acervo e segurança nos dados.</p>
+    <h2>1. O que é e como funciona o Koha</h2>
+    <p>O Koha é o sistema integrado de gestão de bibliotecas (ILS) de código aberto mais utilizado no mundo. Ele opera sobre a stack LAMP (Linux, Apache, MariaDB e Perl), funcionando como um servidor central corporativo.</p>
+    
+    <h3>Acesso Universal por Navegador</h3>
+    <p>O sistema fica hospedado em uma única máquina servidora. Funcionários and leitores utilizam o Koha diretamente pelo navegador web (Google Chrome, Firefox, Edge), sem necessidade de instalar programas nos computadores de atendimento ou consulta.</p>
+    
+    <p>O Koha opera obrigatoriamente através de duas portas de rede padronizadas:</p>
+    <ul>
+      <li><strong>Porta 8080 (Staff / Interface Administrativa):</strong> Painel restrito dos bibliotecários e atendentes. Utilizada para catalogação bibliográfica no padrão MARC21, controle de circulação (empréstimos e devoluções), cadastro de usuários, gestão de multas e geração de relatórios SQL.</li>
+      <li><strong>Porta 80 (OPAC / Catálogo Público):</strong> Página pública voltada aos leitores. Permite consultar o acervo da biblioteca, checar disponibilidade nas estantes, renovar prazos e reservar títulos pela internet.</li>
+    </ul>
+
+    <p><strong>Gestão de Redes de Bibliotecas:</strong> Uma única instalação permite administrar múltiplas unidades físicas (como uma biblioteca central e várias filiais de bairros ou salas de leitura escolares). Todas compartilham o mesmo catálogo, mantendo o controle de estoque e regras de circulação individualizados.</p>
   </section>
 
   <section>
-    <h2>O que o Script Automatizado Realiza?</h2>
+    <h2>2. Escolhendo a Hospedagem e Preparando o Sistema Operacional</h2>
+    <p>O Koha foi concebido nativamente para rodar sobre Linux (Debian ou Ubuntu). A forma como você chega à linha de comando depende exclusivamente do método de instalação escolhido abaixo. Siga rigorosamente apenas o cenário que você escolheu:</p>
+
     <div class="card">
-      <p>Para evitar erros manuais de digitação e inconsistências de pacotes, todo o processo técnico foi encapsulado em um script de automação inteligente. Ele executa as seguintes etapas:</p>
+      <h3>Cenário 1: Servidor Físico Dedicado (Ubuntu Server)</h3>
+      <p>Instalação limpa em um computador físico da biblioteca sem sistema operacional prévio.</p>
       <ul>
-        <li><strong>Preparação do Sistema:</strong> Sincronização de relógio via NTP, fuso horário e criação de SWAP preventivo de 4GB.</li>
-        <li><strong>Repositórios Oficiais:</strong> Adição segura das chaves GPG e repositórios oficiais do Koha (oldstable) e Elasticsearch 7.x.</li>
-        <li><strong>Stack de Serviços:</strong> Instalação do MariaDB, Apache2 configurado para portas separadas (Staff 8080 e OPAC 80), Memcached e o plugin ICU para o Elasticsearch.</li>
-        <li><strong>Instância e Configuração Web:</strong> Criação limpa da base de dados, pausa de daemons legados e espera inteligente até que o usuário conclua o assistente de instalação web (Web Installer).</li>
-        <li><strong>Pós-Instalação Automática:</strong> Injeção segura das regras do Elasticsearch no XML, reindexação completa do acervo e ativação do commit imediato.</li>
-        <li><strong>Rotina de Backup:</strong> Configuração de script de dump diário compactado integrado ao Rclone para envio automático ao Google Drive, além de rotinas no Crontab.</li>
+        <li>Baixe a imagem oficial do Ubuntu Server LTS.</li>
+        <li>Crie um pendrive bootável utilizando o BalenaEtcher.</li>
+        <li>Acesse a BIOS da placa-mãe: desative o <em>Secure Boot</em> e o <em>Fast Boot</em>, configure o SATA Mode em <em>AHCI</em> e mude o <em>AC Back</em> para <em>Power On</em>.</li>
+        <li>Durante a instalação, selecione o disco inteiro e <strong>marque obrigatoriamente com a barra de espaço a opção "Install OpenSSH server"</strong>.</li>
+        <li>Identifique o IP com o comando <code>ip a</code> e gerencie a máquina via SSH.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>Cenário 2: Servidor em Nuvem / VPS</h3>
+      <p>Instalação em um provedor de nuvem (DigitalOcean, Hetzner, AWS, Hostinger, etc.).</p>
+      <ul>
+        <li>Crie uma instância com Ubuntu Server (22.04 ou 24.04 LTS).</li>
+        <li><strong>Plano de Hardware Obrigatório:</strong> No mínimo 4GB de RAM e 2 vCPUs (planos menores travam na indexação do Elasticsearch).</li>
+        <li>Acesse remotamente via terminal SSH utilizando o IP público fornecido.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>Cenário 3: Computador com Linux Gráfico (Linux Mint ou Ubuntu Desktop)</h3>
+      <p>Instalação em uma máquina com área de trabalho visual.</p>
+      <ul>
+        <li>Baixe a ISO do Linux Mint (Cinnamon) ou Ubuntu Desktop e grave no pendrive.</li>
+        <li>Instale o sistema de forma totalmente gráfica em português.</li>
+        <li><strong>Vantagem Operacional:</strong> Não é preciso usar SSH! Abra o terminal nativo com <code>Ctrl + Alt + T</code> e execute os comandos diretamente.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>Cenário 4: Windows usando VirtualBox</h3>
+      <p>Execução do Ubuntu Server dentro de uma máquina virtual no Windows.</p>
+      <ul>
+        <li>Ative a virtualização (Intel VT-x ou AMD SVM) na BIOS do Windows.</li>
+        <li>Instale o VirtualBox e baixe a ISO do Ubuntu Server.</li>
+        <li><strong>Atenção Crítica:</strong> Na criação da VM, marque para <em>Pular Instalação Desatendida (Skip Unattended Installation)</em> para não perder o acesso ao OpenSSH.</li>
+        <li>Configure o hardware com pelo menos 4GB de RAM e 2 CPUs.</li>
+        <li>Na rede da VM, mude de <em>NAT</em> para <strong>Placa em modo Bridge (Bridged Adapter)</strong> apontando para sua placa de rede física, permitindo que a rede local acesse o Koha.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>Cenário 5: Windows usando WSL2</h3>
+      <p>A forma mais leve de rodar o kernel Linux integrado diretamente no Windows 10 ou 11.</p>
+      <ul>
+        <li>Ative os recursos de virtualização e o subsistema Linux no painel do Windows.</li>
+        <li>Abra o PowerShell como Administrador e execute: <code>wsl --install -d Ubuntu</code>.</li>
+        <li>Crie seu usuário e senha do Linux. Fixe o atalho do Ubuntu na barra de tarefas.</li>
+        <li><strong>Vantagem Operacional:</strong> Sem necessidade de SSH; basta abrir o terminal do WSL2 e rodar os comandos.</li>
       </ul>
     </div>
   </section>
 
   <section>
-    <h2>Como Executar a Instalação</h2>
-    <p>Com o servidor Ubuntu Server devidamente instalado e acessado como root (<code>sudo -i</code>), execute o comando abaixo para baixar o script direto do repositório e iniciar a automação completa:</p>
+    <h2>3. Identificação de IP e Acesso ao Terminal</h2>
+    <p><strong>Regra Clara de Acesso:</strong></p>
+    <ul>
+      <li><strong>Cenários 3 e 5 (Linux Gráfico / WSL2):</strong> Você trabalha diretamente na máquina. <strong>Não precisa de SSH</strong>. Abra o terminal local.</li>
+      <li><strong>Cenários 1, 2 e 4 (Servidor Físico / VPS / VirtualBox):</strong> O servidor roda em modo texto ou segundo plano. Você precisa conectar nele via PowerShell de outro computador usando SSH.</li>
+    </ul>
+
+    <h3>Como identificar o IP do Servidor</h3>
+    <p>No terminal do Linux, execute:</p>
+    <div class="code-container">
+      <div class="code-header"><span>Terminal Linux</span><button class="copy-btn" onclick="copySnippet(this)">Copiar</button></div>
+      <pre><code>ip a</code></pre>
+    </div>
+
+    <h3>Conexão Remota via PowerShell (Cenários 1, 2 e 4)</h3>
+    <p>Para garantir que o redirecionamento de portas do Google Drive funcione perfeitamente durante a instalação, conecte-se via SSH com o seguinte comando no seu computador Windows:</p>
+    <div class="code-container">
+      <div class="code-header"><span>PowerShell (Windows)</span><button class="copy-btn" onclick="copySnippet(this)">Copiar</button></div>
+      <pre><code>ssh -L 53682:127.0.0.1:53682 nomedousuario@ipdoservidor</code></pre>
+    </div>
+  </section>
+
+  <section>
+    <h2>4. Instalação Automatizada do Sistema</h2>
+    <p>Com o terminal aberto e com privilégios de administrador (<code>sudo -i</code>), execute o comando abaixo para disparar o script de automação hospedado no repositório oficial:</p>
 
     <div class="code-container">
-      <div class="code-header">
-        <span>Terminal Linux (Root)</span>
-        <button class="copy-btn" onclick="copySnippet(this)">Copiar</button>
-      </div>
-      <pre><code>bash &lt;(curl -s https://raw.githubusercontent.com/paulofbaldifh/Koha-/main/instalar.sh)</code></pre>
+      <div class="code-header"><span>Terminal Linux (Root)</span><button class="copy-btn" onclick="copySnippet(this)">Copiar</button></div>
+      <pre><code>bash &lt;(curl -s https://raw.githubusercontent.com/PauloFBaldiFH/Koha-/refs/heads/main/instalar.sh)</code></pre>
     </div>
 
     <div class="info-box">
-      <strong>Nota importante:</strong> O script aguardará interativamente a conclusão do assistente web no navegador e prosseguirá automaticamente com a configuração do Elasticsearch logo em seguida.
+      <strong>O que o script executa:</strong> Sincronização NTP, criação de SWAP preventivo de 4GB, repositórios oficiais do Koha e Elasticsearch 7.x, instalação do MariaDB, Apache configurado nas portas 80 e 8080, configuração de backup diário com Rclone, autorização do Google Drive e pausa inteligente aguardando o término do Web Installer.
     </div>
+  </section>
+
+  <section>
+    <h2>5. Concluindo o Web Installer no Navegador</h2>
+    <p>Deixe a janela do terminal aberta. No seu navegador web, acesse o painel de instalação:</p>
+    <ul>
+      <li><strong>Cenários 1, 2 e 4:</strong> <code>http://ipdoservidor:8080</code></li>
+      <li><strong>Cenários 3 e 5:</strong> <code>http://localhost:8080</code></li>
+    </ul>
+
+    <p>Siga os passos do assistente:</p>
+    <ol>
+      <li><strong>Etapa 1:</strong> Digite o usuário <code>koha_library</code> e cole a senha provisória gerada no terminal.</li>
+      <li><strong>Etapa 2:</strong> Selecione o idioma <em>Português do Brasil (pt-BR)</em>.</li>
+      <li><strong>Etapa 3:</strong> Verifique os módulos Perl e selecione o formato <strong>MARC21</strong>.</li>
+      <li><strong>Etapa 4:</strong> Mantenha os frameworks do MARC21, mas <strong>desmarque todas as caixas de dados de exemplo</strong> (amostras de usuários/itens) para evitar registros fictícios.</li>
+      <li><strong>Etapa 5 e 6:</strong> Cadastre a sigla da biblioteca (ex: <code>BPM</code>) e a categoria administrativa <code>STAFF</code>.</li>
+      <li><strong>Etapa 7:</strong> Crie sua conta de Administrador (Superlibrarian) com uma senha forte e anote-a.</li>
+      <li><strong>Etapa 8 e 9:</strong> Defina o tipo de exemplar inicial (ex: <code>LIV</code>) e as regras básicas de circulação (dias de empréstimo e renovações).</li>
+    </ol>
+    <p>Assim que você concluir o assistente no navegador, retorne ao terminal: o script detectará automaticamente a criação do usuário, injetará as regras do Elasticsearch, reindexará o acervo e finalizará o processo.</p>
+  </section>
+
+  <section>
+    <h2>6. Restauração de Backup Anterior (Opcional)</h2>
+    <p>Se você possui um dump SQL de uma instalação anterior (renomeado para <code>koha_library.sql</code>), coloque-o na sua pasta de usuário e execute o script automatizado de restauração e reindexação:</p>
+
+    <div class="code-container">
+      <div class="code-header"><span>Terminal Linux (Root)</span><button class="copy-btn" onclick="copySnippet(this)">Copiar</button></div>
+      <pre><code>bash &lt;(curl -s https://raw.githubusercontent.com/PauloFBaldiFH/Koha-Restore/refs/heads/main/restaurar.sh)</code></pre>
+    </div>
+  </section>
+
+  <section>
+    <h2>7. Publicando o Koha na Internet (Cloudflare Tunnel)</h2>
+    <p>O Cloudflare Tunnel é a forma mais segura de expor o Koha sem abrir portas no roteador, entregando HTTPS automático e proteção avançada.</p>
+
+    <h3>Passo 1: Domínio e Configuração na Cloudflare</h3>
+    <p>Utilize um domínio próprio ou crie um subdomínio gratuito no DigitalPlat apontando para os nameservers da Cloudflare.</p>
+
+    <h3>Passo 2: Criando o Túnel</h3>
+    <p>No painel da Cloudflare (<em>Zero Trust > Networks > Tunnels</em>), crie um novo túnel, selecione Debian 64-bit e execute os dois comandos fornecidos no terminal do seu servidor.</p>
+
+    <h3>Passo 3: Mapeamento de Rotas (Public Hostnames)</h3>
+    <ul>
+      <li><strong>Staff (Administração):</strong> Subdomínio <code>adm</code> + Seu Domínio -> Serviço HTTP em <code>localhost:8080</code></li>
+      <li><strong>OPAC (Catálogo Público):</strong> Domínio raiz (sem subdomínio) + Seu Domínio -> Serviço HTTP em <code>localhost:80</code></li>
+    </ul>
+
+    <h3>Passo 4 e 5: Proteção contra Bots e Ajustes no Koha</h3>
+    <p>Ative o <em>Bot Fight Mode</em> na Cloudflare para bloquear scrapers de IA. Em seguida, acesse o painel Staff do Koha em <em>Administração do Koha > Preferências do Sistema</em> e ajuste os parâmetros <code>OpacBaseUrl</code> e <code>StaffBaseUrl</code> com as respectivas URLs públicas em HTTPS.</p>
   </section>
 
 </div>
@@ -210,7 +301,6 @@
       const originalText = button.innerHTML;
       button.innerText = '✓ Copiado!';
       button.classList.add('copied');
-
       setTimeout(() => {
         button.innerHTML = originalText;
         button.classList.remove('copied');
