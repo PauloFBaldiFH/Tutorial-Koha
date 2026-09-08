@@ -25,8 +25,6 @@
       --info-text: #bae6fd;
     }
 
-
-
     * {
       box-sizing: border-box;
       margin: 0;
@@ -39,7 +37,6 @@
       color: var(--text-main);
       line-height: 1.65;
       padding: 2.5rem 1rem;
-      transition: background-color 0.2s ease, color 0.2s ease;
     }
 
     .container {
@@ -68,28 +65,6 @@
 
     .update-badge strong {
       color: var(--text-highlight);
-    }
-
-    .top-controls {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-    }
-
-    .control-btn {
-      background-color: var(--bg-card-alt);
-      color: var(--text-main);
-      border: 1px solid var(--border-color);
-      padding: 0.45rem 0.85rem;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 0.85rem;
-      font-weight: 500;
-      transition: border-color 0.2s;
-    }
-
-    .control-btn:hover {
-      border-color: var(--text-highlight);
     }
 
     header {
@@ -129,17 +104,9 @@
       color: #cbd5e1;
     }
 
-    body.light-theme p {
-      color: #334155;
-    }
-
     ul, ol {
       margin: 0 0 1.5rem 1.5rem;
       color: #cbd5e1;
-    }
-
-    body.light-theme ul, body.light-theme ol {
-      color: #334155;
     }
 
     li {
@@ -172,10 +139,6 @@
       color: #fff;
     }
 
-    body.light-theme .alert strong {
-      color: #78350f;
-    }
-
     .info-box {
       background-color: var(--info-bg);
       border-left: 4px solid var(--info-border);
@@ -190,10 +153,6 @@
       display: block;
       margin-bottom: 0.25rem;
       color: #fff;
-    }
-
-    body.light-theme .info-box strong {
-      color: #0369a1;
     }
 
     .card {
@@ -333,10 +292,6 @@
     tr:nth-child(even) {
       background-color: rgba(30, 41, 59, 0.3);
     }
-
-    body.light-theme tr:nth-child(even) {
-      background-color: rgba(241, 245, 249, 0.6);
-    }
   </style>
 </head>
 <body>
@@ -349,9 +304,6 @@
       <span>🕒</span>
       <span>Última atualização:</span>
       <strong>Setembro de 2026</strong>
-    </div>
-
-    <div class="top-controls">
     </div>
   </div>
 
@@ -1233,34 +1185,6 @@ echo "======================================================================"</c
       console.error('Falha ao copiar:', err);
     });
   }
-
-  function toggleTheme() {
-    const isLight = document.body.classList.toggle('light-theme');
-    updateThemeControls(isLight);
-    localStorage.setItem('koha_guide_theme', isLight ? 'light' : 'dark');
-  }
-
-  function updateThemeControls(isLight) {
-    const themeIcon = document.getElementById('theme-icon');
-    const themeText = document.getElementById('theme-text');
-    if (isLight) {
-      themeIcon.innerText = '🌙';
-      themeText.innerText = 'Modo Escuro';
-    } else {
-      themeIcon.innerText = '☀️';
-      themeText.innerText = 'Modo Claro';
-    }
-  }
-
-  window.addEventListener('DOMContentLoaded', () => {
-    const savedTheme = localStorage.getItem('koha_guide_theme');
-    if (savedTheme === 'light') {
-      document.body.classList.add('light-theme');
-      updateThemeControls(true);
-    } else {
-      updateThemeControls(false);
-    }
-  });
 </script>
 
 </body>
