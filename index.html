@@ -590,7 +590,7 @@ echo ">>> Instalando dependências básicas e ferramentas de segurança..."
 apt-get update && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
 DEBIAN_FRONTEND=noninteractive apt-get install -y nano curl wget gpg ufw software-properties-common default-jre-headless \
               libapache2-mod-security2 fail2ban postfix libsasl2-modules glabels \
-              at rclone avahi-daemon memcached
+              at rclone avahi-daemon memcached python3
 
 systemctl enable --now avahi-daemon
 systemctl enable --now fail2ban
@@ -795,10 +795,20 @@ while true; do
 done
 echo ">>> Web Installer concluído. Configurando Elasticsearch agora..."
 
-CONF="/etc/koha/sites/library/koha-conf.xml"
-if ! grep -q "<elasticsearch>" "$CONF"; then
-  sed -i "/<\/config>/i \\  <elasticsearch>\\n    <server>127.0.0.1:9200</server>\\n    <index_name>koha_library</index_name>\\n  </elasticsearch>" "$CONF"
-fi
+# CORREÇÃO SEGURA DA INJEÇÃO DO ELASTICSEARCH VIA PYTHON
+python3 -c '
+path = "/etc/koha/sites/library/koha-conf.xml"
+with open(path, "r") as f:
+    text = f.read()
+import re
+text = re.sub(r"\s*<elasticsearch>.*?</elasticsearch>", "", text, flags=re.DOTALL)
+es_block = "  <elasticsearch>\n    <server>127.0.0.1:9200</server>\n    <index_name>koha_library</index_name>\n  </elasticsearch>\n"
+if "</config>" in text:
+    text = text.replace("</config>", "").strip() + "\n" + es_block + "</config>\n"
+    with open(path, "w") as f:
+        f.write(text)
+print("Bloco Elasticsearch inserido com sucesso via Python!")
+'
 
 echo ">>> Definindo SearchEngine = Elasticsearch e ativando commit imediato..."
 mysql -e "UPDATE koha_library.systempreferences SET value='Elasticsearch' WHERE variable='SearchEngine';"
