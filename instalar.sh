@@ -10,22 +10,15 @@ REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 [ -z "$REAL_HOME" ] && REAL_HOME="/home/$REAL_USER"
 
-# ======================================================================
-# PREPARAÇÃO: SINCRONIZAÇÃO DE HORA E FUSO HORÁRIO
-# ======================================================================
 echo ">>> Sincronizando relógio do sistema com a internet (NTP)..."
 apt-get update -o Acquire::Check-Valid-Until=false -y || true
 DEBIAN_FRONTEND=noninteractive apt-get install -y systemd-timesyncd
 systemctl enable --now systemd-timesyncd
-
 timeout 10 bash -c 'until timedatectl | grep -q "synchronized: yes"; do sleep 1; done' || true
-
-echo ">>> Configuração de Fuso Horário..."
 dpkg-reconfigure tzdata
 
 export DEBIAN_FRONTEND=noninteractive
 
-# 1. SWAP PREVENTIVO (4GB)
 echo ">>> Verificando SWAP..."
 if [ "$(swapon --show | wc -l)" -le 1 ]; then
   fallocate -l 4G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=4096
@@ -35,50 +28,24 @@ if [ "$(swapon --show | wc -l)" -le 1 ]; then
   echo '/swapfile none swap sw 0 0' >> /etc/fstab
 fi
 
-# 2. DEPENDÊNCIAS E REPOSITÓRIOS OFICIAIS
 echo ">>> Instalando dependências básicas e ferramentas de segurança..."
 apt-get update && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
 DEBIAN_FRONTEND=noninteractive apt-get install -y nano curl wget gpg ufw software-properties-common default-jre-headless \
               libapache2-mod-security2 fail2ban postfix libsasl2-modules glabels \
-              at rclone avahi-daemon memcached python3
+              at rclone avahi-daemon memcached
 
 systemctl enable --now avahi-daemon
 systemctl enable --now fail2ban
 
-# Repositório Koha
 mkdir -p /usr/share/keyrings
 wget -q --timeout=20 --tries=3 -O - https://debian.koha-community.org/koha/gpg.asc | gpg --dearmor --yes -o /usr/share/keyrings/koha-keyring.gpg
 echo "deb [signed-by=/usr/share/keyrings/koha-keyring.gpg] https://debian.koha-community.org/koha oldstable main" > /etc/apt/sources.list.d/koha.list
 
-# Repositório Elasticsearch 7.x
-wget -q --timeout=20 --tries=3 -O - https://artifacts.elastic.co/GPG-KEY-elasticsearch | gpg --dearmor --yes -o /usr/share/keyrings/elasticsearch-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/elasticsearch-keyring.gpg] https://artifacts.elastic.co/packages/7.x/apt stable main" > /etc/apt/sources.list.d/elastic-7.x.list
-
 apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y mariadb-server elasticsearch koha-common koha-elasticsearch
+DEBIAN_FRONTEND=noninteractive apt-get install -y mariadb-server koha-common
 
 systemctl enable --now mariadb
 
-# 3. ELASTICSEARCH E PLUGIN ICU
-echo ">>> Configurando Elasticsearch..."
-mkdir -p /etc/elasticsearch/jvm.options.d
-cat << 'EOF' > /etc/elasticsearch/jvm.options.d/koha.options
--Xms1g
--Xmx1g
-EOF
-
-/usr/share/elasticsearch/bin/elasticsearch-plugin install --batch analysis-icu 2>/dev/null || true
-systemctl daemon-reload
-systemctl enable --now elasticsearch
-
-echo ">>> Aguardando inicialização do Elasticsearch (limite de 45s)..."
-timeout 45 bash -c 'until curl -s http://localhost:9200 >/dev/null; do sleep 2; done' || {
-  echo "ERRO: Elasticsearch não respondeu na porta 9200 a tempo."
-  journalctl -u elasticsearch -n 30 --no-pager
-  exit 1
-}
-
-# 4. REDE, APACHE E MEMCACHED
 echo ">>> Configurando Apache, portas e memcached..."
 sed -i 's/^INTRAPORT=.*/INTRAPORT="8080"/' /etc/koha/koha-sites.conf
 sed -i 's/^OPACPORT=.*/OPACPORT="80"/' /etc/koha/koha-sites.conf
@@ -89,33 +56,17 @@ a2enmod rewrite cgi deflate headers proxy_http
 grep -q "^Listen 8080" /etc/apache2/ports.conf || sed -i '/Listen 80/a Listen 8080' /etc/apache2/ports.conf
 systemctl restart apache2
 
-# --- LIMPEZA DE TENTATIVAS ANTERIORES ---
 echo ">>> Removendo qualquer instância/banco anterior chamado 'library'..."
 koha-remove library 2>/dev/null || true
 mysql -e "DROP DATABASE IF EXISTS koha_library;" 2>/dev/null || true
 mysql -e "DROP USER IF EXISTS 'koha_library'@'localhost';" 2>/dev/null || true
-curl -s -X DELETE 'localhost:9200/koha_library_biblios' >/dev/null 2>&1 || true
-curl -s -X DELETE 'localhost:9200/koha_library_authorities' >/dev/null 2>&1 || true
 rm -rf /etc/koha/sites/library
 
-# 5. CRIAÇÃO DA INSTÂNCIA
-echo ">>> Criando instância 'library' (Zebra inicial para o instalador web)..."
+echo ">>> Criando instância 'library' (Motor de busca nativo Zebra)..."
 koha-create --create-db library
-
-systemctl stop koha-zebra-daemon@library 2>/dev/null || true
-systemctl disable koha-zebra-daemon@library 2>/dev/null || true
-koha-zebra --stop library 2>/dev/null || true
-koha-zebra --disable library 2>/dev/null || true
 
 sed -i 's/__MEMCACHED_SERVERS__/127.0.0.1:11211/g' /etc/koha/sites/library/koha-conf.xml
 sed -i 's/__MEMCACHED_PREFIX__/koha_library:/g' /etc/koha/sites/library/koha-conf.xml
-
-# Permissões dos logs do indexador ES
-mkdir -p /var/log/koha/library
-touch /var/log/koha/library/es-indexer-error.log
-touch /var/log/koha/library/es-indexer-output.log
-chown library-koha:library-koha /var/log/koha/library/es-indexer-error.log /var/log/koha/library/es-indexer-output.log
-chmod 664 /var/log/koha/library/es-indexer-error.log /var/log/koha/library/es-indexer-output.log
 
 a2dissite 000-default 2>/dev/null || true
 a2ensite library
@@ -127,7 +78,10 @@ koha-plack --enable library
 koha-plack --start library
 systemctl restart koha-common
 
-# 6. ROTINAS DE BACKUP E CRON RESILIENTE
+# Habilitando o Daemon do Zebra (Indexador Padrão)
+systemctl enable koha-zebra-daemon@library
+systemctl start koha-zebra-daemon@library
+
 echo ">>> Configurando backup e crontab..."
 ARQUIVO_CONF="/etc/koha/sites/library/koha-conf.xml"
 DB_PASS=$(grep -oP '(?<=<pass>)[^<]+' "$ARQUIVO_CONF" | head -n 1)
@@ -168,11 +122,11 @@ cat << EOF > /tmp/koha_cron
 0 1 5 * * /usr/bin/mysqlcheck --check --auto-repair --databases koha_library
 0 5 * * * /usr/sbin/koha-plack --restart library
 40 17 * * * /bin/bash $REAL_HOME/backup_aut.sh
+*/5 * * * * koha-rebuild-zebra -z -b -a library
 EOF
 crontab /tmp/koha_cron
 rm /tmp/koha_cron
 
-# 7. FIREWALL COM TRAVA DE SEGURANÇA
 echo ">>> Ativando firewall..."
 echo "ufw disable" | at now + 10 minutes
 ufw allow 22/tcp
@@ -183,7 +137,6 @@ ufw allow 587/tcp
 ufw allow 53682/tcp
 echo "y" | ufw enable
 
-# 8. MENSAGEM DO SISTEMA
 IP_REAL=$(hostname -I | awk '{print $1}')
 [ -z "$IP_REAL" ] && IP_REAL="ipdoservidor"
 
@@ -215,7 +168,6 @@ echo ""
 echo " Crie uma senha forte para o bibliotecário administrador no Web Installer e anote-a."
 echo "======================================================================"
 
-# 9. AUTORIZAÇÃO DO GOOGLE DRIVE COM CONFIGURAÇÃO AUTOMÁTICA
 echo -e "\n\033[1;33m======================================================================"
 echo "          AUTORIZAÇÃO DO GOOGLE DRIVE (RCLONE)                                "
 echo "======================================================================\033[0m"
@@ -229,7 +181,6 @@ mkdir -p /root/.config/rclone
 /usr/bin/rclone --config /root/.config/rclone/rclone.conf mkdir gdrive:Backup_Koha 2>/dev/null || true
 echo ">>> Rclone configurado com sucesso e pasta remota vinculada!"
 
-# 10. AGUARDA VOCÊ TERMINAR O WEB INSTALLER
 echo ""
 echo "======================================================================"
 echo " Aguardando você concluir o Web Installer em http://${IP_REAL}:8080 ..."
@@ -241,72 +192,14 @@ while true; do
   fi
   sleep 10
 done
-echo ">>> Web Installer concluído. Configurando Elasticsearch agora..."
 
-# CORREÇÃO SEGURA DA INJEÇÃO DO ELASTICSEARCH VIA PYTHON (ELEMENTTREE)
-echo ">>> Configurando Elasticsearch no koha-conf.xml com parser XML nativo..."
-python3 - << 'PYEOF'
-import xml.etree.ElementTree as ET
+echo ">>> Web Installer concluído! Finalizando..."
 
-conf_path = "/etc/koha/sites/library/koha-conf.xml"
+mysql -e "UPDATE koha_library.systempreferences SET value='Zebra' WHERE variable='SearchEngine';"
+koha-rebuild-zebra -v -f library
 
-try:
-    tree = ET.parse(conf_path)
-    root = tree.getroot()
-
-    for old_es in root.findall('elasticsearch'):
-        root.remove(old_es)
-
-    es_elem = ET.SubElement(root, 'elasticsearch')
-    server_elem = ET.SubElement(es_elem, 'server')
-    server_elem.text = '127.0.0.1:9200'
-    index_elem = ET.SubElement(es_elem, 'index_name')
-    index_elem.text = 'koha_library'
-
-    tree.write(conf_path, encoding='utf-8', xml_declaration=True)
-    print("Tag <elasticsearch> estruturada com sucesso via ElementTree.")
-except Exception as e:
-    print(f"Fallback limpo acionado: {e}")
-    with open(conf_path, 'r', encoding='utf-8') as f:
-        content = f.read()
-    if '<elasticsearch>' not in content:
-        content = content.replace('</config>', '  <elasticsearch>\n    <server>127.0.0.1:9200</server>\n    <index_name>koha_library</index_name>\n  </elasticsearch>\n</config>')
-        with open(conf_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-PYEOF
-
-echo ">>> Definindo SearchEngine = Elasticsearch e ativando commit imediato..."
-mysql -e "UPDATE koha_library.systempreferences SET value='Elasticsearch' WHERE variable='SearchEngine';"
-mysql -e "UPDATE koha_library.systempreferences SET value='1' WHERE variable='ElasticsearchCommitImmediately';"
-
-# Permissões dos logs do indexador ES
-mkdir -p /var/log/koha/library
-touch /var/log/koha/library/es-indexer-error.log
-touch /var/log/koha/library/es-indexer-output.log
-chown library-koha:library-koha /var/log/koha/library/es-indexer-error.log /var/log/koha/library/es-indexer-output.log
-chmod 664 /var/log/koha/library/es-indexer-error.log /var/log/koha/library/es-indexer-output.log
-
-echo ">>> Reiniciando serviços para carregar a nova config..."
 systemctl restart koha-common
 koha-plack --restart library
-sleep 3
-
-echo ">>> Apagando índices antigos (se existirem) e reindexando do zero..."
-curl -s -X DELETE 'localhost:9200/koha_library_biblios' >/dev/null 2>&1 || true
-curl -s -X DELETE 'localhost:9200/koha_library_authorities' >/dev/null 2>&1 || true
-koha-elasticsearch --rebuild -d library
-
-echo ">>> Reiniciando serviços mais uma vez..."
-systemctl restart koha-common
-koha-plack --restart library
-
-echo ">>> Verificando se o daemon de indexação está de pé..."
-sleep 3
-if ps aux | grep -v grep | grep -q es_indexer_daemon; then
-  echo "OK: daemon es_indexer_daemon está rodando."
-else
-  echo "ATENÇÃO: o daemon não apareceu no ps aux."
-fi
 
 for job in $(atq 2>/dev/null | cut -f1); do
   atrm "$job" 2>/dev/null || true
@@ -314,5 +207,5 @@ done
 
 echo ""
 echo "======================================================================"
-echo " INSTALAÇÃO COMPLETA COM ELASTICSEARCH ATIVO."
+echo " INSTALAÇÃO COMPLETA. SISTEMA ZEBRA 100% OPERACIONAL E LEVE."
 echo "======================================================================"
