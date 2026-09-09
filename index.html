@@ -216,7 +216,7 @@
             <li>Selecione o idioma e deixe a rede em DHCP automático (via cabo).</li>
             <li><strong>Particionamento:</strong> Escolha <em>Use an entire disk</em> (usar o disco inteiro).</li>
             <li>Defina o nome do servidor, o nome de usuário e uma senha forte (anote esses dados!).</li>
-            <li><strong>Atenção Crítica:</strong> Na tela de pacotes adicionais, <strong>marque com a tecla de espaço a opção Install OpenSSH server</strong>. Sem isso, você não conseguirá acessar a máquina remotamente.</li>
+            <li><strong>Atenção Crítica:</strong> Na tela de pacotes adicionais, <strong>marque com a barra de espaço a opção Install OpenSSH server</strong>. Sem isso, você não conseguirá acessar a máquina remotamente.</li>
           </ul>
         </li>
         <li>Ao terminar, reinicie a máquina, retire o pendrive e faça login com seu usuário e senha. Identifique o IP da máquina com o comando <code>ip a</code> (conforme explicado na Seção 3). Como esta máquina não tem interface gráfica, todo o gerenciamento será feito via SSH pelo PowerShell do seu computador de mesa.</li>
@@ -273,7 +273,7 @@
             <li>Vá em Configurações > Rede.</li>
             <li>No campo Conectado a:, troque de "NAT" para <strong>Placa em modo Bridge (Bridged Adapter)</strong>.</li>
             <li>No campo Nome, selecione a placa de rede do seu computador (Wi-Fi ou Ethernet).</li>
-            <li><em>Por que isso é obrigatório?</em> No modo NAT, o Koha fica isolado. No modo Bridge, seu roteador atribui um IP real para a máquina virtual, permitindo que a biblioteca inteira acesse o Koha nas portas 8080 e 80.</li>
+            <li><em>Por que isso é obrigatório?</em> No modo NAT, o Koha fica isolado. No modo Bridge, seu roteador atribui um IP real para a máquina virtual, permitindo que a rede local acesse o Koha nas portas 8080 e 80.</li>
           </ul>
         </li>
         <li>Inicie a VM e siga a instalação manual do Ubuntu Server normalmente, lembrando de marcar o pacote OpenSSH.</li>
@@ -337,7 +337,7 @@
     
     <div class="code-container">
       <div class="code-header"><span>Terminal Linux (Root) - Script de Instalação</span><button class="copy-btn" onclick="copySnippet(this)">Copiar</button></div>
-      <pre><code>bash &lt;(curl -s https://raw.githubusercontent.com/PauloFBaldiFH/Koha-/refs/heads/main/instalar.sh)</code></pre>
+      <pre><code>bash &lt;(curl -s https://raw.githubusercontent.com/PauloFBaldiFH/Tutorial-Koha/refs/heads/main/instalar.sh)</code></pre>
     </div>
   </section>
 
@@ -401,7 +401,7 @@
     <p>No terminal do Linux como root (<code>sudo -i</code>), execute este script remoto. Ele recria a base de dados, importa o dump antigo, aplica correções de schema e reconstrói os índices do Elasticsearch:</p>
     <div class="code-container">
       <div class="code-header"><span>Terminal Linux (Root) - Script de Restauração</span><button class="copy-btn" onclick="copySnippet(this)">Copiar</button></div>
-      <pre><code>bash &lt;(curl -s https://raw.githubusercontent.com/PauloFBaldiFH/Koha-Restore/refs/heads/main/restaurar.sh)</code></pre>
+      <pre><code>bash &lt;(curl -s https://raw.githubusercontent.com/PauloFBaldiFH/Tutorial-Koha/refs/heads/main/restaurar.sh)</code></pre>
     </div>
   </section>
 
