@@ -121,7 +121,7 @@ cat << EOF > /tmp/koha_cron
 30 0 * * * /usr/bin/journalctl --vacuum-time=14d
 0 1 5 * * /usr/bin/mysqlcheck --check --auto-repair --databases koha_library
 0 5 * * * /usr/sbin/koha-plack --restart library
-2 19 * * * /bin/bash $REAL_HOME/backup_aut.sh
+40 17 * * * /bin/bash $REAL_HOME/backup_aut.sh
 */5 * * * * koha-rebuild-zebra -z -b -a library
 EOF
 crontab /tmp/koha_cron
