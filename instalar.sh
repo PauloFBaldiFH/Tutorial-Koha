@@ -32,7 +32,7 @@ fi
 echo ">>> Instalando dependências básicas e ferramentas de segurança..."
 apt-get update && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
 DEBIAN_FRONTEND=noninteractive apt-get install -y nano curl wget gpg ufw software-properties-common default-jre-headless \
-              libapache2-mod-security2 fail2ban postfix libsasl2-modules glabels \
+              libapache2-mod-security2 fail2ban postfix libsasl2-modules \
               at rclone avahi-daemon memcached
 
 systemctl enable --now avahi-daemon
@@ -90,7 +90,7 @@ DB_USER="koha_library"
 mkdir -p "$REAL_HOME/logs" "/var/backups"
 chown -R "$REAL_USER":"$REAL_USER" "$REAL_HOME/logs" 2>/dev/null || true
 
-cat << 'EOF' > "$REAL_HOME/backup_aut.sh"
+cat << EOF > "$REAL_HOME/backup_aut.sh"
 #!/bin/bash
 set -o pipefail
 DATA=\$(date +%Y-%m-%d_%Hh%M)
@@ -121,7 +121,7 @@ cat << EOF > /tmp/koha_cron
 30 0 * * * /usr/bin/journalctl --vacuum-time=14d
 0 1 5 * * /usr/bin/mysqlcheck --check --auto-repair --databases koha_library
 0 5 * * * /usr/sbin/koha-plack --restart library
-40 17 * * * /bin/bash $REAL_HOME/backup_aut.sh
+2 19 * * * /bin/bash $REAL_HOME/backup_aut.sh
 */5 * * * * koha-rebuild-zebra -z -b -a library
 EOF
 crontab /tmp/koha_cron
