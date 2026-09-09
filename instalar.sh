@@ -2,7 +2,7 @@
 set -e
 
 if [ "$EUID" -ne 0 ]; then
-  echo "ERRO: Execute este script como root ('sudo -i')."
+  echo "ERRO / ERROR / ERROR: Execute este script como root ('sudo -i')."
   exit 1
 fi
 
@@ -10,16 +10,16 @@ REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 [ -z "$REAL_HOME" ] && REAL_HOME="/home/$REAL_USER"
 
-echo ">>> Sincronizando relógio do sistema com a internet (NTP)..."
+echo ">>> [PT] Sincronizando relógio e fuso horário automaticamente / [EN] Syncing clock & timezone automatically / [ES] Sincronizando reloj y zona horaria..."
 apt-get update -o Acquire::Check-Valid-Until=false -y || true
-DEBIAN_FRONTEND=noninteractive apt-get install -y systemd-timesyncd
+DEBIAN_FRONTEND=noninteractive apt-get install -y systemd-timesyncd tzdata
 systemctl enable --now systemd-timesyncd
+timedatectl set-timezone $(curl -s https://ipapi.co/timezone || echo "America/Sao_Paulo")
 timeout 10 bash -c 'until timedatectl | grep -q "synchronized: yes"; do sleep 1; done' || true
-dpkg-reconfigure tzdata
 
 export DEBIAN_FRONTEND=noninteractive
 
-echo ">>> Verificando SWAP..."
+echo ">>> Verificando SWAP / Checking SWAP / Verificando SWAP..."
 if [ "$(swapon --show | wc -l)" -le 1 ]; then
   fallocate -l 4G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=4096
   chmod 600 /swapfile
@@ -78,9 +78,9 @@ koha-plack --enable library
 koha-plack --start library
 systemctl restart koha-common
 
-# Habilitando o Daemon do Zebra (Indexador Padrão)
-systemctl enable koha-zebra-daemon@library
-systemctl start koha-zebra-daemon@library
+# Habilitando o Zebra de forma nativa e compatível com as versões recentes
+koha-enable library
+koha-start-zebra library
 
 echo ">>> Configurando backup e crontab..."
 ARQUIVO_CONF="/etc/koha/sites/library/koha-conf.xml"
@@ -144,15 +144,15 @@ cat << EOF > /etc/issue
 Ubuntu \n \l
 
 ======================================================================
-                 SISTEMA KOHA PRONTO PARA O WEB INSTALLER!
+         SISTEMA KOHA PRONTO / KOHA SYSTEM READY / SISTEMA LISTO!
 ======================================================================
- Enderecos de Acesso:
- - Staff (Adm):   http://${IP_REAL}:8080
- - OPAC (Leitor): http://${IP_REAL}:80
+  Enderecos de Acesso / Access URLs / Direcciones de Acceso:
+  - Staff (Adm):   http://${IP_REAL}:8080
+  - OPAC (Leitor): http://${IP_REAL}:80
 ----------------------------------------------------------------------
- Primeiro Acesso / Web Installer:
- - Usuario: $DB_USER
- - Senha:   $DB_PASS
+  Primeiro Acesso / First Access / Primer Acceso:
+  - Usuario / User / Usuario: $DB_USER
+  - Senha / Password / Contraseña:   $DB_PASS
 ======================================================================
 
 EOF
@@ -161,29 +161,29 @@ cp /etc/issue /etc/motd
 
 echo ""
 echo "======================================================================"
-echo " INSTALAÇÃO BASE CONCLUÍDA."
+echo " INSTALAÇÃO BASE CONCLUÍDA / BASE INSTALLATION COMPLETE."
 echo " Acesse http://${IP_REAL}:8080 e complete o Web Installer no navegador."
 echo " Usuário: $DB_USER  | Senha: $DB_PASS"
 echo ""
-echo " Crie uma senha forte para o bibliotecário administrador no Web Installer e anote-a."
+echo " Crie uma senha forte para o administrador / Create a strong password."
 echo "======================================================================"
 
 echo -e "\n\033[1;33m======================================================================"
-echo "          AUTORIZAÇÃO DO GOOGLE DRIVE (RCLONE)                                "
+echo "        AUTORIZAÇÃO DO GOOGLE DRIVE (RCLONE) / GOOGLE DRIVE AUTH        "
 echo "======================================================================\033[0m"
-echo "O link de autorização aparecerá abaixo."
-echo "Abra o link no navegador, faça login na conta Google e autorize o acesso:"
+echo "O link de autorização aparecerá abaixo / The auth link will appear below:"
 echo "----------------------------------------------------------------------"
 
 mkdir -p /root/.config/rclone
 /usr/bin/rclone config create gdrive drive scope drive
 
 /usr/bin/rclone --config /root/.config/rclone/rclone.conf mkdir gdrive:Backup_Koha 2>/dev/null || true
-echo ">>> Rclone configurado com sucesso e pasta remota vinculada!"
+echo ">>> Rclone configurado com sucesso! / Rclone successfully configured!"
 
 echo ""
 echo "======================================================================"
-echo " Aguardando você concluir o Web Installer em http://${IP_REAL}:8080 ..."
+echo " Aguardando conclusão do Web Installer em http://${IP_REAL}:8080 ..."
+echo " Waiting for Web Installer completion..."
 echo "======================================================================"
 while true; do
   COUNT=$(mysql -N -e "SELECT COUNT(*) FROM koha_library.borrowers;" 2>/dev/null || echo 0)
