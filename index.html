@@ -165,11 +165,56 @@
       font-size: 0.9em;
       border: 1px solid var(--border-color);
     }
+
+    .language-container {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 0.8rem;
+      margin-top: 1rem;
+      margin-bottom: 2rem;
+    }
+
+    .language-label {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
+
+    .lang-btn {
+      text-decoration: none;
+      background-color: var(--bg-card);
+      color: var(--text-muted);
+      border: 1px solid var(--border-color);
+      padding: 0.4rem 0.8rem;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+
+    .lang-btn:hover {
+      background-color: var(--bg-card-alt);
+      color: var(--text-main);
+    }
+
+    .lang-btn.active {
+      background-color: var(--accent);
+      color: #fff;
+      border-color: var(--accent-hover);
+    }
   </style>
 </head>
 <body>
 
 <div class="container">
+
+  <div class="language-container">
+    <span class="language-label">Select language:</span>
+    <a href="index.html" class="lang-btn active">PT-BR</a>
+    <a href="en.html" class="lang-btn">EN</a>
+    <a href="es.html" class="lang-btn">ES</a>
+  </div>
 
   <header>
     <h1>Manual Completo de Instalação e Configuração do Koha</h1>
