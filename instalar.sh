@@ -90,27 +90,31 @@ DB_USER="koha_library"
 mkdir -p "$REAL_HOME/logs" "/var/backups"
 chown -R "$REAL_USER":"$REAL_USER" "$REAL_HOME/logs" 2>/dev/null || true
 
-cat << EOF > "$REAL_HOME/backup_aut.sh"
+cat << 'EOF' > "$REAL_HOME/backup_aut.sh"
 #!/bin/bash
 set -o pipefail
-DATA=\$(date +%Y-%m-%d_%Hh%M)
+DATA=$(date +%Y-%m-%d_%Hh%M)
 DIR_BACKUP="/var/backups"
-DIR_LOG="$REAL_HOME/logs"
+DIR_LOG="$(dirname "$(readlink -f "$0")")/logs"
 
-mkdir -p "\$DIR_BACKUP" "\$DIR_LOG"
-LOG_FILE="\$DIR_LOG/backup_\$DATA.log"
+mkdir -p "$DIR_BACKUP" "$DIR_LOG"
+LOG_FILE="$DIR_LOG/backup_$DATA.log"
 
-echo "Iniciando backup em \$DATA" >> "\$LOG_FILE"
-mysqldump -u"koha_library" -p'${DB_PASS}' "koha_library" | gzip > "\$DIR_BACKUP/koha_library_\$DATA.sql.gz"
+echo "Iniciando backup em $DATA" >> "$LOG_FILE"
 
-if [ \$? -ne 0 ]; then
-  echo "ERRO: Falha ao gerar o dump do banco!" >> "\$LOG_FILE"
+ARQUIVO_CONF="/etc/koha/sites/library/koha-conf.xml"
+DB_PASS_ATUAL=$(grep -oP '(?<=<pass>)[^<]+' "$ARQUIVO_CONF" | head -n 1)
+
+mysqldump -u"koha_library" -p"$DB_PASS_ATUAL" "koha_library" | gzip > "$DIR_BACKUP/koha_library_$DATA.sql.gz"
+
+if [ $? -ne 0 ]; then
+  echo "ERRO: Falha ao gerar o dump do banco!" >> "$LOG_FILE"
   exit 1
 fi
 
-/usr/bin/rclone --config /root/.config/rclone/rclone.conf move "\$DIR_BACKUP/koha_library_\$DATA.sql.gz" gdrive:Backup_Koha >> "\$LOG_FILE" 2>&1
-find "\$DIR_BACKUP" -name "koha_library_*.sql.gz" -mtime +7 -exec rm {} \;
-echo "Finalizado em \$(date)" >> "\$LOG_FILE"
+/usr/bin/rclone --config /root/.config/rclone/rclone.conf move "$DIR_BACKUP/koha_library_$DATA.sql.gz" gdrive:Backup_Koha >> "$LOG_FILE" 2>&1
+find "$DIR_BACKUP" -name "koha_library_*.sql.gz" -mtime +7 -exec rm {} \;
+echo "Finalizado em $(date)" >> "$LOG_FILE"
 EOF
 
 chmod +x "$REAL_HOME/backup_aut.sh"
