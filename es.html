@@ -261,7 +261,7 @@
             <li>Seleccione el idioma y deje la red en DHCP automático (vía cable).</li>
             <li><strong>Particionamiento:</strong> Elija <em>Use an entire disk</em> (usar el disco entero).</li>
             <li>Defina el nombre del servidor, el nombre de usuario y una contraseña segura (¡anote estos datos!).</li>
-            <li><strong>Atención Crítica:</strong> En la pantalla de paquetes adicionales, **marque con la barra espaciadora la opción Install OpenSSH server**. Sin esto, no podrá acceder a la máquina de forma remota.</li>
+            <li><strong>Atención Crítica:</strong> En la pantalla de paquetes adicionales, <strong>marque con la barra espaciadora la opción Install OpenSSH server</strong>. Sin esto, no podrá acceder a la máquina de forma remota.</li>
           </ul>
         </li>
         <li>Al terminar, reinicie la máquina, retire el pendrive e inicie sesión con su usuario y contraseña. Identifique el IP de la máquina con el comando <code>ip a</code> (como se explica en la Sección 3). Como esta máquina no tiene interfaz gráfica, toda la administración se realizará vía SSH desde el PowerShell de su computadora de escritorio.</li>
@@ -382,7 +382,7 @@
     
     <div class="code-container">
       <div class="code-header"><span>Terminal Linux (Root) - Script de Instalación</span><button class="copy-btn" onclick="copySnippet(this)">Copiar</button></div>
-      <pre><code>bash &lt;(curl -s https://raw.githubusercontent.com/PauloFBaldiFH/Tutorial-Koha/main/instalar.sh)</code></pre>
+      <pre><code>bash &lt;(curl -fsSL https://paulofbaldifh.github.io/Tutorial-Koha/instalar.sh)</code></pre>
     </div>
   </section>
 
@@ -418,7 +418,7 @@
     <p>Si ya tiene un archivo de base de datos extraído de una instalación anterior de Koha, siga estos pasos para restaurar su acervo:</p>
     
     <h3>1. Nombre y Formato del Archivo</h3>
-    <p>El archivo debe ser un volcado SQL descomprimido (con extensión <code>.sql</code>) y debe ser renombrado obligatoriamente a **<code>koha_library.sql</code>**. Si está comprimido como .sql.gz o .tar.gz, use 7-Zip o WinRAR para extraer el archivo SQL de su interior.</p>
+    <p>El archivo debe ser un volcado SQL descomprimido (con extensión <code>.sql</code>) y debe ser renombrado obligatoriamente a <strong><code>koha_library.sql</code></strong>. Si está comprimido como .sql.gz o .tar.gz, use 7-Zip o WinRAR para extraer el archivo SQL de su interior.</p>
 
     <h3>2. Cómo colocar el archivo en el servidor en cada Escenario</h3>
     
@@ -446,7 +446,7 @@
     <p>En la terminal de Linux como root (<code>sudo -i</code>), ejecute este script remoto. Éste recrea la base de datos, importa el volcado antiguo, aplica correcciones de esquema y reconstruye los índices.</p>
     <div class="code-container">
       <div class="code-header"><span>Terminal Linux (Root) - Script de Restauración</span><button class="copy-btn" onclick="copySnippet(this)">Copiar</button></div>
-      <pre><code>bash &lt;(curl -s https://raw.githubusercontent.com/PauloFBaldiFH/Tutorial-Koha/main/restaurar.sh)</code></pre>
+      <pre><code>bash &lt;(curl -fsSL https://paulofbaldifh.github.io/Tutorial-Koha/restaurar.sh)</code></pre>
     </div>
   </section>
 
@@ -464,7 +464,7 @@
           <li>En el menú lateral izquierdo, haga clic en <strong>Register a domain</strong> y seleccione <strong>Domain registration</strong>.</li>
           <li>Escriba el nombre elegido para la biblioteca y elija una de las 4 extensiones disponibles: <code>.dpdns.org</code>, <code>.us.kg</code>, <code>.qzz.io</code> o <code>.xx.kg</code>.</li>
           <li>Haga clic en <strong>Check availability</strong>. Si el nombre está disponible, la pantalla mostrará los campos de servidores de nombres: Name Server 1 a 4. <em>Mantenga esta página abierta.</em></li>
-          <li>En otra pestaña del navegador, entre al panel de Cloudflare y haga clic en **Add a site** (Añadir un sitio).</li>
+          <li>En otra pestaña del navegador, entre al panel de Cloudflare y haga clic en <strong>Add a site</strong> (Añadir un sitio).</li>
           <li>Pegue el nombre completo del subdominio creado en DigitalPlat (ej: <code>bibliotecamunicipal.dpdns.org</code>) y haga clic en continuar.</li>
           <li>En la pantalla de planes, desplácese hasta el final, seleccione el <strong>Plan Gratuito (Free)</strong> y continúe.</li>
           <li>Cloudflare proporcionará dos servidores de nombres autoritativos (ej: <code>ns1.cloudflare.com</code> y <code>ns2.cloudflare.com</code>). Copie la primera dirección.</li>
@@ -475,13 +475,13 @@
     </ul>
 
     <div class="info-box">
-      <strong>Tiempo de Propagación del DNS:</strong> La delegación de servidores de nombres en subdominios gratuitos suele tardar entre **15 minutos y hasta 1 hora** en propagarse por internet. Si Cloudflare muestra un aviso informando que los servidores aún no han sido detectados, <strong>no elimine el dominio</strong>: espere unos minutos y vuelva a hacer clic en "Check nameservers now".
+      <strong>Tiempo de Propagación del DNS:</strong> La delegación de servidores de nombres en subdominios gratuitos suele tardar entre <strong>15 minutos y hasta 1 hora</strong> en propagarse por internet. Si Cloudflare muestra un aviso informando que los servidores aún no han sido detectados, <strong>no elimine el dominio</strong>: espere unos minutos y vuelva a hacer clic en "Check nameservers now".
     </div>
 
     <h3>Paso 2: Creando el Túnel Cloudflare</h3>
     <ol>
       <li>En el panel lateral de Cloudflare, navegue hasta: <strong>Zero Trust > Networks > Tunnels</strong>.</li>
-      <li>Haga clic en **Add a tunnel**, elija la opción **Cloudflare Managed** y defina un nombre de identificación (ej: <code>koha-servidor</code>).</li>
+      <li>Haga clic en <strong>Add a tunnel</strong>, elija la opción <strong>Cloudflare Managed</strong> y defina un nombre de identificación (ej: <code>koha-servidor</code>).</li>
       <li>En la pantalla de instalación del conector, haga clic en la opción <strong>Debian</strong> y seleccione la arquitectura <strong>64-bit</strong>.</li>
       <li>El panel mostrará dos comandos en un recuadro negro: El primero descarga el paquete oficial del conector cloudflared. El segundo instala el servicio y vincula el token de autenticación exclusivo del túnel.</li>
       <li>Copie y ejecute ambos comandos en la terminal de Linux como root. El servicio se iniciará de inmediato en segundo plano.</li>
