@@ -173,7 +173,7 @@
 
   <header>
     <h1>Manual Completo de Instalação e Configuração do Koha</h1>
-    <p class="lead">Guia estruturado com foco em estabilidade operacional: preparação minuciosa do sistema operacional em 5 cenários, script automatizado com backups automáticos, primeiro acesso web, restauração de banco de dados e publicação via Cloudflare Tunnel.</p>
+    <p class="lead">Guia estruturado com foco em estabilidade operacional: preparação minuciosa do sistema operacional em 5 cenários, script automatizado com backups automáticos para o Google Drive, primeiro acesso web, restauração de banco de dados e publicação via Cloudflare Tunnel.</p>
   </header>
 
   <section>
@@ -398,7 +398,7 @@
     </div>
 
     <h3>3. Executando a Restauração no Servidor</h3>
-    <p>No terminal do Linux como root (<code>sudo -i</code>), execute este script remoto. Ele recria a base de dados, importa o dump antigo, aplica correções de schema e reconstrói os índices:</p>
+    <p>No terminal do Linux como root (<code>sudo -i</code>), execute este script remoto. Ele recria a base de dados, importa o dump antigo, aplica correções de schema e reconstrói os índices, lembre-se de no final da instalação copiar o link do Rclone no navegador para habilitar os backups automáticos para o Google Drive</p>
     <div class="code-container">
       <div class="code-header"><span>Terminal Linux (Root) - Script de Restauração</span><button class="copy-btn" onclick="copySnippet(this)">Copiar</button></div>
       <pre><code>bash &lt;(curl -s https://raw.githubusercontent.com/PauloFBaldiFH/Tutorial-Koha/refs/heads/main/restaurar.sh)</code></pre>
