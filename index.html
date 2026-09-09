@@ -20,6 +20,9 @@
       --info-bg: #0c2d48;
       --info-border: #0284c7;
       --info-text: #bae6fd;
+      --warning-bg: #451a03;
+      --warning-border: #b45309;
+      --warning-text: #fde68a;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -32,7 +35,7 @@
       padding: 2.5rem 1rem;
     }
 
-    .container { max-width: 900px; margin: 0 auto; }
+    .container { max-width: 960px; margin: 0 auto; }
 
     header {
       margin-bottom: 3rem;
@@ -57,9 +60,17 @@
       margin: 1.75rem 0 0.75rem 0;
     }
 
+    h4 {
+      font-size: 1.1rem;
+      color: var(--text-highlight);
+      margin: 1.25rem 0 0.5rem 0;
+    }
+
     p { margin-bottom: 1rem; color: #cbd5e1; }
     ul, ol { margin: 0 0 1.5rem 1.5rem; color: #cbd5e1; }
     li { margin-bottom: 0.5rem; }
+    
+    strong { color: #fff; }
 
     .card {
       background-color: var(--bg-card);
@@ -76,6 +87,35 @@
       padding: 1rem 1.25rem;
       border-radius: 4px;
       margin: 1.5rem 0;
+    }
+    
+    .alert-box {
+      background-color: var(--warning-bg);
+      border-left: 4px solid var(--warning-border);
+      color: var(--warning-text);
+      padding: 1rem 1.25rem;
+      border-radius: 4px;
+      margin: 1.5rem 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1.5rem 0;
+      font-size: 0.9rem;
+      background-color: var(--bg-card);
+    }
+
+    th, td {
+      padding: 0.75rem;
+      text-align: left;
+      border: 1px solid var(--border-color);
+    }
+
+    th {
+      background-color: var(--bg-card-alt);
+      color: var(--text-highlight);
+      font-weight: 600;
     }
 
     .code-container {
@@ -115,6 +155,16 @@
 
     pre { margin: 0; padding: 1rem; overflow-x: auto; font-size: 0.875rem; }
     code { font-family: monospace; color: #e2e8f0; white-space: pre; }
+    
+    .inline-code {
+      background-color: var(--bg-code);
+      color: var(--text-highlight);
+      padding: 0.2rem 0.4rem;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 0.9em;
+      border: 1px solid var(--border-color);
+    }
   </style>
 </head>
 <body>
@@ -144,17 +194,32 @@
 
   <section>
     <h2>2. Escolhendo a Hospedagem e Preparando o Sistema Operacional</h2>
-    <p>O Koha foi concebido nativamente para rodar sobre Linux (Debian ou Ubuntu). A forma como você chega à linha de comando depende exclusivamente do método de instalação escolhido abaixo. Siga rigorosamente apenas o cenário que você escolheu:</p>
+    <p>O Koha foi concebido nativamente para rodar sobre Linux (Debian ou Ubuntu). A forma como você chega à linha de comando depende exclusivamente do método de instalação escolhido abaixo. <strong>Siga rigorosamente apenas o cenário que você escolheu:</strong></p>
 
     <div class="card">
       <h3>Cenário 1: Servidor Físico Dedicado (Ubuntu Server)</h3>
       <p>Instalação limpa em um computador físico da biblioteca sem sistema operacional prévio.</p>
       <ul>
-        <li>Baixe a imagem oficial do Ubuntu Server LTS.</li>
-        <li>Crie um pendrive bootável utilizando o BalenaEtcher.</li>
-        <li>Acesse a BIOS da placa-mãe: desative o <em>Secure Boot</em> e o <em>Fast Boot</em>, configure o SATA Mode em <em>AHCI</em> e mude o <em>AC Back</em> para <em>Power On</em>.</li>
-        <li>Durante a instalação, selecione o disco inteiro e <strong>marque obrigatoriamente com a barra de espaço a opção "Install OpenSSH server"</strong>.</li>
-        <li>Identifique o IP com o comando <code>ip a</code> e gerencie a máquina via SSH.</li>
+        <li><strong>Download da Imagem ISO:</strong> Baixe a imagem oficial do Ubuntu Server LTS.</li>
+        <li><strong>Criação do Pendrive Bootável:</strong> Baixe e instale o BalenaEtcher. Conecte um pendrive de no mínimo 4GB, abra o BalenaEtcher, clique em <em>Flash from file</em>, selecione o arquivo ISO baixado, selecione seu pendrive e clique em <em>Flash!</em>.</li>
+        <li><strong>Ajustes na BIOS da Placa-Mãe:</strong> Conecte o computador via cabo de rede no roteador. Ligue o PC pressionando a tecla de acesso à BIOS (Del, F2, F10 ou F12) e configure:
+          <ul>
+            <li><strong>Secure Boot:</strong> Mude para Disabled.</li>
+            <li><strong>SATA Mode:</strong> Garanta que esteja em AHCI (se a placa mãe tiver essa opção).</li>
+            <li><strong>Restore on AC Power Loss / AC Back:</strong> Mude para Power On (faz o servidor ligar sozinho se a luz cair e voltar).</li>
+            <li><strong>Fast Boot:</strong> Mude para Disabled.</li>
+            <li><strong>Halt On:</strong> Mude para No Errors (impede que a BIOS trave o boot por falta de teclado conectado).</li>
+          </ul>
+        </li>
+        <li><strong>Instalação do Ubuntu Server:</strong> Na aba de boot da BIOS, selecione o pendrive. Durante o instalador:
+          <ul>
+            <li>Selecione o idioma e deixe a rede em DHCP automático (via cabo).</li>
+            <li><strong>Particionamento:</strong> Escolha <em>Use an entire disk</em> (usar o disco inteiro).</li>
+            <li>Defina o nome do servidor, o nome de usuário e uma senha forte (anote esses dados!).</li>
+            <li><strong>Atenção Crítica:</strong> Na tela de pacotes adicionais, <strong>marque com a tecla de espaço a opção Install OpenSSH server</strong>. Sem isso, você não conseguirá acessar a máquina remotamente.</li>
+          </ul>
+        </li>
+        <li>Ao terminar, reinicie a máquina, retire o pendrive e faça login com seu usuário e senha. Identifique o IP da máquina com o comando <code>ip a</code> (conforme explicado na Seção 3). Como esta máquina não tem interface gráfica, todo o gerenciamento será feito via SSH pelo PowerShell do seu computador de mesa.</li>
       </ul>
     </div>
 
@@ -162,19 +227,30 @@
       <h3>Cenário 2: Servidor em Nuvem / VPS</h3>
       <p>Instalação em um provedor de nuvem (DigitalOcean, Hetzner, AWS, Hostinger, etc.).</p>
       <ul>
-        <li>Crie uma instância com Ubuntu Server (22.04 ou 24.04 LTS).</li>
-        <li><strong>Plano de Hardware Obrigatório:</strong> No mínimo 4GB de RAM e 2 vCPUs (planos menores travam na indexação do Elasticsearch).</li>
-        <li>Acesse remotamente via terminal SSH utilizando o IP público fornecido.</li>
+        <li>Crie uma conta na empresa escolhida e acerte o método de pagamento.</li>
+        <li>Clique em Create Instance (ou Create Droplet).</li>
+        <li><strong>Sistema Operacional:</strong> Escolha Ubuntu Server (versão LTS recente: 22.04 ou 24.04).</li>
+        <li><strong>Plano de Hardware (Obrigatório):</strong> Selecione um plano que ofereça no mínimo <strong>4GB de RAM e 2 vCPUs</strong>. Planos com 1GB ou 2GB travarão durante a indexação de buscas do Elasticsearch.</li>
+        <li><strong>Autenticação:</strong> Escolha autenticação por senha root ou adicione sua chave SSH pública.</li>
+        <li>Finalize a criação. Em poucos segundos o painel da VPS fornecerá um Endereço de IP público e o usuário de login (normalmente root ou ubuntu). O acesso será feito remotamente a partir do seu terminal ou PowerShell via SSH.</li>
       </ul>
     </div>
 
     <div class="card">
       <h3>Cenário 3: Computador com Linux Gráfico (Linux Mint ou Ubuntu Desktop)</h3>
-      <p>Instalação em uma máquina com área de trabalho visual.</p>
+      <p>Instalação em uma máquina com área de trabalho visual para uso direto no computador.</p>
       <ul>
-        <li>Baixe a ISO do Linux Mint (Cinnamon) ou Ubuntu Desktop e grave no pendrive.</li>
-        <li>Instale o sistema de forma totalmente gráfica em português.</li>
-        <li><strong>Vantagem Operacional:</strong> Não é preciso usar SSH! Abra o terminal nativo com <code>Ctrl + Alt + T</code> e execute os comandos diretamente.</li>
+        <li><strong>Download da ISO:</strong>
+          <ul>
+            <li>Opção 1 (Recomendada para iniciantes): Download Linux Mint (Cinnamon Edition).</li>
+            <li>Opção 2: Download Ubuntu Desktop.</li>
+          </ul>
+        </li>
+        <li>Grave a ISO no pendrive utilizando o BalenaEtcher da mesma forma explicada no Cenário 1.</li>
+        <li>Desative o Secure Boot na BIOS do computador e inicie o sistema pelo pendrive.</li>
+        <li>Na área de trabalho do instalador, dê dois cliques no ícone "Install Linux Mint" (ou Install Ubuntu). O assistente é totalmente visual em português: escolha seu fuso horário, layout do teclado, crie seu nome de usuário e senha.</li>
+        <li>Conclua a instalação e reinicie o PC.</li>
+        <li><strong>Vantagem Operacional deste Cenário:</strong> Você NÃO precisa usar SSH! Abra o terminal nativo do sistema pressionando as teclas <code>Ctrl + Alt + T</code> e execute os comandos diretamente nele. Toda transferência de arquivos de backup poderá ser feita simplesmente arrastando pastas pela interface visual.</li>
       </ul>
     </div>
 
@@ -182,157 +258,252 @@
       <h3>Cenário 4: Windows usando VirtualBox</h3>
       <p>Execução do Ubuntu Server dentro de uma máquina virtual no Windows.</p>
       <ul>
-        <li>Ative a virtualização (Intel VT-x ou AMD SVM) na BIOS do Windows.</li>
-        <li>Instale o VirtualBox e baixe a ISO do Ubuntu Server.</li>
-        <li><strong>Atenção Crítica:</strong> Na criação da VM, marque para <em>Pular Instalação Desatendida (Skip Unattended Installation)</em> para não perder o acesso ao OpenSSH.</li>
-        <li>Configure o hardware com pelo menos 4GB de RAM e 2 CPUs.</li>
-        <li>Na rede da VM, mude de <em>NAT</em> para <strong>Placa em modo Bridge (Bridged Adapter)</strong> apontando para sua placa de rede física, permitindo que a rede local acesse o Koha.</li>
+        <li><strong>Ativação de Virtualização:</strong> Reinicie o Windows, entre na BIOS e ative o suporte a virtualização: procure por <em>Intel Virtualization Technology (VT-x)</em> ou <em>SVM Mode (AMD)</em> e marque como Enabled. Sem isso, o VirtualBox não criará sistemas de 64 bits.</li>
+        <li><strong>Downloads Necessários:</strong> Baixe e instale o VirtualBox e baixe a ISO do Ubuntu Server LTS.</li>
+        <li><strong>Criação da Máquina Virtual no VirtualBox:</strong>
+          <ul>
+            <li>Abra o VirtualBox e clique no botão Novo (New). Nome: Digite <em>Koha-Server</em>.</li>
+            <li>Imagem ISO: Aponte para o arquivo ISO do Ubuntu Server.</li>
+            <li><strong>ATENÇÃO CRÍTICA (Checkbox de Instalação Desatendida):</strong> Na tela de criação, <strong>marque a caixa "Pular Instalação Desatendida" (Skip Unattended Installation)</strong>. Se aparecer "Proceed with Unattended Installation", NÃO A DEIXE SELECIONADA. Se você permitir, o VirtualBox criará um usuário aleatório e ignorará o OpenSSH, trancando você fora do sistema!</li>
+          </ul>
+        </li>
+        <li><strong>Recursos de Hardware:</strong> Memória Base (RAM): no mínimo 4096 MB (4 GB). Processadores: aloque ao menos 2 CPUs. Disco Rígido: pelo menos 25 GB.</li>
+        <li><strong>Configuração de Rede (Crucial para funcionar na rede local):</strong>
+          <ul>
+            <li>Vá em Configurações > Rede.</li>
+            <li>No campo Conectado a:, troque de "NAT" para <strong>Placa em modo Bridge (Bridged Adapter)</strong>.</li>
+            <li>No campo Nome, selecione a placa de rede do seu computador (Wi-Fi ou Ethernet).</li>
+            <li><em>Por que isso é obrigatório?</em> No modo NAT, o Koha fica isolado. No modo Bridge, seu roteador atribui um IP real para a máquina virtual, permitindo que a biblioteca inteira acesse o Koha nas portas 8080 e 80.</li>
+          </ul>
+        </li>
+        <li>Inicie a VM e siga a instalação manual do Ubuntu Server normalmente, lembrando de marcar o pacote OpenSSH.</li>
       </ul>
     </div>
 
     <div class="card">
       <h3>Cenário 5: Windows usando WSL2</h3>
-      <p>A forma mais leve de rodar o kernel Linux integrado diretamente no Windows 10 ou 11.</p>
+      <p>A forma mais leve de rodar o kernel Linux integrado diretamente dentro do Windows 10 ou 11.</p>
       <ul>
-        <li>Ative os recursos de virtualização e o subsistema Linux no painel do Windows.</li>
-        <li>Abra o PowerShell como Administrador e execute: <code>wsl --install -d Ubuntu</code>.</li>
-        <li>Crie seu usuário e senha do Linux. Fixe o atalho do Ubuntu na barra de tarefas.</li>
-        <li><strong>Vantagem Operacional:</strong> Sem necessidade de SSH; basta abrir o terminal do WSL2 e rodar os comandos.</li>
+        <li>Ative a virtualização (VT-x / AMD-V) na BIOS da sua placa-mãe.</li>
+        <li>No menu Iniciar do Windows, pesquise por <em>Ativar ou desativar recursos do Windows</em> e marque: <strong>Subsistema do Windows para Linux</strong> e <strong>Plataforma de Máquina Virtual</strong>. Clique em OK e reinicie.</li>
+        <li>No menu Iniciar, procure por PowerShell, clique com o botão direito e selecione Executar como Administrador. Digite o comando abaixo e tecle Enter:
+          <div class="code-container" style="margin-top: 0.5rem;">
+            <div class="code-header"><span>PowerShell (Administrador)</span><button class="copy-btn" onclick="copySnippet(this)">Copiar</button></div>
+            <pre><code>wsl --install -d Ubuntu</code></pre>
+          </div>
+        </li>
+        <li>Aguarde o download e instalação. Ao reiniciar, a janela preta do Ubuntu abrirá solicitando que você crie um usuário e uma senha (anote esses dados).</li>
+        <li>Fixe o atalho do Ubuntu na barra de tarefas.</li>
+        <li><strong>Vantagem Operacional deste Cenário:</strong> Você NÃO precisa de SSH! Basta abrir o atalho do Ubuntu e colar os comandos diretamente nele. Para que o Koha funcione na rede, basta manter essa janela aberta minimizada.</li>
       </ul>
     </div>
   </section>
 
   <section>
     <h2>3. Identificação de IP e Acesso ao Terminal</h2>
-    <p><strong>Regra Clara de Acesso:</strong></p>
-    <ul>
-      <li><strong>Cenários 3 e 5 (Linux Gráfico / WSL2):</strong> Você trabalha diretamente na máquina. <strong>Não precisa de SSH</strong>. Abra o terminal local.</li>
-      <li><strong>Cenários 1, 2 e 4 (Servidor Físico / VPS / VirtualBox):</strong> O servidor roda em modo texto ou segundo plano. Você precisa conectar nele via PowerShell de outro computador usando SSH.</li>
-    </ul>
+    
+    <div class="info-box">
+      <h3>Quem precisa e quem NÃO precisa de SSH?</h3>
+      <p><strong>Cenários 3 e 5 (Linux Gráfico / WSL2):</strong> Você está trabalhando diretamente na máquina. <strong>NÃO precisa de SSH.</strong> Abra o terminal na sua tela (Ctrl + Alt + T no Linux ou atalho do Ubuntu no Windows) e execute todos os comandos por ele.</p>
+      <p><strong>Cenários 1, 2 e 4 (Servidor Físico / VPS / VirtualBox):</strong> O servidor está rodando em modo texto sem monitor próprio ou em segundo plano. Você precisa conectar nele através do <strong>PowerShell</strong> de outro computador usando SSH.</p>
+    </div>
 
-    <h3>Como identificar o IP do Servidor</h3>
-    <p>No terminal do Linux, execute:</p>
+    <h3>Como identificar o IP do Servidor (Cenários 1, 2 e 4)</h3>
+    <p>No terminal do Linux, execute o comando:</p>
     <div class="code-container">
       <div class="code-header"><span>Terminal Linux</span><button class="copy-btn" onclick="copySnippet(this)">Copiar</button></div>
       <pre><code>ip a</code></pre>
     </div>
+    <p><strong>Como localizar seu IP na resposta:</strong> Procure pela interface de rede principal (ex: <code>eth0</code>, <code>enp3s0</code> ou <code>wlan0</code>). Ignore a interface <code>lo</code>. Na linha que começa com <code>inet</code>, o número antes da barra é o seu IP (ex: se aparecer <code>inet 192.168.1.50/24</code>, o IP é 192.168.1.50). Se estiver em uma VPS, o IP é o endereço público fornecido pelo painel.</p>
 
-    <h3>Conexão Remota via PowerShell (Cenários 1, 2 e 4)</h3>
-    <p>Para garantir que o redirecionamento de portas do Google Drive funcione perfeitamente durante a instalação, conecte-se via SSH com o seguinte comando no seu computador Windows:</p>
+    <h3>Conexão Remota via PowerShell (Apenas Cenários 1, 2 e 4)</h3>
+    <p>No computador Windows que você usa para trabalhar, abra o PowerShell e digite o comando abaixo (substitua <code>nomedousuario</code> pelo nome do usuário que você criou no servidor e <code>ipdoservidor</code> pelo IP real que você descobriu):</p>
     <div class="code-container">
-      <div class="code-header"><span>PowerShell (Windows)</span><button class="copy-btn" onclick="copySnippet(this)">Copiar</button></div>
+      <div class="code-header"><span>PowerShell</span><button class="copy-btn" onclick="copySnippet(this)">Copiar</button></div>
       <pre><code>ssh -L 53682:127.0.0.1:53682 nomedousuario@ipdoservidor</code></pre>
     </div>
+    <p><em>Por que usamos "-L 53682:127.0.0.1:53682"?</em> Isso faz o PowerShell encaminhar a porta de autenticação do Google Drive para o seu navegador local. Quando o instalador pedir para autorizar o backup, você conseguirá aprovar a conta no seu próprio computador sem erro de conexão recusada.</p>
   </section>
 
   <section>
     <h2>4. Instalação Automatizada do Sistema</h2>
-    <p>Com o terminal aberto e com privilégios de administrador (<code>sudo -i</code>), execute o comando abaixo para disparar o script de automação hospedado no repositório oficial:</p>
-
+    <p>Com o terminal aberto (seja local no Linux Mint/WSL ou via SSH no PowerShell), obtenha privilégios de administrador:</p>
     <div class="code-container">
-      <div class="code-header"><span>Terminal Linux (Root)</span><button class="copy-btn" onclick="copySnippet(this)">Copiar</button></div>
-      <pre><code>bash &lt;(curl -s https://raw.githubusercontent.com/PauloFBaldiFH/Koha-/refs/heads/main/instalar.sh)</code></pre>
+      <div class="code-header"><span>Terminal</span><button class="copy-btn" onclick="copySnippet(this)">Copiar</button></div>
+      <pre><code>sudo -i</code></pre>
     </div>
-
-    <div class="info-box">
-      <strong>O que o script executa:</strong> Sincronização NTP, criação de SWAP preventivo de 4GB, repositórios oficiais do Koha e Elasticsearch 7.x, instalação do MariaDB, Apache configurado nas portas 80 e 8080, configuração de backup diário com Rclone, autorização do Google Drive e pausa inteligente aguardando o término do Web Installer.
+    
+    <p>Digite a senha do usuário do Linux. Em seguida, copie e cole a linha completa abaixo para disparar o instalador automático remoto:</p>
+    
+    <div class="code-container">
+      <div class="code-header"><span>Terminal Linux (Root) - Script de Instalação</span><button class="copy-btn" onclick="copySnippet(this)">Copiar</button></div>
+      <pre><code>bash &lt;(curl -s https://raw.githubusercontent.com/PauloFBaldiFH/Koha-/refs/heads/main/instalar.sh)</code></pre>
     </div>
   </section>
 
   <section>
     <h2>5. Concluindo o Web Installer no Navegador</h2>
-    <p>Deixe a janela do terminal aberta. No seu navegador web, acesse o painel de instalação:</p>
+    <p>Na etapa 10 do script, o terminal exibirá as credenciais provisórias e ficará checando a cada 10 segundos até você concluir o assistente. <strong>Deixe a janela do terminal aberta em segundo plano!</strong></p>
+    
+    <p>Abra seu navegador web e acesse:</p>
     <ul>
-      <li><strong>Cenários 1, 2 e 4:</strong> <code>http://ipdoservidor:8080</code></li>
-      <li><strong>Cenários 3 e 5:</strong> <code>http://localhost:8080</code></li>
+      <li><strong>Cenários 1, 2 e 4 (Servidor Físico / VPS / VirtualBox):</strong> Digite <code>http://ipdoservidor:8080</code> (exemplo: <code>http://192.168.1.50:8080</code>).</li>
+      <li><strong>Cenários 3 e 5 (Linux Mint / WSL2):</strong> Digite diretamente <code>http://localhost:8080</code>.</li>
     </ul>
 
-    <p>Siga os passos do assistente:</p>
+    <p>Siga os passos exatamente nesta sequência:</p>
     <ol>
-      <li><strong>Etapa 1:</strong> Digite o usuário <code>koha_library</code> e cole a senha provisória gerada no terminal.</li>
-      <li><strong>Etapa 2:</strong> Selecione o idioma <em>Português do Brasil (pt-BR)</em>.</li>
-      <li><strong>Etapa 3:</strong> Verifique os módulos Perl e selecione o formato <strong>MARC21</strong>.</li>
-      <li><strong>Etapa 4:</strong> Mantenha os frameworks do MARC21, mas <strong>desmarque todas as caixas de dados de exemplo</strong> (amostras de usuários/itens) para evitar registros fictícios.</li>
-      <li><strong>Etapa 5 e 6:</strong> Cadastre a sigla da biblioteca (ex: <code>BPM</code>) e a categoria administrativa <code>STAFF</code>.</li>
-      <li><strong>Etapa 7:</strong> Crie sua conta de Administrador (Superlibrarian) com uma senha forte e anote-a.</li>
-      <li><strong>Etapa 8 e 9:</strong> Defina o tipo de exemplar inicial (ex: <code>LIV</code>) e as regras básicas de circulação (dias de empréstimo e renovações).</li>
+      <li><strong>Etapa 1 de 9 (Login Provisório):</strong> Aparecerá a tela inicial. No campo Usuário digite <code>koha_library</code>. No campo Senha, cole a senha provisória gerada no terminal.</li>
+      <li><strong>Etapa 2 de 9 (Idioma):</strong> Selecione a opção <em>Português do Brasil (pt-BR)</em> e clique em Continuar.</li>
+      <li><strong>Etapa 3 de 9 (Módulos e Formato MARC):</strong> O assistente exibirá os módulos Perl (todos OK). Prossiga e escolha <strong>MARC21</strong> (padrão internacional).</li>
+      <li><strong>Etapa 4 de 9 (Configurações Opcionais):</strong> Mantenha marcados os frameworks do MARC21, mas <strong>desmarque todas as caixas que mencionarem dados de exemplo</strong> ("amostras de usuários", "amostras de bibliotecas", "amostras de itens"). Isso impede que o banco seja criado com registros fictícios.</li>
+      <li><strong>Etapa 5 de 9 (Cadastro da Biblioteca):</strong> Código da Biblioteca: digite uma sigla curta (ex: <code>BPM</code>, <code>CENTRAL</code>). Nome da Biblioteca: o nome oficial completo.</li>
+      <li><strong>Etapa 6 de 9 (Categoria do Administrador):</strong> Código da Categoria: digite <code>STAFF</code>. Descrição: digite <em>Administração</em>. Tipo de Categoria: selecione <em>Funcionário (Staff)</em>.</li>
+      <li><strong>Etapa 7 de 9 (Superlibrarian):</strong> Preencha os dados da conta de gerenciamento. Sobrenome/Nome: Seu nome. Número de Cartão: <code>1</code>. Nome de Usuário: o login do dia a dia. <strong>Senha: Crie uma senha forte e segura e anote-a.</strong></li>
+      <li><strong>Etapa 8 de 9 (Categoria de Exemplar):</strong> Código do Tipo de Exemplar: digite <code>LIV</code>. Descrição: digite <em>Livro</em>.</li>
+      <li><strong>Etapa 9 de 9 (Regras de Circulação):</strong> Total de empréstimos permitidos: 3 a 5 exemplares. Período de empréstimo: 14 dias. Renovações permitidas: 2 renovações.</li>
     </ol>
-    <p>Assim que você concluir o assistente no navegador, retorne ao terminal: o script detectará automaticamente a criação do usuário, injetará as regras do Elasticsearch, reindexará o acervo e finalizará o processo.</p>
+    <div class="alert-box">
+      <strong>Atenção Final:</strong> Ao clicar no botão para concluir o assistente, retorne imediatamente à janela do seu terminal. Ele detectará a criação do usuário, aplicará a injeção do Elasticsearch no XML, reindexará os dados e encerrará a instalação com sucesso!
+    </div>
   </section>
 
   <section>
     <h2>6. Restauração de Backup Anterior (Opcional)</h2>
-    <p>Se você possui um dump SQL de uma instalação anterior (renomeado para <code>koha_library.sql</code>), coloque-o na sua pasta de usuário e execute o script automatizado de restauração e reindexação:</p>
+    <p>Se você já possui um arquivo de banco de dados extraído de uma instalação anterior do Koha, siga esta rotina para restaurar seu acervo com reindexação completa no Elasticsearch:</p>
+    
+    <h3>1. Nome e Formato do Arquivo</h3>
+    <p>O arquivo precisa ser um dump SQL descompactado (com extensão <code>.sql</code>) e renomeado obrigatoriamente para <strong><code>koha_library.sql</code></strong>. Se ele estiver compactado como .sql.gz ou .tar.gz, use o 7-Zip ou WinRAR para extrair o arquivo SQL de dentro dele.</p>
 
+    <h3>2. Como colocar o arquivo no servidor em cada Cenário</h3>
+    
+    <h4>Se você está no Linux Mint / Ubuntu Desktop (Cenário 3):</h4>
+    <p>Abra o gerenciador de arquivos visual do Linux, vá na sua pasta pessoal (Home) e simplesmente cole o arquivo <code>koha_library.sql</code> lá dentro.</p>
+    
+    <h4>Se você está no Windows usando WSL2 (Cenário 5):</h4>
+    <p>Você pode copiar o arquivo direto pelo Windows Explorer! Abra o Explorador de Arquivos do Windows e digite na barra de endereços (substitua <code>nomedousuario</code> pelo seu usuário do Ubuntu):</p>
+    <p><code class="inline-code">\\wsl$\Ubuntu\home\nomedousuario\</code></p>
+    <p>Cole o arquivo <code>koha_library.sql</code> direto nessa pasta.<br>
+    Alternativamente, se colocou o arquivo no seu C:\ do Windows, digite no terminal do WSL2:</p>
     <div class="code-container">
-      <div class="code-header"><span>Terminal Linux (Root)</span><button class="copy-btn" onclick="copySnippet(this)">Copiar</button></div>
+      <div class="code-header"><span>Terminal WSL2</span><button class="copy-btn" onclick="copySnippet(this)">Copiar</button></div>
+      <pre><code>cp /mnt/c/koha_library.sql ~/koha_library.sql</code></pre>
+    </div>
+
+    <h4>Se você está no Servidor Físico, VPS ou VirtualBox (Cenários 1, 2 e 4):</h4>
+    <p>Coloque o arquivo na raiz do disco local C:\ do Windows (ficando o caminho exato <code>C:\koha_library.sql</code>). Abra uma nova janela do PowerShell (sem estar conectado via SSH) e digite o comando abaixo (substitua <code>nomedousuario</code> e <code>ipdoservidor</code>):</p>
+    <div class="code-container">
+      <div class="code-header"><span>PowerShell (Local)</span><button class="copy-btn" onclick="copySnippet(this)">Copiar</button></div>
+      <pre><code>scp "C:\koha_library.sql" nomedousuario@ipdoservidor:/home/nomedousuario/</code></pre>
+    </div>
+
+    <h3>3. Executando a Restauração no Servidor</h3>
+    <p>No terminal do Linux como root (<code>sudo -i</code>), execute este script remoto. Ele recria a base de dados, importa o dump antigo, aplica correções de schema e reconstrói os índices do Elasticsearch:</p>
+    <div class="code-container">
+      <div class="code-header"><span>Terminal Linux (Root) - Script de Restauração</span><button class="copy-btn" onclick="copySnippet(this)">Copiar</button></div>
       <pre><code>bash &lt;(curl -s https://raw.githubusercontent.com/PauloFBaldiFH/Koha-Restore/refs/heads/main/restaurar.sh)</code></pre>
     </div>
   </section>
 
   <section>
-    <h2>7. Publicando o Koha na Internet (Cloudflare Tunnel e DigitalPlat)</h2>
-    <p>O Cloudflare Tunnel é a forma mais segura de expor o Koha para a internet. Ele dispensa abertura de portas no modem ou roteador da biblioteca, oculta o IP real do servidor contra invasões e entrega certificado SSL (HTTPS) automático sem custos de infraestrutura.</p>
+    <h2>7. Publicando o Koha na Internet (Cloudflare Tunnel)</h2>
+    <p>O Cloudflare Tunnel é a forma mais segura de expor o Koha para a internet. Ele dispensa abertura de portas no modem ou roteador da biblioteca, oculta o IP real do servidor contra invasões e entrega certificado SSL (HTTPS) automático.</p>
 
-    <h3>Passo 1: Obtendo um Domínio (Próprio ou Gratuito via DigitalPlat)</h3>
-    <p>Para criar o endereço web da biblioteca, você precisa de um domínio:</p>
+    <h3>Passo 1: Domínio Institucional ou Subdomínio Gratuito</h3>
+    <p>Para colocar o catálogo na web, é necessário um endereço de domínio:</p>
     <ul>
-      <li><strong>Domínio Próprio (Recomendado):</strong> Registre um domínio institucional (ex: <code>bibliotecamunicipal.org</code>) diretamente na Cloudflare ou em registradores nacionais (custo anual acessível).</li>
-      <li><strong>Subdomínio 100% Gratuito (DigitalPlat):</strong> Caso não deseje gastar com domínios, você pode obter um subdomínio gratuito utilizando a plataforma DigitalPlat passo a passo:
+      <li><strong>Domínio Próprio (Recomendado):</strong> Registre um domínio institucional (ex: <code>bibliotecamunicipal.org</code>) diretamente no painel da Cloudflare (custo médio de R$ 50 a R$ 60 ao ano).</li>
+      <li><strong>Subdomínio Gratuito (Custo Zero):</strong> Utilize um subdomínio gratuito no DigitalPlat seguindo o procedimento abaixo:
         <ol>
           <li>Acesse <a href="https://domain.digitalplat.org" target="_blank">domain.digitalplat.org</a> e crie uma conta gratuita.</li>
           <li>No menu lateral esquerdo, clique em <strong>Register a domain</strong> e selecione <strong>Domain registration</strong>.</li>
-          <li>Digite o nome desejado para a biblioteca e escolha uma das extensões gratuitas disponíveis (ex: <code>.dpdns.org</code>, <code>.us.kg</code>, <code>.qzz.io</code> ou <code>.xx.kg</code>).</li>
-          <li>Clique em <strong>Check availability</strong> para validar. Se o nome estiver livre, a tela exibirá os campos de servidores de nome (<strong>Name Server 1</strong> até 4). <em>Mantenha essa aba aberta.</em></li>
-          <li>Em uma nova aba, entre no seu painel da <a href="https://www.cloudflare.com" target="_blank">Cloudflare</a>, clique em <strong>Add a site</strong>, cole o nome completo do seu subdomínio recém-criado (ex: <code>bibliotecamunicipal.dpdns.org</code>) e avance.</li>
-          <li>Role a página de planos até o final, selecione o <strong>Plano Gratuito (Free)</strong> e clique em continuar.</li>
-          <li>A Cloudflare fornecerá dois servidores de nome autoritativos (por exemplo: <code>ns1.cloudflare.com</code> e <code>ns2.cloudflare.com</code>). Copie o primeiro endereço.</li>
-          <li>Volte à aba do DigitalPlat, cole o primeiro endereço no campo <strong>Name Server 1</strong> e repita o processo com o segundo endereço no <strong>Name Server 2</strong>. Salve as alterações no DigitalPlat.</li>
-          <li>Retorne à Cloudflare e clique no botão <strong>Atualizei meus nameservers</strong>.</li>
+          <li>Digite o nome escolhido para a biblioteca e escolha uma das 4 extensões disponíveis: <code>.dpdns.org</code>, <code>.us.kg</code>, <code>.qzz.io</code> ou <code>.xx.kg</code>.</li>
+          <li>Clique em <strong>Check availability</strong>. Se o nome estiver disponível, a tela exibirá os campos de servidores de nome: Name Server 1 até 4. <em>Mantenha essa página aberta.</em></li>
+          <li>Em outra aba do navegador, entre no painel da Cloudflare e clique em <strong>Adicionar um site</strong>.</li>
+          <li>Cole o nome completo do subdomínio criado no DigitalPlat (ex: <code>bibliotecamunicipal.dpdns.org</code>) e clique em continuar.</li>
+          <li>Na tela de planos, role a página até o final, selecione o <strong>Plano Gratuito (Free)</strong> e continue.</li>
+          <li>A Cloudflare fornecerá dois servidores de nome autoritativos (ex: <code>ns1.cloudflare.com</code> e <code>ns2.cloudflare.com</code>). Copie o primeiro endereço.</li>
+          <li>Volte à aba do DigitalPlat, cole o primeiro endereço no campo <strong>Name Server 1</strong> e o segundo no campo <strong>Name Server 2</strong>. Salve as alterações no DigitalPlat.</li>
+          <li>De volta à Cloudflare, clique no botão <strong>Atualizei meus nameservers</strong>.</li>
         </ol>
       </li>
     </ul>
 
     <div class="info-box">
-      <strong>Tempo de Propagação de DNS:</strong> A delegação de nameservers em subdomínios gratuitos costuma levar de 15 minutos até 1 hora para propagar globalmente. Caso a Cloudflare exiba um aviso de que os servidores ainda não foram detectados, <em>não exclua o domínio</em>: aguarde alguns minutos e clique novamente em "Verificar nameservers agora".
+      <strong>Tempo de Propagação do DNS:</strong> A delegação de nameservers em subdomínios gratuitos costuma levar entre <strong>15 minutos e até 1 hora</strong> para propagar pela internet. Se a Cloudflare exibir um aviso informando que os servidores ainda não foram detectados, <strong>não exclua o domínio</strong>: aguarde alguns minutos e clique novamente em "Verificar nameservers agora".
     </div>
 
-    <h3>Passo 2: Criando o Túnel Cloudflare no Servidor</h3>
+    <h3>Passo 2: Criando o Túnel Cloudflare</h3>
     <ol>
-      <li>No painel da Cloudflare, navegue pelo menu lateral até: <strong>Zero Trust > Networks > Tunnels</strong>.</li>
-      <li>Clique em <strong>Add a tunnel</strong>, escolha a opção <strong>Cloudflare Managed</strong> e digite um nome de identificação (ex: <code>koha-servidor</code>).</li>
-      <li>Na tela de escolha de sistema operacional do conector, clique em <strong>Debian</strong> e selecione a arquitetura <strong>64-bit</strong>.</li>
-      <li>O painel exibirá um bloco com dois comandos de terminal: o primeiro baixa o pacote oficial do <code>cloudflared</code> e o segundo instala o serviço vinculando o seu token exclusivo.</li>
-      <li>Copie e execute ambos os comandos diretamente no terminal do seu servidor Linux como <code>root</code>. O serviço iniciará imediatamente em segundo plano.</li>
+      <li>No painel lateral da Cloudflare, navegue até: <strong>Zero Trust > Networks > Tunnels</strong>.</li>
+      <li>Clique em <strong>Add a tunnel</strong>, escolha a opção <strong>Cloudflare Managed</strong> e defina um nome de identificação (ex: <code>koha-servidor</code>).</li>
+      <li>Na tela de instalação do conector, clique na opção <strong>Debian</strong> e selecione a arquitetura <strong>64-bit</strong>.</li>
+      <li>O painel exibirá dois comandos em um quadro preto: O primeiro baixa o pacote oficial do conector cloudflared. O segundo instala o serviço e vincula o token de autenticação exclusivo do túnel.</li>
+      <li>Copie e execute ambos os comandos no terminal do Linux como root. O serviço iniciará de imediato em segundo plano.</li>
     </ol>
 
     <h3>Passo 3: Mapeando as Rotas do Staff e do OPAC</h3>
-    <p>Com o túnel conectado, configure os caminhos públicos que darão acesso ao sistema. No painel do túnel, vá até a aba <strong>Public Hostnames</strong> e clique em <strong>Add a public hostname</strong> para cadastrar duas regras:</p>
-    <ul>
-      <li><strong>Regra 1 (Staff / Administração):</strong> No campo <em>Subdomain</em> digite <code>adm</code>, selecione seu domínio na lista e deixe o campo <em>Path</em> em branco. Em <em>Service</em>, escolha o protocolo <strong>HTTP</strong> e a URL local <code>localhost:8080</code>.</li>
-      <li><strong>Regra 2 (OPAC / Catálogo Público):</strong> Deixe o campo <em>Subdomain</em> em branco (para usar a raiz do domínio), selecione seu domínio e deixe o <em>Path</em> em branco. Em <em>Service</em>, escolha <strong>HTTP</strong> e a URL local <code>localhost:80</code>.</li>
-    </ul>
-    <p>Dessa forma, os bibliotecários acessarão o painel restrito por <code>https://adm.seudominio.org</code> e os leitores consultarão o acervo público diretamente em <code>https://seudominio.org</code>.</p>
+    <p>No painel do túnel, clique na aba <strong>Public Hostnames</strong> (Rotas de aplicativo publicadas). Você deve cadastrar duas rotas clicando no botão <strong>Add a public hostname</strong>:</p>
+    
+    <table>
+      <thead>
+        <tr>
+          <th>Finalidade</th>
+          <th>Subdomínio</th>
+          <th>Domínio</th>
+          <th>Caminho (Path)</th>
+          <th>Tipo (Service)</th>
+          <th>URL Local</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Staff (Administração)</td>
+          <td><code>adm</code></td>
+          <td>Seu domínio cadastrado</td>
+          <td><em>Deixe em branco</em></td>
+          <td>HTTP</td>
+          <td><code>localhost:8080</code></td>
+        </tr>
+        <tr>
+          <td>OPAC (Público / Leitor)</td>
+          <td><em>Deixe em branco</em></td>
+          <td>Seu domínio cadastrado</td>
+          <td><em>Deixe em branco</em></td>
+          <td>HTTP</td>
+          <td><code>localhost:80</code></td>
+        </tr>
+      </tbody>
+    </table>
+    
+    <p>Com essa configuração, os bibliotecários acessarão o sistema por <code>https://adm.seudominio.org</code> e os leitores consultarão o catálogo por <code>https://seudominio.org</code>.</p>
 
-    <h3>Passo 4: Blindagem contra Bots de IA e Raspadores</h3>
-    <p>Catálogos abertos costumam sofrer varreduras automatizadas de robôs de coleta e treinamento de Inteligência Artificial, gerando picos de consumo de banda e CPU no Elasticsearch. Para proteger o servidor:</p>
+    <h3>Passo 4: Blindagem contra Raspadores e Bots de IA</h3>
+    <p>Catálogos públicos sofrem varreduras contínuas de robôs de treinamento de IA, gerando requisições em massa que podem sobrecarregar o Elasticsearch. Para proteger o servidor:</p>
     <ul>
       <li>No painel da Cloudflare, abra as configurações do seu domínio e clique em <strong>Security > Bots</strong>.</li>
       <li>Ative a chave <strong>Bot Fight Mode</strong>.</li>
-      <li>Na aba de proteção contra IA, ative a opção para <strong>Bloquear bots de treinamento de IA (Block AI scrapers and crawlers)</strong>.</li>
+      <li>Na aba de segurança contra IA, ative a opção <strong>Bloquear bots de treinamento de IA (Block AI scrapers and crawlers)</strong>.</li>
+      <li>Caso a biblioteca sofra lentidão repentina por tráfego incomum, ative temporariamente o <strong>Modo Sob Ataque (Under Attack Mode)</strong> na página inicial do domínio para exigir um desafio de segurança aos visitantes.</li>
     </ul>
 
-    <h3>Passo 5: Indexação no Google e Ajustes das URLs Base do Koha</h3>
-    <p>Para indexar o acervo no mecanismo de busca do Google e garantir links corretos:</p>
+    <h3>Passo 5: Indexação no Google e URLs Base do Koha</h3>
     <ol>
-      <li>Acesse o <a href="https://search.google.com/search-console" target="_blank">Google Search Console</a>, adicione a propriedade com a URL HTTPS pública do seu OPAC e copie o código de verificação TXT gerado.</li>
-      <li>No painel DNS da Cloudflare, adicione um registro do tipo <strong>TXT</strong>, com nome <code>@</code> e cole o código do Google no conteúdo. Confirme a verificação no Google.</li>
+      <li>Acesse o Google Search Console com sua conta institucional.</li>
+      <li>Selecione o método de verificação por <em>Prefixo de URL</em> ou <em>Domínio</em>, insira o endereço do seu OPAC e copie o código TXT gerado pelo Google.</li>
+      <li>No painel da Cloudflare, acesse <strong>DNS > Registros</strong> e clique em <strong>Adicionar registro</strong>:
+        <ul>
+          <li><strong>Tipo:</strong> Escolha TXT</li>
+          <li><strong>Nome:</strong> Digite <code>@</code> (representa o domínio raiz).</li>
+          <li><strong>Conteúdo:</strong> Cole o código gerado pelo Google e salve. Volte ao Google e confirme a propriedade.</li>
+        </ul>
+      </li>
       <li>No painel Staff do Koha (como administrador), acesse: <strong>Administração do Koha > Preferências do Sistema</strong>:
         <ul>
-          <li>Busque por <code>OpacBaseUrl</code>: Insira a URL pública completa do catálogo (ex: <code>https://seudominio.org</code>).</li>
-          <li>Busque por <code>StaffBaseUrl</code>: Insira a URL pública completa da administração (ex: <code>https://adm.seudominio.org</code>).</li>
-          <li>Busque por <code>LibraryName</code>: Defina o nome oficial da biblioteca que aparecerá nos títulos das abas do navegador.</li>
-          <li>Busque por <code>OpacMetaRobots</code>: Garanta que esteja configurado para permitir a indexação pública pelos robôs de busca.</li>
+          <li>Busque por <code>OpacBaseUrl</code>: Digite a URL HTTPS pública completa do catálogo (ex: <code>https://bibliotecamunicipal.dpdns.org</code>).</li>
+          <li>Busque por <code>StaffBaseUrl</code>: Digite a URL HTTPS pública completa da administração (ex: <code>https://adm.bibliotecamunicipal.dpdns.org</code>).</li>
+          <li>Busque por <code>LibraryName</code>: Insira o nome oficial da biblioteca que aparecerá nos títulos dos resultados de busca do Google.</li>
+          <li>Busque por <code>OpacMetaRobots</code>: Certifique-se de manter desativada qualquer opção que impeça robôs de busca (como noindex), permitindo a leitura e catalogação pelo Google.</li>
         </ul>
       </li>
     </ol>
