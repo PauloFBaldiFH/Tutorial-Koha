@@ -131,7 +131,7 @@
     <p>O Koha é o sistema integrado de gestão de bibliotecas (ILS) de código aberto mais utilizado no mundo. Ele opera sobre a stack LAMP (Linux, Apache, MariaDB e Perl), funcionando como um servidor central corporativo.</p>
     
     <h3>Acesso Universal por Navegador</h3>
-    <p>O sistema fica hospedado em uma única máquina servidora. Funcionários and leitores utilizam o Koha diretamente pelo navegador web (Google Chrome, Firefox, Edge), sem necessidade de instalar programas nos computadores de atendimento ou consulta.</p>
+    <p>O sistema fica hospedado em uma única máquina servidora. Funcionários e leitores utilizam o Koha diretamente pelo navegador web (Google Chrome, Firefox, Edge), sem necessidade de instalar programas nos computadores de atendimento ou consulta.</p>
     
     <p>O Koha opera obrigatoriamente através de duas portas de rede padronizadas:</p>
     <ul>
@@ -271,23 +271,71 @@
   </section>
 
   <section>
-    <h2>7. Publicando o Koha na Internet (Cloudflare Tunnel)</h2>
-    <p>O Cloudflare Tunnel é a forma mais segura de expor o Koha sem abrir portas no roteador, entregando HTTPS automático e proteção avançada.</p>
+    <h2>7. Publicando o Koha na Internet (Cloudflare Tunnel e DigitalPlat)</h2>
+    <p>O Cloudflare Tunnel é a forma mais segura de expor o Koha para a internet. Ele dispensa abertura de portas no modem ou roteador da biblioteca, oculta o IP real do servidor contra invasões e entrega certificado SSL (HTTPS) automático sem custos de infraestrutura.</p>
 
-    <h3>Passo 1: Domínio e Configuração na Cloudflare</h3>
-    <p>Utilize um domínio próprio ou crie um subdomínio gratuito no DigitalPlat apontando para os nameservers da Cloudflare.</p>
-
-    <h3>Passo 2: Criando o Túnel</h3>
-    <p>No painel da Cloudflare (<em>Zero Trust > Networks > Tunnels</em>), crie um novo túnel, selecione Debian 64-bit e execute os dois comandos fornecidos no terminal do seu servidor.</p>
-
-    <h3>Passo 3: Mapeamento de Rotas (Public Hostnames)</h3>
+    <h3>Passo 1: Obtendo um Domínio (Próprio ou Gratuito via DigitalPlat)</h3>
+    <p>Para criar o endereço web da biblioteca, você precisa de um domínio:</p>
     <ul>
-      <li><strong>Staff (Administração):</strong> Subdomínio <code>adm</code> + Seu Domínio -> Serviço HTTP em <code>localhost:8080</code></li>
-      <li><strong>OPAC (Catálogo Público):</strong> Domínio raiz (sem subdomínio) + Seu Domínio -> Serviço HTTP em <code>localhost:80</code></li>
+      <li><strong>Domínio Próprio (Recomendado):</strong> Registre um domínio institucional (ex: <code>bibliotecamunicipal.org</code>) diretamente na Cloudflare ou em registradores nacionais (custo anual acessível).</li>
+      <li><strong>Subdomínio 100% Gratuito (DigitalPlat):</strong> Caso não deseje gastar com domínios, você pode obter um subdomínio gratuito utilizando a plataforma DigitalPlat passo a passo:
+        <ol>
+          <li>Acesse <a href="https://domain.digitalplat.org" target="_blank">domain.digitalplat.org</a> e crie uma conta gratuita.</li>
+          <li>No menu lateral esquerdo, clique em <strong>Register a domain</strong> e selecione <strong>Domain registration</strong>.</li>
+          <li>Digite o nome desejado para a biblioteca e escolha uma das extensões gratuitas disponíveis (ex: <code>.dpdns.org</code>, <code>.us.kg</code>, <code>.qzz.io</code> ou <code>.xx.kg</code>).</li>
+          <li>Clique em <strong>Check availability</strong> para validar. Se o nome estiver livre, a tela exibirá os campos de servidores de nome (<strong>Name Server 1</strong> até 4). <em>Mantenha essa aba aberta.</em></li>
+          <li>Em uma nova aba, entre no seu painel da <a href="https://www.cloudflare.com" target="_blank">Cloudflare</a>, clique em <strong>Add a site</strong>, cole o nome completo do seu subdomínio recém-criado (ex: <code>bibliotecamunicipal.dpdns.org</code>) e avance.</li>
+          <li>Role a página de planos até o final, selecione o <strong>Plano Gratuito (Free)</strong> e clique em continuar.</li>
+          <li>A Cloudflare fornecerá dois servidores de nome autoritativos (por exemplo: <code>ns1.cloudflare.com</code> e <code>ns2.cloudflare.com</code>). Copie o primeiro endereço.</li>
+          <li>Volte à aba do DigitalPlat, cole o primeiro endereço no campo <strong>Name Server 1</strong> e repita o processo com o segundo endereço no <strong>Name Server 2</strong>. Salve as alterações no DigitalPlat.</li>
+          <li>Retorne à Cloudflare e clique no botão <strong>Atualizei meus nameservers</strong>.</li>
+        </ol>
+      </li>
     </ul>
 
-    <h3>Passo 4 e 5: Proteção contra Bots e Ajustes no Koha</h3>
-    <p>Ative o <em>Bot Fight Mode</em> na Cloudflare para bloquear scrapers de IA. Em seguida, acesse o painel Staff do Koha em <em>Administração do Koha > Preferências do Sistema</em> e ajuste os parâmetros <code>OpacBaseUrl</code> e <code>StaffBaseUrl</code> com as respectivas URLs públicas em HTTPS.</p>
+    <div class="info-box">
+      <strong>Tempo de Propagação de DNS:</strong> A delegação de nameservers em subdomínios gratuitos costuma levar de 15 minutos até 1 hora para propagar globalmente. Caso a Cloudflare exiba um aviso de que os servidores ainda não foram detectados, <em>não exclua o domínio</em>: aguarde alguns minutos e clique novamente em "Verificar nameservers agora".
+    </div>
+
+    <h3>Passo 2: Criando o Túnel Cloudflare no Servidor</h3>
+    <ol>
+      <li>No painel da Cloudflare, navegue pelo menu lateral até: <strong>Zero Trust > Networks > Tunnels</strong>.</li>
+      <li>Clique em <strong>Add a tunnel</strong>, escolha a opção <strong>Cloudflare Managed</strong> e digite um nome de identificação (ex: <code>koha-servidor</code>).</li>
+      <li>Na tela de escolha de sistema operacional do conector, clique em <strong>Debian</strong> e selecione a arquitetura <strong>64-bit</strong>.</li>
+      <li>O painel exibirá um bloco com dois comandos de terminal: o primeiro baixa o pacote oficial do <code>cloudflared</code> e o segundo instala o serviço vinculando o seu token exclusivo.</li>
+      <li>Copie e execute ambos os comandos diretamente no terminal do seu servidor Linux como <code>root</code>. O serviço iniciará imediatamente em segundo plano.</li>
+    </ol>
+
+    <h3>Passo 3: Mapeando as Rotas do Staff e do OPAC</h3>
+    <p>Com o túnel conectado, configure os caminhos públicos que darão acesso ao sistema. No painel do túnel, vá até a aba <strong>Public Hostnames</strong> e clique em <strong>Add a public hostname</strong> para cadastrar duas regras:</p>
+    <ul>
+      <li><strong>Regra 1 (Staff / Administração):</strong> No campo <em>Subdomain</em> digite <code>adm</code>, selecione seu domínio na lista e deixe o campo <em>Path</em> em branco. Em <em>Service</em>, escolha o protocolo <strong>HTTP</strong> e a URL local <code>localhost:8080</code>.</li>
+      <li><strong>Regra 2 (OPAC / Catálogo Público):</strong> Deixe o campo <em>Subdomain</em> em branco (para usar a raiz do domínio), selecione seu domínio e deixe o <em>Path</em> em branco. Em <em>Service</em>, escolha <strong>HTTP</strong> e a URL local <code>localhost:80</code>.</li>
+    </ul>
+    <p>Dessa forma, os bibliotecários acessarão o painel restrito por <code>https://adm.seudominio.org</code> e os leitores consultarão o acervo público diretamente em <code>https://seudominio.org</code>.</p>
+
+    <h3>Passo 4: Blindagem contra Bots de IA e Raspadores</h3>
+    <p>Catálogos abertos costumam sofrer varreduras automatizadas de robôs de coleta e treinamento de Inteligência Artificial, gerando picos de consumo de banda e CPU no Elasticsearch. Para proteger o servidor:</p>
+    <ul>
+      <li>No painel da Cloudflare, abra as configurações do seu domínio e clique em <strong>Security > Bots</strong>.</li>
+      <li>Ative a chave <strong>Bot Fight Mode</strong>.</li>
+      <li>Na aba de proteção contra IA, ative a opção para <strong>Bloquear bots de treinamento de IA (Block AI scrapers and crawlers)</strong>.</li>
+    </ul>
+
+    <h3>Passo 5: Indexação no Google e Ajustes das URLs Base do Koha</h3>
+    <p>Para indexar o acervo no mecanismo de busca do Google e garantir links corretos:</p>
+    <ol>
+      <li>Acesse o <a href="https://search.google.com/search-console" target="_blank">Google Search Console</a>, adicione a propriedade com a URL HTTPS pública do seu OPAC e copie o código de verificação TXT gerado.</li>
+      <li>No painel DNS da Cloudflare, adicione um registro do tipo <strong>TXT</strong>, com nome <code>@</code> e cole o código do Google no conteúdo. Confirme a verificação no Google.</li>
+      <li>No painel Staff do Koha (como administrador), acesse: <strong>Administração do Koha > Preferências do Sistema</strong>:
+        <ul>
+          <li>Busque por <code>OpacBaseUrl</code>: Insira a URL pública completa do catálogo (ex: <code>https://seudominio.org</code>).</li>
+          <li>Busque por <code>StaffBaseUrl</code>: Insira a URL pública completa da administração (ex: <code>https://adm.seudominio.org</code>).</li>
+          <li>Busque por <code>LibraryName</code>: Defina o nome oficial da biblioteca que aparecerá nos títulos das abas do navegador.</li>
+          <li>Busque por <code>OpacMetaRobots</code>: Garanta que esteja configurado para permitir a indexação pública pelos robôs de busca.</li>
+        </ul>
+      </li>
+    </ol>
   </section>
 
 </div>
