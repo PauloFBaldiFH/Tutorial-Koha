@@ -204,8 +204,3 @@ koha-plack --restart library
 for job in $(atq 2>/dev/null | cut -f1); do
   atrm "$job" 2>/dev/null || true
 done
-
-echo ""
-echo "======================================================================"
-echo " INSTALAÇÃO COMPLETA. SISTEMA ZEBRA 100% OPERACIONAL E LEVE."
-echo "======================================================================"
