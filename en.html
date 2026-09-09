@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Complete Koha Installation and Configuration Manual</title>
+  <style>
+    :root {
+      --bg-body: #0b0f19;
+      --bg-card: #131b2e;
+      --bg-card-alt: #1e293b;
+      --bg-code: #070a12;
+      --border-color: #243049;
+      --text-main: #e2e8f0;
+      --text-muted: #94a3b8;
+      --text-highlight: #38bdf8;
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --success: #16a34a;
+      --info-bg: #0c2d48;
+      --info-border: #0284c7;
+      --info-text: #bae6fd;
+      --warning-bg: #451a03;
+      --warning-border: #b45309;
+      --warning-text: #fde68a;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background-color: var(--bg-body);
+      color: var(--text-main);
+      line-height: 1.7;
+      padding: 2.5rem 1rem;
+    }
+
+    .container { max-width: 960px; margin: 0 auto; }
+
+    header {
+      margin-bottom: 3rem;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 2rem;
+    }
+
+    h1 { font-size: 2.25rem; color: var(--text-main); margin-bottom: 0.75rem; }
+    .lead { font-size: 1.15rem; color: var(--text-muted); }
+
+    h2 {
+      font-size: 1.6rem;
+      color: var(--text-highlight);
+      margin: 2.5rem 0 1rem 0;
+      padding-bottom: 0.4rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    h3 {
+      font-size: 1.25rem;
+      color: var(--text-main);
+      margin: 1.75rem 0 0.75rem 0;
+    }
+
+    h4 {
+      font-size: 1.1rem;
+      color: var(--text-highlight);
+      margin: 1.25rem 0 0.5rem 0;
+    }
+
+    p { margin-bottom: 1rem; color: #cbd5e1; }
+    ul, ol { margin: 0 0 1.5rem 1.5rem; color: #cbd5e1; }
+    li { margin-bottom: 0.5rem; }
+    
+    strong { color: #fff; }
+
+    .card {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .info-box {
+      background-color: var(--info-bg);
+      border-left: 4px solid var(--info-border);
+      color: var(--info-text);
+      padding: 1rem 1.25rem;
+      border-radius: 4px;
+      margin: 1.5rem 0;
+    }
+    
+    .alert-box {
+      background-color: var(--warning-bg);
+      border-left: 4px solid var(--warning-border);
+      color: var(--warning-text);
+      padding: 1rem 1.25rem;
+      border-radius: 4px;
+      margin: 1.5rem 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1.5rem 0;
+      font-size: 0.9rem;
+      background-color: var(--bg-card);
+    }
+
+    th, td {
+      padding: 0.75rem;
+      text-align: left;
+      border: 1px solid var(--border-color);
+    }
+
+    th {
+      background-color: var(--bg-card-alt);
+      color: var(--text-highlight);
+      font-weight: 600;
+    }
+
+    .code-container {
+      position: relative;
+      background-color: var(--bg-code);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      margin: 1.25rem 0 1.75rem 0;
+      overflow: hidden;
+    }
+
+    .code-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background-color: var(--bg-card-alt);
+      padding: 0.5rem 1rem;
+      font-size: 0.8rem;
+      font-family: monospace;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .copy-btn {
+      background-color: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 0.35rem 0.75rem;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    .copy-btn:hover { background-color: var(--accent-hover); }
+    .copy-btn.copied { background-color: var(--success) !important; }
+
+    pre { margin: 0; padding: 1rem; overflow-x: auto; font-size: 0.875rem; }
+    code { font-family: monospace; color: #e2e8f0; white-space: pre; }
+    
+    .inline-code {
+      background-color: var(--bg-code);
+      color: var(--text-highlight);
+      padding: 0.2rem 0.4rem;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 0.9em;
+      border: 1px solid var(--border-color);
+    }
+
+    .language-container {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 0.8rem;
+      margin-top: 1rem;
+      margin-bottom: 2rem;
+    }
+
+    .language-label {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
+
+    .lang-btn {
+      text-decoration: none;
+      background-color: var(--bg-card);
+      color: var(--text-muted);
+      border: 1px solid var(--border-color);
+      padding: 0.4rem 0.8rem;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+
+    .lang-btn:hover {
+      background-color: var(--bg-card-alt);
+      color: var(--text-main);
+    }
+
+    .lang-btn.active {
+      background-color: var(--accent);
+      color: #fff;
+      border-color: var(--accent-hover);
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+
+  <div class="language-container">
+    <span class="language-label">Select language:</span>
+    <a href="index.html" class="lang-btn">PT-BR</a>
+    <a href="en.html" class="lang-btn active">EN</a>
+    <a href="es.html" class="lang-btn">ES</a>
+  </div>
+
+  <header>
+    <h1>Complete Koha Installation and Configuration Manual</h1>
+    <p class="lead">A structured guide focused on operational stability: meticulous OS preparation across 5 scenarios, an automated script with automatic backups to Google Drive, first web access, database restoration, and publishing via Cloudflare Tunnel.</p>
+  </header>
+
+  <section>
+    <h2>1. What is Koha and how it works</h2>
+    <p>Koha is the world's most widely used open-source Integrated Library System (ILS). It operates on the LAMP stack (Linux, Apache, MariaDB, and Perl), functioning as a centralized enterprise server.</p>
+    
+    <h3>Universal Browser Access</h3>
+    <p>The system is hosted on a single server machine. Staff and patrons use Koha directly through a web browser (Google Chrome, Firefox, Edge), with no need to install programs on circulation or OPAC computers.</p>
+    
+    <p>Koha strictly operates through two standardized network ports:</p>
+    <ul>
+      <li><strong>Port 8080 (Staff / Administrative Interface):</strong> Restricted panel for librarians and clerks. Used for bibliographic cataloging in MARC21 format, circulation control (check-outs and check-ins), patron management, fine management, and generating SQL reports.</li>
+      <li><strong>Port 80 (OPAC / Online Public Access Catalog):</strong> The public page for patrons. It allows users to search the library's collection, check shelf availability, renew loans, and place holds online.</li>
+    </ul>
+
+    <p><strong>Library Network Management:</strong> A single installation can manage multiple physical branches (like a main library and several neighborhood branches or school reading rooms). All share the same catalog while maintaining individual inventory control and circulation rules.</p>
+  </section>
+
+  <section>
+    <h2>2. Choosing the Hosting and Preparing the Operating System</h2>
+    <p>Koha was natively designed to run on Linux (Debian or Ubuntu). How you reach the command line depends entirely on the installation method chosen below. <strong>Strictly follow only the scenario you have chosen:</strong></p>
+
+    <div class="card">
+      <h3>Scenario 1: Dedicated Physical Server (Ubuntu Server)</h3>
+      <p>A clean installation on a physical computer in the library with no previous operating system.</p>
+      <ul>
+        <li><strong>Download the ISO Image:</strong> Download the official Ubuntu Server LTS image.</li>
+        <li><strong>Create a Bootable USB Drive:</strong> Download and install BalenaEtcher. Connect a USB drive of at least 4GB, open BalenaEtcher, click <em>Flash from file</em>, select the downloaded ISO, choose your USB drive, and click <em>Flash!</em>.</li>
+        <li><strong>Motherboard BIOS Adjustments:</strong> Connect the computer to the router via an ethernet cable. Turn on the PC while pressing the BIOS access key (Del, F2, F10, or F12) and configure:
+          <ul>
+            <li><strong>Secure Boot:</strong> Change to Disabled.</li>
+            <li><strong>SATA Mode:</strong> Ensure it is set to AHCI (if the motherboard has this option).</li>
+            <li><strong>Restore on AC Power Loss / AC Back:</strong> Change to Power On (makes the server turn on by itself if the power goes out and comes back).</li>
+            <li><strong>Fast Boot:</strong> Change to Disabled.</li>
+            <li><strong>Halt On:</strong> Change to No Errors (prevents the BIOS from stopping the boot due to a missing keyboard).</li>
+          </ul>
+        </li>
+        <li><strong>Ubuntu Server Installation:</strong> In the BIOS boot tab, select the USB drive. During the installer:
+          <ul>
+            <li>Select the language and leave the network on automatic DHCP (via cable).</li>
+            <li><strong>Partitioning:</strong> Choose <em>Use an entire disk</em>.</li>
+            <li>Set the server name, username, and a strong password (write this data down!).</li>
+            <li><strong>Critical Attention:</strong> On the additional packages screen, <strong>check the "Install OpenSSH server" option using the spacebar</strong>. Without this, you will not be able to access the machine remotely.</li>
+          </ul>
+        </li>
+        <li>Once finished, restart the machine, remove the USB drive, and log in with your username and password. Identify the machine's IP address with the <code>ip a</code> command (as explained in Section 3). Since this machine has no graphical interface, all management will be done via SSH from your desktop computer's PowerShell.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>Scenario 2: Cloud Server / VPS</h3>
+      <p>Installation on a cloud provider (DigitalOcean, Hetzner, AWS, Hostinger, etc.).</p>
+      <ul>
+        <li>Create an account with the chosen company and set up the payment method.</li>
+        <li>Click on Create Instance (or Create Droplet).</li>
+        <li><strong>Operating System:</strong> Choose Ubuntu Server (recent LTS version: 22.04 or 24.04).</li>
+        <li><strong>Hardware Plan (Mandatory):</strong> Select a plan that offers at least <strong>4GB of RAM and 2 vCPUs</strong>. Plans with 1GB or 2GB will crash during search indexing.</li>
+        <li><strong>Authentication:</strong> Choose root password authentication or add your public SSH key.</li>
+        <li>Finish the creation. In a few seconds, the VPS panel will provide a public IP address and the login user (usually root or ubuntu). Access will be done remotely from your terminal or PowerShell via SSH.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>Scenario 3: Computer with Graphical Linux (Linux Mint or Ubuntu Desktop)</h3>
+      <p>Installation on a machine with a visual desktop for direct use on the computer.</p>
+      <ul>
+        <li><strong>Download the ISO:</strong>
+          <ul>
+            <li>Option 1 (Recommended for beginners): Download Linux Mint (Cinnamon Edition).</li>
+            <li>Option 2: Download Ubuntu Desktop.</li>
+          </ul>
+        </li>
+        <li>Flash the ISO to the USB drive using BalenaEtcher in the same way explained in Scenario 1.</li>
+        <li>Disable Secure Boot in the computer's BIOS and start the system from the USB drive.</li>
+        <li>On the installer's desktop, double-click the "Install Linux Mint" (or Install Ubuntu) icon. The wizard is entirely visual: choose your time zone, keyboard layout, create your username and password.</li>
+        <li>Complete the installation and restart the PC.</li>
+        <li><strong>Operational Advantage of this Scenario:</strong> You DO NOT need to use SSH! Open the system's native terminal by pressing <code>Ctrl + Alt + T</code> and run the commands directly in it. All backup file transfers can be done simply by dragging folders through the visual interface.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>Scenario 4: Windows using VirtualBox</h3>
+      <p>Running Ubuntu Server inside a virtual machine on Windows.</p>
+      <ul>
+        <li><strong>Enable Virtualization:</strong> Restart Windows, enter the BIOS, and enable virtualization support: look for <em>Intel Virtualization Technology (VT-x)</em> or <em>SVM Mode (AMD)</em> and set it to Enabled. Without this, VirtualBox will not create 64-bit systems.</li>
+        <li><strong>Required Downloads:</strong> Download and install VirtualBox and download the Ubuntu Server LTS ISO.</li>
+        <li><strong>Creating the Virtual Machine in VirtualBox:</strong>
+          <ul>
+            <li>Open VirtualBox and click the New button. Name: Type <em>Koha-Server</em>.</li>
+            <li>ISO Image: Point to the Ubuntu Server ISO file.</li>
+            <li><strong>CRITICAL ATTENTION (Skip Unattended Installation Checkbox):</strong> On the creation screen, <strong>check the "Skip Unattended Installation" box</strong>. If "Proceed with Unattended Installation" appears, DO NOT LEAVE IT SELECTED. If you allow it, VirtualBox will create a random user and skip OpenSSH, locking you out of the system!</li>
+          </ul>
+        </li>
+        <li><strong>Hardware Resources:</strong> Base Memory (RAM): at least 4096 MB (4 GB). Processors: allocate at least 2 CPUs. Hard Disk: at least 25 GB.</li>
+        <li><strong>Network Configuration (Crucial for working on the local network):</strong>
+          <ul>
+            <li>Go to Settings > Network.</li>
+            <li>In the Attached to: field, change from "NAT" to <strong>Bridged Adapter</strong>.</li>
+            <li>In the Name field, select your computer's network card (Wi-Fi or Ethernet).</li>
+            <li><em>Why is this mandatory?</em> In NAT mode, Koha is isolated. In Bridge mode, your router assigns a real IP to the virtual machine, allowing the local network to access Koha on ports 8080 and 80.</li>
+          </ul>
+        </li>
+        <li>Start the VM and follow the manual Ubuntu Server installation normally, remembering to check the OpenSSH package.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>Scenario 5: Windows using WSL2</h3>
+      <p>The lightest way to run the integrated Linux kernel directly inside Windows 10 or 11.</p>
+      <ul>
+        <li>Enable virtualization (VT-x / AMD-V) in your motherboard's BIOS.</li>
+        <li>In the Windows Start menu, search for <em>Turn Windows features on or off</em> and check: <strong>Windows Subsystem for Linux</strong> and <strong>Virtual Machine Platform</strong>. Click OK and restart.</li>
+        <li>In the Start menu, look for PowerShell, right-click, and select Run as Administrator. Type the command below and press Enter:
+          <div class="code-container" style="margin-top: 0.5rem;">
+            <div class="code-header"><span>PowerShell (Administrator)</span><button class="copy-btn" onclick="copySnippet(this)">Copy</button></div>
+            <pre><code>wsl --install -d Ubuntu</code></pre>
+          </div>
+        </li>
+        <li>Wait for the download and installation. Upon restarting, the black Ubuntu window will open asking you to create a user and password (write this data down).</li>
+        <li>Pin the Ubuntu shortcut to the taskbar.</li>
+        <li><strong>Operational Advantage of this Scenario:</strong> You DO NOT need SSH! Just open the Ubuntu shortcut and paste the commands directly into it. For Koha to work on the network, simply keep this window open and minimized.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>3. IP Identification and Terminal Access</h2>
+    
+    <div class="info-box">
+      <h3>Who needs and who DOES NOT need SSH?</h3>
+      <p><strong>Scenarios 3 and 5 (Graphical Linux / WSL2):</strong> You are working directly on the machine. <strong>You DO NOT need SSH.</strong> Open the terminal on your screen (Ctrl + Alt + T on Linux or the Ubuntu shortcut on Windows) and execute all commands through it.</p>
+      <p><strong>Scenarios 1, 2, and 4 (Physical Server / VPS / VirtualBox):</strong> The server is running in text mode without its own monitor or in the background. You need to connect to it through another computer's <strong>PowerShell</strong> using SSH.</p>
+    </div>
+
+    <h3>How to identify the Server's IP (Scenarios 1, 2, and 4)</h3>
+    <p>In the Linux terminal, run the command:</p>
+    <div class="code-container">
+      <div class="code-header"><span>Linux Terminal</span><button class="copy-btn" onclick="copySnippet(this)">Copy</button></div>
+      <pre><code>ip a</code></pre>
+    </div>
+    <p><strong>How to find your IP in the output:</strong> Look for the main network interface (e.g., <code>eth0</code>, <code>enp3s0</code>, or <code>wlan0</code>). Ignore the <code>lo</code> interface. On the line starting with <code>inet</code>, the number before the slash is your IP (e.g., if it shows <code>inet 192.168.1.50/24</code>, the IP is 192.168.1.50). If you are on a VPS, the IP is the public address provided by the panel.</p>
+
+    <h3>Remote Connection via PowerShell (Only Scenarios 1, 2, and 4)</h3>
+    <p>On the Windows computer you use for work, open PowerShell and type the command below (replace <code>username</code> with the username you created on the server and <code>serverip</code> with the real IP you discovered):</p>
+    <div class="code-container">
+      <div class="code-header"><span>PowerShell</span><button class="copy-btn" onclick="copySnippet(this)">Copy</button></div>
+      <pre><code>ssh -L 53682:127.0.0.1:53682 username@serverip</code></pre>
+    </div>
+    <p><em>Why do we use "-L 53682:127.0.0.1:53682"?</em> This makes PowerShell forward the Google Drive authentication port to your local browser. When the installer asks to authorize the backup, you will be able to approve the account on your own computer without a connection refused error.</p>
+  </section>
+
+  <section>
+    <h2>4. Automated System Installation</h2>
+    <p>With the terminal open (whether locally on Linux Mint/WSL or via SSH in PowerShell), obtain administrator privileges:</p>
+    <div class="code-container">
+      <div class="code-header"><span>Terminal</span><button class="copy-btn" onclick="copySnippet(this)">Copy</button></div>
+      <pre><code>sudo -i</code></pre>
+    </div>
+    
+    <p>Type the Linux user's password. Then, copy and paste the entire line below to trigger the remote automated installer:</p>
+    
+    <div class="code-container">
+      <div class="code-header"><span>Linux Terminal (Root) - Installation Script</span><button class="copy-btn" onclick="copySnippet(this)">Copy</button></div>
+      <pre><code>bash &lt;(curl -s https://raw.githubusercontent.com/PauloFBaldiFH/Tutorial-Koha/main/instalar.sh)</code></pre>
+    </div>
+  </section>
+
+  <section>
+    <h2>5. Completing the Web Installer in the Browser</h2>
+    <p>In step 10 of the script, the terminal will display the provisional credentials and will keep checking every 10 seconds until you complete the wizard. <strong>Leave the terminal window open in the background!</strong></p>
+    
+    <p>Open your web browser and go to:</p>
+    <ul>
+      <li><strong>Scenarios 1, 2, and 4 (Physical Server / VPS / VirtualBox):</strong> Type <code>http://serverip:8080</code> (example: <code>http://192.168.1.50:8080</code>).</li>
+      <li><strong>Scenarios 3 and 5 (Linux Mint / WSL2):</strong> Type directly <code>http://localhost:8080</code>.</li>
+    </ul>
+
+    <p>Follow the steps exactly in this sequence:</p>
+    <ol>
+      <li><strong>Step 1 of 9 (Provisional Login):</strong> The initial screen will appear. In the User field type <code>koha_library</code>. In the Password field, paste the provisional password generated in the terminal.</li>
+      <li><strong>Step 2 of 9 (Language):</strong> Select the option <em>English (en)</em> and click Continue.</li>
+      <li><strong>Step 3 of 9 (Modules and MARC Format):</strong> The wizard will display the Perl modules (all OK). Proceed and choose <strong>MARC21</strong> (international standard).</li>
+      <li><strong>Step 4 of 9 (Optional Settings):</strong> Keep the MARC21 frameworks checked, but <strong>uncheck all boxes mentioning sample data</strong> ("sample patrons", "sample libraries", "sample items"). This prevents the database from being populated with dummy records.</li>
+      <li><strong>Step 5 of 9 (Library Setup):</strong> Library Code: enter a short acronym (e.g., <code>BPM</code>, <code>CENTRAL</code>). Library Name: the full official name.</li>
+      <li><strong>Step 6 of 9 (Patron Category):</strong> Category Code: type <code>STAFF</code>. Description: type <em>Administration</em>. Category Type: select <em>Staff</em>.</li>
+      <li><strong>Step 7 of 9 (Superlibrarian):</strong> Fill in the management account details. Surname/First Name: Your name. Card Number: <code>1</code>. Username: your everyday login. <strong>Password: Create a strong, secure password and write it down.</strong></li>
+      <li><strong>Step 8 of 9 (Item Type):</strong> Item Type Code: type <code>BK</code>. Description: type <em>Book</em>.</li>
+      <li><strong>Step 9 of 9 (Circulation Rules):</strong> Total loans allowed: 3 to 5 items. Loan period: 14 days. Renewals allowed: 2 renewals.</li>
+    </ol>
+    <div class="alert-box">
+      <strong>Final Attention:</strong> When clicking the button to complete the wizard, return immediately to your terminal window. It will detect the user creation, reindex the data, and successfully finish the installation!
+    </div>
+  </section>
+
+  <section>
+    <h2>6. Restoring a Previous Backup (Optional)</h2>
+    <p>If you already have a database file extracted from a previous Koha installation, follow these steps to restore your collection:</p>
+    
+    <h3>1. File Name and Format</h3>
+    <p>The file must be an uncompressed SQL dump (with a <code>.sql</code> extension) and must be renamed exactly to <strong><code>koha_library.sql</code></strong>. If it is compressed as .sql.gz or .tar.gz, use 7-Zip or WinRAR to extract the SQL file from within it.</p>
+
+    <h3>2. How to place the file on the server in each Scenario</h3>
+    
+    <h4>If you are on Linux Mint / Ubuntu Desktop (Scenario 3):</h4>
+    <p>Open the visual Linux file manager, go to your personal folder (Home) and simply paste the <code>koha_library.sql</code> file there.</p>
+    
+    <h4>If you are on Windows using WSL2 (Scenario 5):</h4>
+    <p>You can copy the file directly through Windows Explorer! Open Windows File Explorer and type in the address bar (replace <code>username</code> with your Ubuntu user):</p>
+    <p><code class="inline-code">\\wsl$\Ubuntu\home\username\</code></p>
+    <p>Paste the <code>koha_library.sql</code> file directly into that folder.<br>
+    Alternatively, if you placed the file in your Windows C:\ drive, type in the WSL2 terminal:</p>
+    <div class="code-container">
+      <div class="code-header"><span>WSL2 Terminal</span><button class="copy-btn" onclick="copySnippet(this)">Copy</button></div>
+      <pre><code>cp /mnt/c/koha_library.sql ~/koha_library.sql</code></pre>
+    </div>
+
+    <h4>If you are on a Physical Server, VPS, or VirtualBox (Scenarios 1, 2, and 4):</h4>
+    <p>Place the file in the root of your local Windows C:\ drive (so the exact path is <code>C:\koha_library.sql</code>). Open a new PowerShell window (without being connected via SSH) and type the command below (replace <code>username</code> and <code>serverip</code>):</p>
+    <div class="code-container">
+      <div class="code-header"><span>PowerShell (Local)</span><button class="copy-btn" onclick="copySnippet(this)">Copy</button></div>
+      <pre><code>scp "C:\koha_library.sql" username@serverip:/home/username/</code></pre>
+    </div>
+
+    <h3>3. Executing the Restoration on the Server</h3>
+    <p>In the Linux terminal as root (<code>sudo -i</code>), run this remote script. It recreates the database, imports the old dump, applies schema updates, and rebuilds the indexes. Remember at the end of the installation to copy the Rclone link into the browser to enable automatic backups to Google Drive.</p>
+    <div class="code-container">
+      <div class="code-header"><span>Linux Terminal (Root) - Restoration Script</span><button class="copy-btn" onclick="copySnippet(this)">Copy</button></div>
+      <pre><code>bash &lt;(curl -s https://raw.githubusercontent.com/PauloFBaldiFH/Tutorial-Koha/main/restaurar.sh)</code></pre>
+    </div>
+  </section>
+
+  <section>
+    <h2>7. Publishing Koha on the Internet (Cloudflare Tunnel)</h2>
+    <p>Cloudflare Tunnel is the safest way to expose Koha to the internet. It eliminates the need to open ports on the library's modem or router, hides the server's real IP from attacks, and automatically provides an SSL certificate (HTTPS).</p>
+
+    <h3>Step 1: Institutional Domain or Free Subdomain</h3>
+    <p>To put the catalog on the web, a domain address is required:</p>
+    <ul>
+      <li><strong>Custom Domain (Recommended):</strong> Register an institutional domain (e.g., <code>municipallibrary.org</code>) directly in the Cloudflare dashboard (average cost $10 to $15 per year).</li>
+      <li><strong>Free Subdomain (Zero Cost):</strong> Use a free DigitalPlat subdomain by following the procedure below:
+        <ol>
+          <li>Go to <a href="https://domain.digitalplat.org" target="_blank">domain.digitalplat.org</a> and create a free account.</li>
+          <li>In the left side menu, click on <strong>Register a domain</strong> and select <strong>Domain registration</strong>.</li>
+          <li>Type the chosen name for the library and choose one of the 4 available extensions: <code>.dpdns.org</code>, <code>.us.kg</code>, <code>.qzz.io</code>, or <code>.xx.kg</code>.</li>
+          <li>Click <strong>Check availability</strong>. If the name is available, the screen will display the name server fields: Name Server 1 to 4. <em>Keep this page open.</em></li>
+          <li>In another browser tab, log into the Cloudflare dashboard and click <strong>Add a site</strong>.</li>
+          <li>Paste the full name of the subdomain created on DigitalPlat (e.g., <code>municipallibrary.dpdns.org</code>) and click continue.</li>
+          <li>On the plans screen, scroll to the bottom, select the <strong>Free Plan</strong> and continue.</li>
+          <li>Cloudflare will provide two authoritative name servers (e.g., <code>ns1.cloudflare.com</code> and <code>ns2.cloudflare.com</code>). Copy the first address.</li>
+          <li>Go back to the DigitalPlat tab, paste the first address into the <strong>Name Server 1</strong> field and the second into the <strong>Name Server 2</strong> field. Save the changes on DigitalPlat.</li>
+          <li>Back on Cloudflare, click the <strong>Done, check nameservers</strong> button.</li>
+        </ol>
+      </li>
+    </ul>
+
+    <div class="info-box">
+      <strong>DNS Propagation Time:</strong> Nameserver delegation on free subdomains usually takes between <strong>15 minutes and up to 1 hour</strong> to propagate across the internet. If Cloudflare displays a warning stating that the servers have not yet been detected, <strong>do not delete the domain</strong>: wait a few minutes and click "Check nameservers now" again.
+    </div>
+
+    <h3>Step 2: Creating the Cloudflare Tunnel</h3>
+    <ol>
+      <li>In the Cloudflare side panel, navigate to: <strong>Zero Trust > Networks > Tunnels</strong>.</li>
+      <li>Click on <strong>Add a tunnel</strong>, choose the <strong>Cloudflare Managed</strong> option, and define an identification name (e.g., <code>koha-server</code>).</li>
+      <li>On the connector installation screen, click the <strong>Debian</strong> option and select the <strong>64-bit</strong> architecture.</li>
+      <li>The panel will display two commands in a black box: The first downloads the official cloudflared connector package. The second installs the service and links the tunnel's unique authentication token.</li>
+      <li>Copy and execute both commands in the Linux terminal as root. The service will start immediately in the background.</li>
+    </ol>
+
+    <h3>Step 3: Mapping the Staff and OPAC Routes</h3>
+    <p>In the tunnel panel, click the <strong>Public Hostnames</strong> tab. You must register two routes by clicking the <strong>Add a public hostname</strong> button:</p>
+    
+    <table>
+      <thead>
+        <tr>
+          <th>Purpose</th>
+          <th>Subdomain</th>
+          <th>Domain</th>
+          <th>Path</th>
+          <th>Service Type</th>
+          <th>Local URL</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Staff (Administration)</td>
+          <td><code>adm</code></td>
+          <td>Your registered domain</td>
+          <td><em>Leave blank</em></td>
+          <td>HTTP</td>
+          <td><code>localhost:8080</code></td>
+        </tr>
+        <tr>
+          <td>OPAC (Public / Patron)</td>
+          <td><em>Leave blank</em></td>
+          <td>Your registered domain</td>
+          <td><em>Leave blank</em></td>
+          <td>HTTP</td>
+          <td><code>localhost:80</code></td>
+        </tr>
+      </tbody>
+    </table>
+    
+    <p>With this configuration, librarians will access the system via <code>https://adm.yourdomain.org</code> and patrons will search the catalog via <code>https://yourdomain.org</code>.</p>
+
+    <h3>Step 4: Shielding against Scrapers and AI Bots</h3>
+    <p>Public catalogs suffer continuous scans from AI training bots, generating mass requests that can overload the system. To protect the server:</p>
+    <ul>
+      <li>In the Cloudflare panel, open your domain settings and click <strong>Security > Bots</strong>.</li>
+      <li>Toggle the <strong>Bot Fight Mode</strong> switch on.</li>
+      <li>In the AI security tab, enable the <strong>Block AI scrapers and crawlers</strong> option.</li>
+      <li>If the library experiences sudden slowness due to unusual traffic, temporarily enable <strong>Under Attack Mode</strong> on the domain's home page to require a security challenge from visitors.</li>
+    </ul>
+
+    <h3>Step 5: Google Indexing and Koha Base URLs</h3>
+    <ol>
+      <li>Access Google Search Console with your institutional account.</li>
+      <li>Select the verification method by <em>URL prefix</em> or <em>Domain</em>, enter your OPAC address, and copy the TXT code generated by Google.</li>
+      <li>In the Cloudflare panel, go to <strong>DNS > Records</strong> and click <strong>Add record</strong>:
+        <ul>
+          <li><strong>Type:</strong> Choose TXT</li>
+          <li><strong>Name:</strong> Type <code>@</code> (represents the root domain).</li>
+          <li><strong>Content:</strong> Paste the code generated by Google and save. Return to Google and verify ownership.</li>
+        </ul>
+      </li>
+      <li>In the Koha Staff panel (as administrator), go to: <strong>Koha administration > Global system preferences</strong>:
+        <ul>
+          <li>Search for <code>OpacBaseUrl</code>: Enter the full public HTTPS URL of the catalog (e.g., <code>https://municipallibrary.dpdns.org</code>).</li>
+          <li>Search for <code>StaffBaseUrl</code>: Enter the full public HTTPS URL of the administration (e.g., <code>https://adm.municipallibrary.dpdns.org</code>).</li>
+          <li>Search for <code>LibraryName</code>: Enter the official name of the library that will appear in the titles of Google search results.</li>
+          <li>Search for <code>OpacMetaRobots</code>: Make sure to keep any option that blocks search robots (like noindex) disabled, allowing Google to read and catalog.</li>
+        </ul>
+      </li>
+    </ol>
+  </section>
+
+</div>
+
+<script>
+  function copySnippet(button) {
+    const container = button.closest('.code-container');
+    const code = container.querySelector('code').innerText;
+
+    navigator.clipboard.writeText(code).then(() => {
+      const originalText = button.innerHTML;
+      button.innerText = '✓ Copied!';
+      button.classList.add('copied');
+      setTimeout(() => {
+        button.innerHTML = originalText;
+        button.classList.remove('copied');
+      }, 2000);
+    });
+  }
+</script>
+
+</body>
+</html>
