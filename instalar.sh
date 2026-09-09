@@ -12,10 +12,11 @@ REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 
 echo ">>> [PT] Sincronizando relógio e fuso horário automaticamente / [EN] Syncing clock & timezone automatically / [ES] Sincronizando reloj y zona horaria..."
 apt-get update -o Acquire::Check-Valid-Until=false -y || true
-DEBIAN_FRONTEND=noninteractive apt-get install -y systemd-timesyncd tzdata
+DEBIAN_FRONTEND=noninteractive apt-get install -y systemd-timesyncd tzdata curl
 systemctl enable --now systemd-timesyncd
-timedatectl set-timezone $(curl -s https://ipapi.co/timezone || echo "America/Sao_Paulo")
-timeout 10 bash -c 'until timedatectl | grep -q "synchronized: yes"; do sleep 1; done' || true
+TIMEZONE=$(curl -s --max-time 5 https://ipapi.co/timezone || echo "America/Sao_Paulo")
+timedatectl set-timezone "$TIMEZONE"
+timeout 15 bash -c 'until timedatectl | grep -q "synchronized: yes"; do sleep 1; done' || true
 
 export DEBIAN_FRONTEND=noninteractive
 
@@ -73,7 +74,10 @@ a2ensite library
 systemctl restart apache2
 systemctl restart memcached
 
+echo ">>> Instalando pacotes de idiomas (Português e Español)..."
 koha-translate --install pt-BR
+koha-translate --install es-ES
+
 koha-plack --enable library
 koha-plack --start library
 systemctl restart koha-common
