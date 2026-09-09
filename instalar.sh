@@ -82,10 +82,6 @@ koha-plack --enable library
 koha-plack --start library
 systemctl restart koha-common
 
-# Habilitando o Zebra de forma nativa e compatível com as versões recentes
-koha-enable library
-koha-start-zebra library
-
 echo ">>> Configurando backup e crontab..."
 ARQUIVO_CONF="/etc/koha/sites/library/koha-conf.xml"
 DB_PASS=$(grep -oP '(?<=<pass>)[^<]+' "$ARQUIVO_CONF" | head -n 1)
