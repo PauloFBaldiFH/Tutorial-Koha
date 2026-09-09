@@ -173,7 +173,7 @@
 
   <header>
     <h1>Manual Completo de Instalação e Configuração do Koha</h1>
-    <p class="lead">Guia estruturado com foco em estabilidade operacional: preparação minuciosa do sistema operacional em 5 cenários, script automatizado com Elasticsearch, primeiro acesso web, restauração de banco de dados e publicação via Cloudflare Tunnel.</p>
+    <p class="lead">Guia estruturado com foco em estabilidade operacional: preparação minuciosa do sistema operacional em 5 cenários, script automatizado com backups automáticos, primeiro acesso web, restauração de banco de dados e publicação via Cloudflare Tunnel.</p>
   </header>
 
   <section>
@@ -230,7 +230,7 @@
         <li>Crie uma conta na empresa escolhida e acerte o método de pagamento.</li>
         <li>Clique em Create Instance (ou Create Droplet).</li>
         <li><strong>Sistema Operacional:</strong> Escolha Ubuntu Server (versão LTS recente: 22.04 ou 24.04).</li>
-        <li><strong>Plano de Hardware (Obrigatório):</strong> Selecione um plano que ofereça no mínimo <strong>4GB de RAM e 2 vCPUs</strong>. Planos com 1GB ou 2GB travarão durante a indexação de buscas do Elasticsearch.</li>
+        <li><strong>Plano de Hardware (Obrigatório):</strong> Selecione um plano que ofereça no mínimo <strong>4GB de RAM e 2 vCPUs</strong>. Planos com 1GB ou 2GB travarão durante a indexação de buscas.</li>
         <li><strong>Autenticação:</strong> Escolha autenticação por senha root ou adicione sua chave SSH pública.</li>
         <li>Finalize a criação. Em poucos segundos o painel da VPS fornecerá um Endereço de IP público e o usuário de login (normalmente root ou ubuntu). O acesso será feito remotamente a partir do seu terminal ou PowerShell via SSH.</li>
       </ul>
@@ -364,13 +364,13 @@
       <li><strong>Etapa 9 de 9 (Regras de Circulação):</strong> Total de empréstimos permitidos: 3 a 5 exemplares. Período de empréstimo: 14 dias. Renovações permitidas: 2 renovações.</li>
     </ol>
     <div class="alert-box">
-      <strong>Atenção Final:</strong> Ao clicar no botão para concluir o assistente, retorne imediatamente à janela do seu terminal. Ele detectará a criação do usuário, aplicará a injeção do Elasticsearch no XML, reindexará os dados e encerrará a instalação com sucesso!
+      <strong>Atenção Final:</strong> Ao clicar no botão para concluir o assistente, retorne imediatamente à janela do seu terminal. Ele detectará a criação do usuário, reindexará os dados e encerrará a instalação com sucesso!
     </div>
   </section>
 
   <section>
     <h2>6. Restauração de Backup Anterior (Opcional)</h2>
-    <p>Se você já possui um arquivo de banco de dados extraído de uma instalação anterior do Koha, siga esta rotina para restaurar seu acervo com reindexação completa no Elasticsearch:</p>
+    <p>Se você já possui um arquivo de banco de dados extraído de uma instalação anterior do Koha, siga esses passos para restaurar seu acervo:</p>
     
     <h3>1. Nome e Formato do Arquivo</h3>
     <p>O arquivo precisa ser um dump SQL descompactado (com extensão <code>.sql</code>) e renomeado obrigatoriamente para <strong><code>koha_library.sql</code></strong>. Se ele estiver compactado como .sql.gz ou .tar.gz, use o 7-Zip ou WinRAR para extrair o arquivo SQL de dentro dele.</p>
@@ -398,7 +398,7 @@
     </div>
 
     <h3>3. Executando a Restauração no Servidor</h3>
-    <p>No terminal do Linux como root (<code>sudo -i</code>), execute este script remoto. Ele recria a base de dados, importa o dump antigo, aplica correções de schema e reconstrói os índices do Elasticsearch:</p>
+    <p>No terminal do Linux como root (<code>sudo -i</code>), execute este script remoto. Ele recria a base de dados, importa o dump antigo, aplica correções de schema e reconstrói os índices:</p>
     <div class="code-container">
       <div class="code-header"><span>Terminal Linux (Root) - Script de Restauração</span><button class="copy-btn" onclick="copySnippet(this)">Copiar</button></div>
       <pre><code>bash &lt;(curl -s https://raw.githubusercontent.com/PauloFBaldiFH/Tutorial-Koha/refs/heads/main/restaurar.sh)</code></pre>
@@ -479,7 +479,7 @@
     <p>Com essa configuração, os bibliotecários acessarão o sistema por <code>https://adm.seudominio.org</code> e os leitores consultarão o catálogo por <code>https://seudominio.org</code>.</p>
 
     <h3>Passo 4: Blindagem contra Raspadores e Bots de IA</h3>
-    <p>Catálogos públicos sofrem varreduras contínuas de robôs de treinamento de IA, gerando requisições em massa que podem sobrecarregar o Elasticsearch. Para proteger o servidor:</p>
+    <p>Catálogos públicos sofrem varreduras contínuas de robôs de treinamento de IA, gerando requisições em massa que podem sobrecarregar o sistema. Para proteger o servidor:</p>
     <ul>
       <li>No painel da Cloudflare, abra as configurações do seu domínio e clique em <strong>Security > Bots</strong>.</li>
       <li>Ative a chave <strong>Bot Fight Mode</strong>.</li>
