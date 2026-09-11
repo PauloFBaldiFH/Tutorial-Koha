@@ -32,7 +32,7 @@ fi
 echo ">>> Instalando dependências básicas e ferramentas de segurança..."
 apt-get update && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
 DEBIAN_FRONTEND=noninteractive apt-get install -y nano curl wget gpg ufw software-properties-common default-jre-headless \
-              libapache2-mod-security2 fail2ban postfix libsasl2-modules \
+              libapache2-mod-security2 fail2ban postfix libsasl2-modules glabels \
               at rclone avahi-daemon memcached
 
 systemctl enable --now avahi-daemon
@@ -83,9 +83,9 @@ koha-plack --start library
 systemctl restart koha-common
 
 echo ">>> Configurando backup e crontab..."
+DB_USER="koha_library"
 ARQUIVO_CONF="/etc/koha/sites/library/koha-conf.xml"
 DB_PASS=$(grep -oP '(?<=<pass>)[^<]+' "$ARQUIVO_CONF" | head -n 1)
-DB_USER="koha_library"
 
 mkdir -p "$REAL_HOME/logs" "/var/backups"
 chown -R "$REAL_USER":"$REAL_USER" "$REAL_HOME/logs" 2>/dev/null || true
