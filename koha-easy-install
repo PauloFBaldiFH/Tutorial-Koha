@@ -25,9 +25,6 @@ if [ "$EUID" -ne 0 ]; then
   fi
 fi
 
-# Conecta a entrada ao terminal para compatibilidade total com whiptail
-exec < /dev/tty 2>/dev/null || true
-
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 [ -z "$REAL_HOME" ] && REAL_HOME="/home/$REAL_USER"
@@ -263,15 +260,15 @@ EOF
     chmod 644 /etc/cron.d/koha_tasks
     systemctl restart cron
 
-    # Firewall UFW
-    echo "ufw disable" | at now + 10 minutes
-    ufw allow 22/tcp
-    ufw allow 80/tcp
-    ufw allow 443/tcp
-    ufw allow 8080/tcp
-    ufw allow 587/tcp
-    ufw allow 53682/tcp
-    echo "y" | ufw enable
+    # Firewall UFW (silenciado para não poluir terminal)
+    echo "ufw disable" | at now + 10 minutes >/dev/null 2>&1
+    ufw allow 22/tcp >/dev/null 2>&1
+    ufw allow 80/tcp >/dev/null 2>&1
+    ufw allow 443/tcp >/dev/null 2>&1
+    ufw allow 8080/tcp >/dev/null 2>&1
+    ufw allow 587/tcp >/dev/null 2>&1
+    ufw allow 53682/tcp >/dev/null 2>&1
+    echo "y" | ufw enable >/dev/null 2>&1
     for job in $(atq 2>/dev/null | cut -f1); do atrm "$job" 2>/dev/null || true; done
 
     IP_REAL=$(hostname -I | awk '{print $1}')
@@ -633,6 +630,7 @@ funcao_atualizar_sistema() {
 # MENU PRINCIPAL / MAIN INTERACTIVE MENU
 # ======================================================================
 while true; do
+    OPCAO=""
     OPCAO=$(whiptail --title "Koha Easy Install - Control Dashboard" \
     --menu "[POR] Escolha uma opção / [EN] Choose an option:" 23 88 12 \
     "1"  "Instalar Servidor Koha / Install Koha Server (Zebra Default)" \
@@ -646,9 +644,9 @@ while true; do
     "9"  "Acesso Externo Seguro / Setup Cloudflare Tunnel" \
     "10" "Atualizar Sistema e Schemas / Update System & Schemas" \
     "11" "Status dos Serviços / Detailed Services Status" \
-    "12" "Sair / Exit" 3>&1 1>&2 2>&3)
+    "12" "Sair / Exit" 3>&1 1>&2 2>&3) || { clear; exit 0; }
 
-    if [ $? -ne 0 ]; then clear; exit 0; fi
+    [ -z "$OPCAO" ] && { clear; exit 0; }
 
     case $OPCAO in
         1)  funcao_instalar_koha ;;
@@ -671,4 +669,5 @@ while true; do
             ;;
         12) clear; exit 0 ;;
     esac
+    OPCAO=""
 done
