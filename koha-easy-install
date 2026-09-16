@@ -33,11 +33,6 @@ REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 # ======================================================================
 # FUNÇÃO AUXILIAR: inserir/remover o bloco <elasticsearch> com segurança
 # ======================================================================
-# Usa um parser XML de verdade (Python) em vez de manipulacao de string
-# bruta, para nunca corromper o koha-conf.xml. Sempre remove qualquer
-# bloco <elasticsearch> existente antes de inserir um novo (idempotente).
-#
-# Uso: xml_set_elasticsearch <inserir|remover>
 xml_set_elasticsearch() {
     local ACAO="$1"
     local CONF="/etc/koha/sites/library/koha-conf.xml"
@@ -51,8 +46,6 @@ acao, path = sys.argv[1], sys.argv[2]
 with open(path, "r") as f:
     text = f.read()
 
-# Remove qualquer bloco <elasticsearch>...</elasticsearch> existente,
-# independente de formatacao, para nunca duplicar.
 text = re.sub(r"[ \t]*<elasticsearch>.*?</elasticsearch>[ \t]*\n?", "", text, flags=re.DOTALL)
 
 if acao == "inserir":
@@ -63,7 +56,7 @@ if acao == "inserir":
         "  </elasticsearch>\n"
     )
     if "</config>" not in text:
-        sys.exit("ERRO: tag </config> nao encontrada em koha-conf.xml - abortando para nao corromper o arquivo.")
+        sys.exit("ERRO: tag </config> nao encontrada em koha-conf.xml - abortando.")
     text = text.replace("</config>", es_block + "</config>")
 
 with open(path, "w") as f:
@@ -111,9 +104,6 @@ funcao_instalar_koha() {
     systemctl enable --now avahi-daemon fail2ban
 
     caixa_explicacao "Adicionando repositórios (Koha e Elasticsearch)..." "Adding repositories (Koha and Elasticsearch)..."
-    # Nota: so adicionamos os REPOSITORIOS aqui. Os pacotes elasticsearch e
-    # koha-elasticsearch so sao instalados de fato quando o usuario ativar
-    # o Elasticsearch pelo menu (opcao 3) - mantem a instalacao inicial leve.
     mkdir -p /usr/share/keyrings
     wget -q --timeout=20 --tries=3 -O - https://debian.koha-community.org/koha/gpg.asc | gpg --dearmor --yes -o /usr/share/keyrings/koha-keyring.gpg
     echo "deb [signed-by=/usr/share/keyrings/koha-keyring.gpg] https://debian.koha-community.org/koha oldstable main" > /etc/apt/sources.list.d/koha.list
@@ -154,30 +144,38 @@ funcao_instalar_koha() {
     koha-plack --start library
     systemctl restart koha-common
 
-    caixa_explicacao "Ativando o motor de busca Zebra (padrao)..." "Enabling the Zebra search engine (default)..."
-    # CORRECAO: na versao anterior, o daemon do Zebra nunca era ativado na
-    # instalacao inicial - o catalogo so passava a ser indexado depois que
-    # alguem entrasse no menu e trocasse de motor manualmente. Agora o
-    # Zebra ja fica funcional desde a primeira instalacao.
+    caixa_explicacao "Ativando o motor de busca Zebra (padrão)..." "Enabling the Zebra search engine (default)..."
     koha-zebra --enable library
     koha-zebra --start library
     systemctl enable --now koha-zebra-daemon@library
 
     # ======================================================================
-    # CRIAÇÃO DOS SCRIPTS DE BACKUP (SQL E MARC21)
+    # ARQUIVOS DE BACKUP E CREDENCIAIS
     # ======================================================================
-    caixa_explicacao "Estruturando scripts de Backup (SQL e MARC21)..." "Structuring Backup scripts (SQL and MARC21)..."
+    caixa_explicacao "Estruturando scripts de Backup e Credenciais..." "Structuring Backup scripts and Credentials..."
     ARQUIVO_CONF="/etc/koha/sites/library/koha-conf.xml"
     DB_PASS=$(grep -oP '(?<=<pass>)[^<]+' "$ARQUIVO_CONF" | head -n 1)
     DB_USER="koha_library"
 
     mkdir -p /var/backups/koha_sql /var/backups/koha_marc "$REAL_HOME/logs"
 
+    # Salva arquivo protegido de credenciais acessível apenas pelo root
+    cat << EOF > /root/credenciais_koha.txt
+======================================================================
+ CREDENCIAIS DE ACESSO AO KOHA (INSTÂNCIA: library)
+======================================================================
+ Endereço Staff (Adm):  http://$(hostname -I | awk '{print $1}'):8080
+ Endereço OPAC (Público): http://$(hostname -I | awk '{print $1}'):80
+
+ Usuário Master do Banco: $DB_USER
+ Senha de Instalação:     $DB_PASS
+
+ Arquivo de Configuração: /etc/koha/sites/library/koha-conf.xml
+======================================================================
+EOF
+    chmod 600 /root/credenciais_koha.txt
+
     # Script 1: Backup Diário SQL
-    # CORRECAO: a senha agora vai pela variavel de ambiente MYSQL_PWD em vez
-    # de na linha de comando (-p'senha'), porque uma senha na linha de
-    # comando fica visivel para qualquer usuario do sistema que rodar
-    # "ps aux" enquanto o mysqldump esta em execucao.
     cat << EOF > /root/backup_sql.sh
 #!/bin/bash
 set -o pipefail
@@ -220,7 +218,7 @@ fi
 find "$BACKUP_DIR" -name "koha_marc_*.tar.gz" -mtime "+$KEEP_LOCAL_DAYS" -delete
 EOF
     chmod +x /root/backup_sql.sh /root/backup_marc.sh
-    chmod 600 /root/backup_sql.sh   # contem a senha do banco - so root le
+    chmod 600 /root/backup_sql.sh
 
     # ======================================================================
     # ARQUIVO CENTRAL DE CRONS (FÁCIL EDIÇÃO)
@@ -267,12 +265,6 @@ EOF
     # ======================================================================
     # ARTE ASCII DO SISTEMA (/ETC/ISSUE)
     # ======================================================================
-    # CORRECAO: a senha do banco de dados NAO e mais gravada aqui. O
-    # /etc/issue.net pode ser exibido a qualquer um que tente conectar via
-    # SSH (mesmo sem login valido, dependendo do Banner configurado no
-    # sshd), e o /etc/motd e visivel a qualquer usuario que conseguir
-    # logar, mesmo sem privilegio de root. A senha real fica so no
-    # koha-conf.xml, que tem permissao restrita.
     cat << EOF > /etc/issue
 Ubuntu \n \l
 
@@ -293,17 +285,16 @@ Ubuntu \n \l
              |                                       |
              |  ===================================  |
              |  PAINEL DE CONTROLE / DASHBOARD:      |
-             |  sudo bash options.sh                 |
+             |  sudo bash install.sh                 |
              |  ===================================  |
              |  ENDEREÇOS DE ACESSO / WEB ACCESS:
              |  - Staff (Adm):   http://${IP_REAL}:8080
              |  - OPAC (Leitor): http://${IP_REAL}:80
              |  -----------------------------------  |
-             |  PRIMEIRO ACESSO / INITIAL INSTALL:
-             |  - Usuário do banco / DB user: $DB_USER
-             |  - Senha / Password: veja em
-             |    /etc/koha/sites/library/koha-conf.xml
-             |    (acesso restrito ao root)
+             |  PRIMEIRO ACESSO / CREDENCIAIS:
+             |  - Usuário: $DB_USER
+             |  - Senha:   Para ver, rode no terminal:
+             |             cat /root/credenciais_koha.txt
              |  ===================================  |
              |                                       |
              |    |---|   |---|   .---.   |---|      |
@@ -316,11 +307,28 @@ EOF
     cp /etc/issue /etc/issue.net
     cp /etc/issue /etc/motd
 
-    whiptail --title "Sucesso / Success" --msgbox "[POR] Instalação concluída com sucesso!\nAcesse: http://${IP_REAL}:8080\nUsuário do banco: $DB_USER\nSenha do banco: veja em /etc/koha/sites/library/koha-conf.xml\n\n[EN] Installation completed successfully!\nAccess: http://${IP_REAL}:8080\nDB user: $DB_USER\nDB password: see /etc/koha/sites/library/koha-conf.xml" 14 74
+    whiptail --title "Sucesso / Success" --msgbox "[POR] Instalação concluída com sucesso!\n\nEndereço Staff: http://${IP_REAL}:8080\nEndereço OPAC:  http://${IP_REAL}:80\n\nUsuário de Acesso: $DB_USER\nSenha Gerada:     $DB_PASS\n\n(Esta senha foi salva com segurança em /root/credenciais_koha.txt)\n\n[EN] Installation completed!\nUser: $DB_USER\nPass: $DB_PASS" 17 74
 }
 
 # ======================================================================
-# 2. GERENCIADOR DE CRONJOBS (HORÁRIOS DE BACKUP/TAREFAS)
+# 2. VISUALIZAR CREDENCIAIS DE ACESSO
+# ======================================================================
+funcao_ver_credenciais() {
+    ARQUIVO_CONF="/etc/koha/sites/library/koha-conf.xml"
+    if [ ! -f "$ARQUIVO_CONF" ]; then
+        whiptail --title "Erro" --msgbox "O Koha ainda não foi instalado neste servidor." 8 60
+        return
+    fi
+
+    DB_PASS=$(grep -oP '(?<=<pass>)[^<]+' "$ARQUIVO_CONF" | head -n 1)
+    DB_USER="koha_library"
+    IP_REAL=$(hostname -I | awk '{print $1}')
+
+    whiptail --title "Credenciais de Acesso" --msgbox "[POR] Dados de acesso ao Koha:\n\nStaff (Painel Adm): http://${IP_REAL}:8080\nOPAC (Catálogo):    http://${IP_REAL}:80\n\nUsuário: $DB_USER\nSenha:   $DB_PASS\n\nArquivo local protegido: /root/credenciais_koha.txt" 14 70
+}
+
+# ======================================================================
+# 3. GERENCIADOR DE CRONJOBS (HORÁRIOS DE BACKUP/TAREFAS)
 # ======================================================================
 funcao_gerenciar_crons() {
     whiptail --title "Gerenciador de Tarefas (Cron)" --msgbox "[POR] Você será levado ao arquivo central de configurações (Cronjobs).\nEle contém instruções de como mudar o horário dos backups e avisos.\nPara salvar e sair do arquivo, aperte: CTRL+O, ENTER, e CTRL+X." 12 75
@@ -330,7 +338,7 @@ funcao_gerenciar_crons() {
 }
 
 # ======================================================================
-# 3. CONFIGURAR NUVEM (RCLONE: GDRIVE, ONEDRIVE, ETC)
+# 4. CONFIGURAR NUVEM (RCLONE: GDRIVE, ONEDRIVE, ETC)
 # ======================================================================
 funcao_configurar_rclone() {
     whiptail --title "Cloud Backup (Rclone)" --msgbox "[POR] Siga o assistente para conectar sua conta (Google Drive, OneDrive, Dropbox, etc).\n\nMUITO IMPORTANTE: Quando o assistente perguntar o 'name' do remote, digite exatamente: koha_cloud" 12 75
@@ -341,7 +349,7 @@ funcao_configurar_rclone() {
 }
 
 # ======================================================================
-# 4. RESTAURAR BANCO DE DADOS
+# 5. RESTAURAR BANCO DE DADOS
 # ======================================================================
 funcao_restaurar_banco() {
     BACKUP_FILE=$(whiptail --title "Restauração / Restore" --inputbox "[POR] Digite o caminho do arquivo de backup (.sql ou .sql.gz):" 10 65 "/var/backups/koha_sql/" 3>&1 1>&2 2>&3)
@@ -382,21 +390,8 @@ funcao_restaurar_banco() {
 }
 
 # ======================================================================
-# 5. ALTERNAR MOTOR DE BUSCA (ZEBRA <-> ELASTICSEARCH)
+# 6. ALTERNAR MOTOR DE BUSCA (ZEBRA <-> ELASTICSEARCH)
 # ======================================================================
-# CORRECAO GERAL DESTA FUNCAO:
-#  - A insercao do bloco <elasticsearch> no koha-conf.xml agora usa um
-#    parser XML de verdade (funcao xml_set_elasticsearch), em vez de
-#    trocar "<listen_on>" por "</listen_on>" no arquivo inteiro - a
-#    versao anterior corrompia o XML e podia derrubar Koha inteiro.
-#  - Os pacotes elasticsearch/koha-elasticsearch agora so sao instalados
-#    aqui, na primeira vez que o usuario ativa o Elasticsearch (a
-#    instalacao inicial ficou mais leve).
-#  - Qualquer falha na edicao do XML ou na instalacao agora mostra um
-#    erro claro e interrompe a troca, em vez de seguir em frente e
-#    mostrar "Sucesso" mesmo com o motor quebrado.
-#  - Ao voltar para o Zebra, o bloco <elasticsearch> residual e removido
-#    do koha-conf.xml.
 funcao_alternar_motor_busca() {
     MOTOR_ATUAL=$(mysql -N -e "SELECT value FROM koha_library.systempreferences WHERE variable='SearchEngine';" 2>/dev/null || echo "Zebra")
 
@@ -408,7 +403,7 @@ funcao_alternar_motor_busca() {
 
             caixa_explicacao "Removendo bloco <elasticsearch> do koha-conf.xml..." "Removing <elasticsearch> block from koha-conf.xml..."
             if ! xml_set_elasticsearch remover; then
-                whiptail --title "Erro" --msgbox "[POR] Falha ao editar koha-conf.xml. Nada foi alterado na configuracao XML - verifique o arquivo manualmente." 10 70
+                whiptail --title "Erro" --msgbox "[POR] Falha ao editar koha-conf.xml. Nada foi alterado na configuracao XML." 10 70
                 return
             fi
 
@@ -425,14 +420,14 @@ funcao_alternar_motor_busca() {
             clear
 
             if ! dpkg -s koha-elasticsearch &>/dev/null; then
-                caixa_explicacao "Instalando pacotes do Elasticsearch (primeira ativacao)..." "Installing Elasticsearch packages (first activation)..."
+                caixa_explicacao "Instalando pacotes do Elasticsearch (primeira ativação)..." "Installing Elasticsearch packages (first activation)..."
                 apt-get update
                 if ! DEBIAN_FRONTEND=noninteractive apt-get install -y elasticsearch koha-elasticsearch; then
                     whiptail --title "Erro" --msgbox "[POR] Falha ao instalar os pacotes do Elasticsearch. Motor de busca continua em ZEBRA." 10 70
                     return
                 fi
 
-                caixa_explicacao "Ajustando memoria (JVM) do Elasticsearch..." "Tuning Elasticsearch JVM memory..."
+                caixa_explicacao "Ajustando memória (JVM) do Elasticsearch..." "Tuning Elasticsearch JVM memory..."
                 mkdir -p /etc/elasticsearch/jvm.options.d
                 cat << 'JVMEOF' > /etc/elasticsearch/jvm.options.d/koha.options
 -Xms1g
@@ -441,12 +436,12 @@ JVMEOF
                 /usr/share/elasticsearch/bin/elasticsearch-plugin install --batch analysis-icu 2>/dev/null || true
             fi
 
-            caixa_explicacao "Ativando servico do Elasticsearch..." "Enabling Elasticsearch service..."
+            caixa_explicacao "Ativando serviço do Elasticsearch..." "Enabling Elasticsearch service..."
             systemctl enable --now elasticsearch
 
             caixa_explicacao "Inserindo bloco <elasticsearch> no koha-conf.xml..." "Inserting <elasticsearch> block into koha-conf.xml..."
             if ! xml_set_elasticsearch inserir; then
-                whiptail --title "Erro" --msgbox "[POR] Falha ao editar koha-conf.xml. Nada foi alterado - Koha continua em ZEBRA." 10 70
+                whiptail --title "Erro" --msgbox "[POR] Falha ao editar koha-conf.xml. Nada foi alterado." 10 70
                 systemctl stop elasticsearch 2>/dev/null || true
                 systemctl disable elasticsearch 2>/dev/null || true
                 return
@@ -466,7 +461,7 @@ JVMEOF
 
             caixa_explicacao "Reindexando acervo..." "Reindexing catalog..."
             if ! koha-elasticsearch --rebuild -d library; then
-                whiptail --title "Aviso" --msgbox "[POR] Elasticsearch foi ativado mas a reindexacao falhou. Rode manualmente depois: koha-elasticsearch --rebuild -d library" 10 70
+                whiptail --title "Aviso" --msgbox "[POR] Elasticsearch foi ativado mas a reindexação falhou. Rode manualmente depois: koha-elasticsearch --rebuild -d library" 10 70
             fi
 
             koha-plack --restart library
@@ -476,7 +471,7 @@ JVMEOF
 }
 
 # ======================================================================
-# 6. DIMENSIONAMENTO DE SERVIDOR (TUNING)
+# 7. DIMENSIONAMENTO DE SERVIDOR (TUNING)
 # ======================================================================
 funcao_dimensionar_servidor() {
     PERFIL=$(whiptail --title "Tuning do Servidor" \
@@ -503,7 +498,7 @@ funcao_dimensionar_servidor() {
 }
 
 # ======================================================================
-# 7. CONFIGURAR E-MAILS E AVISOS (SMTP)
+# 8. CONFIGURAR E-MAILS E AVISOS (SMTP)
 # ======================================================================
 funcao_configurar_emails() {
     whiptail --title "E-mails (SMTP)" --msgbox "[POR] O assistente instalará as dependências e exibirá o guia SMTP." 8 70
@@ -545,7 +540,7 @@ O SISTEMA FOI PROGRAMADO PARA PROCESSAR OS EMAILS SEGUNDA ÀS 08:00.
 }
 
 # ======================================================================
-# 8. ACESSO EXTERNO SEGURO (CLOUDFLARE TUNNEL)
+# 9. ACESSO EXTERNO SEGURO (CLOUDFLARE TUNNEL)
 # ======================================================================
 funcao_configurar_cloudflare() {
     TEXTO_TUTORIAL_CF="
@@ -605,7 +600,7 @@ AO FECHAR ESTA TELA, O SCRIPT PEDIRÁ O TOKEN PARA FINALIZAR A INSTALAÇÃO!
 }
 
 # ======================================================================
-# 9. ATUALIZAR SISTEMA
+# 10. ATUALIZAR SISTEMA
 # ======================================================================
 funcao_atualizar_sistema() {
     whiptail --title "Atualização" --msgbox "[POR] Baixando atualizações do Ubuntu e do Koha." 8 60
@@ -622,32 +617,34 @@ funcao_atualizar_sistema() {
 # ======================================================================
 while true; do
     OPCAO=$(whiptail --title "Koha Easy Install" \
-    --menu "[POR] Painel de Administração Integrada:" 22 85 11 \
+    --menu "[POR] Painel de Administração Integrada:" 23 85 12 \
     "1" "Instalar Servidor Koha (Base Leve) / Install" \
-    "2" "Restaurar Acervo (SQL) / Restore DB" \
-    "3" "Alternar Motor de Busca (Zebra <-> Elasticsearch)" \
-    "4" "Dimensionar Servidor (Tuning RAM)" \
-    "5" "Configurar Backup em Nuvem (GDrive/OneDrive)" \
-    "6" "Gerenciar Horários de Backup e Tarefas (Crontab)" \
-    "7" "Configurar E-mails e Avisos (SMTP)" \
-    "8" "Configurar Acesso Externo Seguro (Cloudflare Tunnel)" \
-    "9" "Atualizar Sistema e Banco de Dados" \
-    "10" "Status Detalhado dos Serviços" \
-    "11" "Sair / Exit" 3>&1 1>&2 2>&3)
+    "2" "Ver Credenciais de Acesso (Login e Senha)" \
+    "3" "Restaurar Acervo (SQL) / Restore DB" \
+    "4" "Alternar Motor de Busca (Zebra <-> Elasticsearch)" \
+    "5" "Dimensionar Servidor (Tuning RAM)" \
+    "6" "Configurar Backup em Nuvem (GDrive/OneDrive)" \
+    "7" "Gerenciar Horários de Backup e Tarefas (Crontab)" \
+    "8" "Configurar E-mails e Avisos (SMTP)" \
+    "9" "Configurar Acesso Externo Seguro (Cloudflare Tunnel)" \
+    "10" "Atualizar Sistema e Banco de Dados" \
+    "11" "Status Detalhado dos Serviços" \
+    "12" "Sair / Exit" 3>&1 1>&2 2>&3)
 
     if [ $? -ne 0 ]; then clear; exit 0; fi
 
     case $OPCAO in
         1) funcao_instalar_koha ;;
-        2) funcao_restaurar_banco ;;
-        3) funcao_alternar_motor_busca ;;
-        4) funcao_dimensionar_servidor ;;
-        5) funcao_configurar_rclone ;;
-        6) funcao_gerenciar_crons ;;
-        7) funcao_configurar_emails ;;
-        8) funcao_configurar_cloudflare ;;
-        9) funcao_atualizar_sistema ;;
-        10)
+        2) funcao_ver_credenciais ;;
+        3) funcao_restaurar_banco ;;
+        4) funcao_alternar_motor_busca ;;
+        5) funcao_dimensionar_servidor ;;
+        6) funcao_configurar_rclone ;;
+        7) funcao_gerenciar_crons ;;
+        8) funcao_configurar_emails ;;
+        9) funcao_configurar_cloudflare ;;
+        10) funcao_atualizar_sistema ;;
+        11)
            S_APA=$(systemctl is-active apache2 2>/dev/null || echo "inativo")
            S_MAR=$(systemctl is-active mariadb 2>/dev/null || echo "inativo")
            S_MEM=$(systemctl is-active memcached 2>/dev/null || echo "inativo")
@@ -655,6 +652,6 @@ while true; do
            S_CLD=$(systemctl is-active cloudflared 2>/dev/null || echo "não instalado")
            whiptail --title "Status" --msgbox "Apache: $S_APA\nMariaDB: $S_MAR\nMemcached: $S_MEM\nKoha: $S_KOH\nCloudflare: $S_CLD" 11 40
            ;;
-        11) clear; exit 0 ;;
+        12) clear; exit 0 ;;
     esac
 done
