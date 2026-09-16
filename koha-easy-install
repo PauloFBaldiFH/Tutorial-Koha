@@ -1,0 +1,491 @@
+#!/bin/bash
+# ======================================================================
+# KOHA EASY INSTALL - ADVANCED MANAGEMENT SUITE
+# [POR] Suíte completa de implantação, manutenção, tuning e backups.
+# [EN] Complete suite for deployment, maintenance, tuning, and backups.
+# ======================================================================
+
+exec < /dev/tty
+set -e
+set -o pipefail
+
+# ======================================================================
+# FUNÇÃO DE CAIXAS DE EXPLICAÇÃO
+# ======================================================================
+caixa_explicacao() {
+    local msg_pt="$1"
+    local msg_en="$2"
+    echo -e "\n+--------------------------------------------------------------------+"
+    echo -e "| [POR] $msg_pt"
+    echo -e "| [EN]  $msg_en"
+    echo -e "+--------------------------------------------------------------------+\n"
+}
+
+if [ "$EUID" -ne 0 ]; then
+  echo "ERRO/ERROR: Execute este script como root / Run this script as root ('sudo -i')."
+  exit 1
+fi
+
+REAL_USER="${SUDO_USER:-$USER}"
+REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
+[ -z "$REAL_HOME" ] && REAL_HOME="/home/$REAL_USER"
+
+# ======================================================================
+# 1. INSTALAÇÃO BASE (PADRÃO ZEBRA + LOCALE + SCRIPTS DE BACKUP)
+# ======================================================================
+funcao_instalar_koha() {
+    whiptail --title "Instalação / Installation" --msgbox "[POR] Iniciando o Koha Easy Install (Modo Leve - Zebra por padrão).\n\n[EN] Starting Koha Easy Install (Light Mode - Zebra default)." 9 75
+    clear
+    
+    caixa_explicacao "Configurando Locales e Codificação UTF-8..." "Configuring Locales and UTF-8 Encoding..."
+    apt-get update -o Acquire::Check-Valid-Until=false -y || true
+    DEBIAN_FRONTEND=noninteractive apt-get install -y locales
+    locale-gen pt_BR.UTF-8
+    update-locale LANG=pt_BR.UTF-8 LC_ALL=pt_BR.UTF-8
+    export LANG=pt_BR.UTF-8
+    export LC_ALL=pt_BR.UTF-8
+
+    caixa_explicacao "Sincronizando relógio do sistema (NTP)..." "Synchronizing system clock (NTP)..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y systemd-timesyncd
+    systemctl enable --now systemd-timesyncd
+    timeout 10 bash -c 'until timedatectl | grep -q "synchronized: yes"; do sleep 1; done' || true
+    dpkg-reconfigure tzdata
+    export DEBIAN_FRONTEND=noninteractive
+
+    caixa_explicacao "Criando Memória Virtual (SWAP 4GB)..." "Creating Virtual Memory (SWAP 4GB)..."
+    if [ "$(swapon --show | wc -l)" -le 1 ]; then
+      fallocate -l 4G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=4096
+      chmod 600 /swapfile
+      mkswap /swapfile
+      swapon /swapfile
+      echo '/swapfile none swap sw 0 0' >> /etc/fstab
+    fi
+
+    caixa_explicacao "Instalando dependências essenciais..." "Installing core dependencies..."
+    apt-get update && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
+    DEBIAN_FRONTEND=noninteractive apt-get install -y nano curl wget gpg ufw software-properties-common default-jre-headless \
+                  libapache2-mod-security2 fail2ban postfix libsasl2-modules glabels \
+                  at rclone avahi-daemon memcached python3
+
+    systemctl enable --now avahi-daemon fail2ban
+
+    caixa_explicacao "Adicionando repositórios (Koha e Elasticsearch)..." "Adding repositories (Koha and Elasticsearch)..."
+    mkdir -p /usr/share/keyrings
+    wget -q --timeout=20 --tries=3 -O - https://debian.koha-community.org/koha/gpg.asc | gpg --dearmor --yes -o /usr/share/keyrings/koha-keyring.gpg
+    echo "deb [signed-by=/usr/share/keyrings/koha-keyring.gpg] https://debian.koha-community.org/koha oldstable main" > /etc/apt/sources.list.d/koha.list
+
+    wget -q --timeout=20 --tries=3 -O - https://artifacts.elastic.co/GPG-KEY-elasticsearch | gpg --dearmor --yes -o /usr/share/keyrings/elasticsearch-keyring.gpg
+    echo "deb [signed-by=/usr/share/keyrings/elasticsearch-keyring.gpg] https://artifacts.elastic.co/packages/7.x/apt stable main" > /etc/apt/sources.list.d/elastic-7.x.list
+
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y mariadb-server elasticsearch koha-common koha-elasticsearch
+    systemctl enable --now mariadb
+
+    caixa_explicacao "Preparando Elasticsearch (Desativado inicial)..." "Preparing Elasticsearch (Disabled initially)..."
+    mkdir -p /etc/elasticsearch/jvm.options.d
+    cat << 'EOF' > /etc/elasticsearch/jvm.options.d/koha.options
+-Xms1g
+-Xmx1g
+EOF
+    /usr/share/elasticsearch/bin/elasticsearch-plugin install --batch analysis-icu 2>/dev/null || true
+    systemctl stop elasticsearch
+    systemctl disable elasticsearch
+
+    caixa_explicacao "Configurando Apache e portas..." "Configuring Apache and ports..."
+    sed -i 's/^INTRAPORT=.*/INTRAPORT="8080"/' /etc/koha/koha-sites.conf
+    sed -i 's/^OPACPORT=.*/OPACPORT="80"/' /etc/koha/koha-sites.conf
+    sed -i 's/^#*MEMCACHED_SERVERS=.*/MEMCACHED_SERVERS="127.0.0.1:11211"/' /etc/koha/koha-sites.conf
+    sed -i 's/^#*MEMCACHED_PREFIX=.*/MEMCACHED_PREFIX="koha_"/' /etc/koha/koha-sites.conf
+
+    a2enmod rewrite cgi deflate headers proxy_http
+    grep -q "^Listen 8080" /etc/apache2/ports.conf || sed -i '/Listen 80/a Listen 8080' /etc/apache2/ports.conf
+    systemctl restart apache2
+
+    caixa_explicacao "Criando instância 'library' do Koha..." "Creating 'library' Koha instance..."
+    koha-remove library 2>/dev/null || true
+    mysql -e "DROP DATABASE IF EXISTS koha_library;" 2>/dev/null || true
+    mysql -e "DROP USER IF EXISTS 'koha_library'@'localhost';" 2>/dev/null || true
+    rm -rf /etc/koha/sites/library
+
+    koha-create --create-db library
+
+    sed -i 's/__MEMCACHED_SERVERS__/127.0.0.1:11211/g' /etc/koha/sites/library/koha-conf.xml
+    sed -i 's/__MEMCACHED_PREFIX__/koha_library:/g' /etc/koha/sites/library/koha-conf.xml
+
+    a2dissite 000-default 2>/dev/null || true
+    a2ensite library
+    systemctl restart apache2 memcached
+    koha-translate --install pt-BR
+    koha-plack --enable library
+    koha-plack --start library
+    systemctl restart koha-common
+
+    # ======================================================================
+    # CRIAÇÃO DOS SCRIPTS DE BACKUP (SQL E MARC21)
+    # ======================================================================
+    caixa_explicacao "Estruturando scripts de Backup (SQL e MARC21)..." "Structuring Backup scripts (SQL and MARC21)..."
+    ARQUIVO_CONF="/etc/koha/sites/library/koha-conf.xml"
+    DB_PASS=$(grep -oP '(?<=<pass>)[^<]+' "$ARQUIVO_CONF" | head -n 1)
+    DB_USER="koha_library"
+
+    mkdir -p /var/backups/koha_sql /var/backups/koha_marc "$REAL_HOME/logs"
+
+    # Script 1: Backup Diário SQL
+    cat << EOF > /root/backup_sql.sh
+#!/bin/bash
+set -o pipefail
+DATA=\$(date +%Y-%m-%d_%Hh%M)
+DIR_BACKUP="/var/backups/koha_sql"
+mkdir -p "\$DIR_BACKUP"
+mysqldump -u"$DB_USER" -p'$DB_PASS' "koha_library" | gzip > "\$DIR_BACKUP/koha_library_\$DATA.sql.gz"
+if [ -f /root/.config/rclone/rclone.conf ]; then
+  /usr/bin/rclone --config /root/.config/rclone/rclone.conf move "\$DIR_BACKUP/koha_library_\$DATA.sql.gz" koha_cloud:Backup_SQL_Koha 2>/dev/null || true
+fi
+find "\$DIR_BACKUP" -name "*.sql.gz" -mtime +7 -delete
+EOF
+
+    # Script 2: Backup Semanal MARC21 (Baseado no seu código)
+    cat << 'EOF' > /root/backup_marc.sh
+#!/bin/bash
+set -uo pipefail
+INSTANCE="library"
+EXPORT_SCRIPT="/usr/share/koha/bin/export_records.pl"
+BACKUP_DIR="/var/backups/koha_marc"
+RCLONE_REMOTE="koha_cloud"
+RCLONE_FOLDER="Backup_MARC_Koha"
+KEEP_LOCAL_DAYS=7
+
+DATE=$(date '+%Y-%m-%d_%H%M')
+BIBLIOS_FILE="$BACKUP_DIR/biblios_${DATE}.mrc"
+AUTHS_FILE="$BACKUP_DIR/authorities_${DATE}.mrc"
+ARCHIVE_FILE="$BACKUP_DIR/koha_marc_${DATE}.tar.gz"
+
+mkdir -p "$BACKUP_DIR"
+koha-shell "$INSTANCE" -c "perl $EXPORT_SCRIPT --record-type=bibs --format=marc --filename=$BIBLIOS_FILE" >/dev/null 2>&1
+koha-shell "$INSTANCE" -c "perl $EXPORT_SCRIPT --record-type=auths --format=marc --filename=$AUTHS_FILE" >/dev/null 2>&1
+
+tar -czf "$ARCHIVE_FILE" -C "$BACKUP_DIR" "$(basename "$BIBLIOS_FILE")" "$(basename "$AUTHS_FILE")"
+rm -f "$BIBLIOS_FILE" "$AUTHS_FILE"
+
+if [ -f /root/.config/rclone/rclone.conf ]; then
+  /usr/bin/rclone copy "$ARCHIVE_FILE" "$RCLONE_REMOTE:$RCLONE_FOLDER" >/dev/null 2>&1 || true
+fi
+find "$BACKUP_DIR" -name "koha_marc_*.tar.gz" -mtime "+$KEEP_LOCAL_DAYS" -delete
+EOF
+    chmod +x /root/backup_sql.sh /root/backup_marc.sh
+
+    # ======================================================================
+    # ARQUIVO CENTRAL DE CRONS (FÁCIL EDIÇÃO)
+    # ======================================================================
+    cat << EOF > /etc/cron.d/koha_tasks
+# ======================================================================
+# KOHA EASY INSTALL - GERENCIADOR DE TAREFAS (CRON)
+# ======================================================================
+# Formato: Minuto(0-59) | Hora(0-23) | Dia do Mes(1-31) | Mes(1-12) | Dia da Semana(0-6, 0=Domingo)
+# Exemplo: 30 17 * * * comando  => Executa todos os dias as 17:30
+
+# 1. Limpeza de logs do sistema a cada 14 dias (Roda todo dia as 00:30)
+30 0 * * * root /usr/bin/journalctl --vacuum-time=14d >/dev/null 2>&1
+
+# 2. Verificacao e Reparo do Banco de Dados (Roda todo dia 05 as 01:00)
+0 1 5 * * root /usr/bin/mysqlcheck --check --auto-repair --databases koha_library >/dev/null 2>&1
+
+# 3. Reinicio automatico da interface web Plack para limpar memoria (Todo dia as 05:00)
+0 5 * * * root /usr/sbin/koha-plack --restart library >/dev/null 2>&1
+
+# 4. BACKUP SQL DO BANCO DE DADOS - Diariamente as 17:40
+40 17 * * * root /bin/bash /root/backup_sql.sh >/dev/null 2>&1
+
+# 5. BACKUP MARC21 E AUTORIDADES - Semanalmente aos Domingos as 03:00 (Dia 0)
+0 3 * * 0 root /bin/bash /root/backup_marc.sh >/dev/null 2>&1
+EOF
+    chmod 644 /etc/cron.d/koha_tasks
+    systemctl restart cron
+
+    # Firewall
+    echo "ufw disable" | at now + 10 minutes
+    ufw allow 22/tcp
+    ufw allow 80/tcp
+    ufw allow 443/tcp
+    ufw allow 8080/tcp
+    ufw allow 587/tcp
+    ufw allow 53682/tcp
+    echo "y" | ufw enable
+    for job in $(atq 2>/dev/null | cut -f1); do atrm "$job" 2>/dev/null || true; done
+
+    IP_REAL=$(hostname -I | awk '{print $1}')
+    [ -z "$IP_REAL" ] && IP_REAL="ipdoservidor"
+
+    # ======================================================================
+    # ARTE ASCII DO SISTEMA (/ETC/ISSUE)
+    # ======================================================================
+   # BANNER ESTILIZADO EM FORMA DE EDIFÍCIO
+    cat << EOF > /etc/issue
+Ubuntu \n \l
+
+                  ___________________________________________
+                 /                                           \ 
+                /                KOHA LIBRARY                 \ 
+               /       [POR] PAINEL DE CONTROLE LOCAL          \ 
+              /       [EN] LOCAL MANAGEMENT CONSOLE             \ 
+             /___________________________________________________\ 
+             |   |  |   |   |   |   |   |   |   |   |   |   |   |
+             |===|==|===|===|===|===|===|===|===|===|===|===|===|
+             |                                                   |
+             |  [POR] Boas-vindas ao Koha Easy Install!          |
+             |  [EN]  Welcome to Koha Easy Install!              |
+             |                                                   |
+             |  -----------------------------------------------  |
+             |  COMANDO DO PAINEL / DASHBOARD COMMAND:           |
+             |  sudo bash koha_easy_install.sh                   |
+             |  -----------------------------------------------  |
+             |  ENDERECOS DE ACESSO / WEB ACCESS:                |
+             |  - Staff (Adm):   http://${IP_REAL}:8080          |
+             |  - OPAC (Leitor): http://${IP_REAL}:80            |
+             |  -----------------------------------------------  |
+             |  PRIMEIRO ACESSO / INITIAL INSTALLER:             |
+             |  - Usuario / User:     $DB_USER                   |
+             |  - Senha / Password:   $DB_PASS                   |
+             |                                                   |
+             |         ___   ___   ___       ___   ___           |
+             |        |   | |   | |   | [|] |   | |   |          |
+             |        |___| |___| |___| [_] |___| |___|          |
+             |===================================================|
+
+EOF
+    cp /etc/issue /etc/issue.net
+    cp /etc/issue /etc/motd
+
+    whiptail --title "Sucesso / Success" --msgbox "[POR] Instalação concluída com sucesso!\nAcesse: http://${IP_REAL}:8080\nUsuário: $DB_USER\nSenha: $DB_PASS\n\n[EN] Installation completed successfully!\nAccess: http://${IP_REAL}:8080\nUser: $DB_USER\nPassword: $DB_PASS" 13 70
+}
+
+# ======================================================================
+# 2. GERENCIADOR DE CRONJOBS (HORÁRIOS DE BACKUP/TAREFAS)
+# ======================================================================
+funcao_gerenciar_crons() {
+    whiptail --title "Gerenciador de Tarefas (Cron)" --msgbox "[POR] Você será levado ao arquivo central de configurações (Cronjobs).\nEle contém instruções de como mudar o horário dos backups e avisos.\nPara salvar e sair do arquivo, aperte: CTRL+O, ENTER, e CTRL+X." 12 75
+    nano /etc/cron.d/koha_tasks
+    systemctl restart cron
+    whiptail --title "Sucesso" --msgbox "Horários atualizados com sucesso!" 8 60
+}
+
+# ======================================================================
+# 3. CONFIGURAR NUVEM (RCLONE: GDRIVE, ONEDRIVE, ETC)
+# ======================================================================
+funcao_configurar_rclone() {
+    whiptail --title "Cloud Backup (Rclone)" --msgbox "[POR] Siga o assistente para conectar sua conta (Google Drive, OneDrive, Dropbox, etc).\n\nMUITO IMPORTANTE: Quando o assistente perguntar o 'name' do remote, digite exatamente: koha_cloud" 12 75
+    clear
+    mkdir -p /root/.config/rclone
+    rclone config
+    whiptail --title "Sucesso" --msgbox "[POR] Conta de nuvem vinculada! Os backups diários (SQL) e semanais (MARC) serão enviados automaticamente para lá." 10 70
+}
+
+# ======================================================================
+# 4. RESTAURAR BANCO DE DADOS
+# ======================================================================
+funcao_restaurar_banco() {
+    BACKUP_FILE=$(whiptail --title "Restauração / Restore" --inputbox "[POR] Digite o caminho do arquivo de backup (.sql ou .sql.gz):" 10 65 "/var/backups/koha_sql/" 3>&1 1>&2 2>&3)
+    if [ $? -ne 0 ]; then return; fi
+
+    if [ ! -f "$BACKUP_FILE" ]; then
+       whiptail --title "Erro / Error" --msgbox "Arquivo não encontrado: $BACKUP_FILE" 8 60
+       return
+    fi
+
+    whiptail --title "Restaurando / Restoring" --msgbox "[POR] O banco 'koha_library' será recriado." 8 65
+    clear
+
+    caixa_explicacao "Recriando banco koha_library..." "Recreating koha_library database..."
+    mysql -e "DROP DATABASE IF EXISTS koha_library; CREATE DATABASE koha_library;"
+    
+    if [[ "$BACKUP_FILE" == *.gz ]]; then
+        zcat "$BACKUP_FILE" | mysql koha_library
+    else
+        mysql koha_library < "$BACKUP_FILE"
+    fi
+
+    caixa_explicacao "Atualizando schemas e reiniciando..." "Upgrading schemas and restarting..."
+    systemctl restart memcached
+    koha-upgrade-schema library
+
+    MOTOR_ATUAL=$(mysql -N -e "SELECT value FROM koha_library.systempreferences WHERE variable='SearchEngine';" 2>/dev/null || echo "Zebra")
+    if [ "$MOTOR_ATUAL" == "Elasticsearch" ]; then
+        curl -s -X DELETE 'localhost:9200/koha_library_biblios' >/dev/null 2>&1 || true
+        curl -s -X DELETE 'localhost:9200/koha_library_authorities' >/dev/null 2>&1 || true
+        koha-elasticsearch --rebuild -d library
+    else
+        koha-rebuild-zebra -f -v -b -a library
+    fi
+
+    koha-plack --restart library
+    whiptail --title "Sucesso" --msgbox "[POR] Acervo restaurado e indexado com sucesso!" 8 65
+}
+
+# ======================================================================
+# 5. ALTERNAR MOTOR DE BUSCA (ZEBRA <-> ELASTICSEARCH)
+# ======================================================================
+funcao_alternar_motor_busca() {
+    MOTOR_ATUAL=$(mysql -N -e "SELECT value FROM koha_library.systempreferences WHERE variable='SearchEngine';" 2>/dev/null || echo "Zebra")
+    
+    if [ "$MOTOR_ATUAL" == "Elasticsearch" ]; then
+        if whiptail --title "Motor de Busca" --yesno "[POR] Motor atual: ELASTICSEARCH.\nDeseja voltar para o ZEBRA (Libera ~1.5GB de RAM)?" 10 70; then
+            clear
+            systemctl stop elasticsearch && systemctl disable elasticsearch
+            koha-zebra --enable library && koha-zebra --start library
+            systemctl enable --now koha-zebra-daemon@library
+            mysql -e "UPDATE koha_library.systempreferences SET value='Zebra' WHERE variable='SearchEngine';"
+            koha-rebuild-zebra -f -v -b -a library
+            koha-plack --restart library
+            whiptail --title "Sucesso" --msgbox "Sistema operando com ZEBRA!" 8 60
+        fi
+    else
+        if whiptail --title "Motor de Busca" --yesno "[POR] Motor atual: ZEBRA.\nDeseja ativar o ELASTICSEARCH (Busca avançada)?" 10 70; then
+            clear
+            systemctl enable --now elasticsearch
+            python3 -c '
+path = "/etc/koha/sites/library/koha-conf.xml"
+with open(path, "r") as f: text = f.read()
+import re
+text = re.sub(r"<elasticsearch>.*?</elasticsearch>", "", text, flags=re.DOTALL)
+es_block = "<elasticsearch>\n    <server>127.0.0.1:9200</server>\n    <index_name>koha_library</index_name>\n  </elasticsearch>\n"
+if "<listen_on>" in text:
+    text = text.replace("<listen_on>", "</listen_on>").strip() + "\n" + es_block + "\n"
+    with open(path, "w") as f: f.write(text)
+'
+            systemctl stop koha-zebra-daemon@library 2>/dev/null || true
+            systemctl disable koha-zebra-daemon@library 2>/dev/null || true
+            koha-zebra --stop library 2>/dev/null || true
+            koha-zebra --disable library 2>/dev/null || true
+            
+            mysql -e "UPDATE koha_library.systempreferences SET value='Elasticsearch' WHERE variable='SearchEngine';"
+            mysql -e "UPDATE koha_library.systempreferences SET value='1' WHERE variable='ElasticsearchCommitImmediately';"
+            curl -s -X DELETE 'localhost:9200/koha_library_biblios' >/dev/null 2>&1 || true
+            curl -s -X DELETE 'localhost:9200/koha_library_authorities' >/dev/null 2>&1 || true
+            systemctl restart koha-common
+            koha-elasticsearch --rebuild -d library
+            koha-plack --restart library
+            whiptail --title "Sucesso" --msgbox "Sistema operando com ELASTICSEARCH!" 8 60
+        fi
+    fi
+}
+
+# ======================================================================
+# 6. DIMENSIONAMENTO DE SERVIDOR (TUNING)
+# ======================================================================
+funcao_dimensionar_servidor() {
+    PERFIL=$(whiptail --title "Tuning do Servidor" \
+    --menu "[POR] Selecione o perfil ideal para a RAM da máquina:" 15 80 4 \
+    "1" "Leve (~2GB RAM) - 2 Workers, 64MB Cache, 256MB DB" \
+    "2" "Médio (~4GB RAM) - 4 Workers, 128MB Cache, 1GB DB" \
+    "3" "Alto (8GB+ RAM) - 8 Workers, 256MB Cache, 2GB DB" \
+    "4" "Cancelar / Cancel" 3>&1 1>&2 2>&3)
+    if [ $? -ne 0 ] || [ "$PERFIL" -eq 4 ]; then return; fi
+    case $PERFIL in
+        1) WK="2"; MEM="64"; DB="256M" ;;
+        2) WK="4"; MEM="128"; DB="1G" ;;
+        3) WK="8"; MEM="256"; DB="2G" ;;
+    esac
+    clear
+    sed -i "s/^#*\s*PLACK_WORKERS=.*/PLACK_WORKERS=$WK/" /etc/default/koha-common || echo "PLACK_WORKERS=$WK" >> /etc/default/koha-common
+    sed -i "s/^#*\s*PLACK_MAX_REQUESTS=.*/PLACK_MAX_REQUESTS=100/" /etc/default/koha-common || echo "PLACK_MAX_REQUESTS=100" >> /etc/default/koha-common
+    sed -i "s/^-m .*/-m $MEM/" /etc/memcached.conf
+    mkdir -p /etc/mysql/mariadb.conf.d/
+    echo -e "[mysqld]\ninnodb_buffer_pool_size = $DB" > /etc/mysql/mariadb.conf.d/99-koha-tuning.cnf
+    systemctl restart memcached mariadb koha-common
+    koha-plack --restart library
+    whiptail --title "Sucesso" --msgbox "Servidor redimensionado com sucesso!" 8 60
+}
+
+# ======================================================================
+# 7. CONFIGURAR E-MAILS E AVISOS (SMTP)
+# ======================================================================
+funcao_configurar_emails() {
+    whiptail --title "E-mails (SMTP)" --msgbox "[POR] O assistente instalará as dependências e exibirá o guia SMTP." 8 70
+    clear
+    apt-get install -y postfix libsasl2-modules
+    cat << EOF >> /etc/cron.d/koha_tasks
+# 6. ENVIOS DE EMAIL - Avisos de atraso as 08:00 (Segunda-feira)
+00 08 * * 1 root koha-shell library -c "/usr/share/koha/bin/cronjobs/overdue_notices.pl -v -t -e" >/dev/null 2>&1
+# 7. ENVIOS DE EMAIL - Processa a fila as 08:05 (Segunda-feira)
+05 08 * * 1 root koha-shell library -c "/usr/share/koha/bin/cronjobs/process_message_queue.pl -v" >/dev/null 2>&1
+EOF
+    systemctl restart cron
+    TEXTO_TUTORIAL="
+======================================================================
+ PASSO A PASSO: CONFIGURAÇÃO DE E-MAIL (GMAIL) NO KOHA
+======================================================================
+1. ACESSE AS PREFERÊNCIAS SMTP NO KOHA:
+   Vá em Administração > Servidores SMTP e configure:
+   - Anfitrião (Host): smtp.gmail.com
+   - Porta: 587
+   - SSL: STARTTLS
+   - Autenticação: Sim
+   - Nome de Usuário: [Email da biblioteca]
+   
+2. SENHA DE APLICATIVO DO GOOGLE:
+   Não use sua senha normal! Acesse myaccount.google.com > Segurança
+   > Verificação em 2 etapas > Senhas de App. Digite 'koha', gere e
+   cole a senha de 16 dígitos no Koha.
+
+3. PREFERÊNCIAS GLOBAIS:
+   - EnhancedMessagingPreferences: Permitir
+   - EmailAddressForSuggestions: [Email da biblioteca]
+   - KohaAdminEmailAddress: [Email da biblioteca]
+
+O SISTEMA FOI PROGRAMADO PARA PROCESSAR OS EMAILS SEGUNDA ÀS 08:00.
+(Para alterar o dia ou a hora, use o Gerenciador de Cron no painel).
+"
+    whiptail --title "Tutorial SMTP" --scrolltext "$TEXTO_TUTORIAL" 24 75
+}
+
+# ======================================================================
+# 8. ATUALIZAR SISTEMA
+# ======================================================================
+funcao_atualizar_sistema() {
+    whiptail --title "Atualização" --msgbox "[POR] Baixando atualizações do Ubuntu e do Koha." 8 60
+    clear
+    apt-get update -y && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
+    koha-upgrade-schema library || true
+    systemctl restart memcached apache2 koha-common mariadb
+    koha-plack --restart library
+    whiptail --title "Sucesso" --msgbox "Sistema atualizado!" 8 60
+}
+
+# ======================================================================
+# MENU PRINCIPAL
+# ======================================================================
+while true; do
+    OPCAO=$(whiptail --title "Koha Easy Install" \
+    --menu "[POR] Painel de Administração Integrada:" 21 80 10 \
+    "1" "Instalar Servidor Koha (Base Leve) / Install" \
+    "2" "Restaurar Acervo (SQL) / Restore DB" \
+    "3" "Alternar Motor de Busca (Zebra <-> Elasticsearch)" \
+    "4" "Dimensionar Servidor (Tuning RAM)" \
+    "5" "Configurar Backup em Nuvem (GDrive/OneDrive)" \
+    "6" "Gerenciar Horários de Backup e Tarefas (Crontab)" \
+    "7" "Configurar E-mails e Avisos (SMTP)" \
+    "8" "Atualizar Sistema e Banco de Dados" \
+    "9" "Status Detalhado dos Serviços" \
+    "10" "Sair / Exit" 3>&1 1>&2 2>&3)
+
+    if [ $? -ne 0 ]; then clear; exit 0; fi
+
+    case $OPCAO in
+        1) funcao_instalar_koha ;;
+        2) funcao_restaurar_banco ;;
+        3) funcao_alternar_motor_busca ;;
+        4) funcao_dimensionar_servidor ;;
+        5) funcao_configurar_rclone ;;
+        6) funcao_gerenciar_crons ;;
+        7) funcao_configurar_emails ;;
+        8) funcao_atualizar_sistema ;;
+        9) 
+           S_APA=$(systemctl is-active apache2 2>/dev/null || echo "inativo")
+           S_MAR=$(systemctl is-active mariadb 2>/dev/null || echo "inativo")
+           S_MEM=$(systemctl is-active memcached 2>/dev/null || echo "inativo")
+           S_KOH=$(systemctl is-active koha-common 2>/dev/null || echo "inativo")
+           whiptail --title "Status" --msgbox "Apache: $S_APA\nMariaDB: $S_MAR\nMemcached: $S_MEM\nKoha: $S_KOH" 10 40
+           ;;
+        10) clear; exit 0 ;;
+    esac
+done
