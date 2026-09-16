@@ -275,6 +275,17 @@ EOF
     [ -z "$IP_REAL" ] && IP_REAL="ipdoservidor"
 
     # ======================================================================
+    # PERSISTÊNCIA DO DASHBOARD / DASHBOARD SYSTEM INSTALLATION
+    # ======================================================================
+    if [ -f "$0" ]; then
+        cp "$0" /usr/local/bin/options.sh
+        chmod +x /usr/local/bin/options.sh
+    else
+        curl -fsSL https://raw.githubusercontent.com/PauloFBaldiFH/Tutorial-Koha/main/koha-easy-install -o /usr/local/bin/options.sh 2>/dev/null || true
+        chmod +x /usr/local/bin/options.sh 2>/dev/null || true
+    fi
+
+    # ======================================================================
     # ARTE ASCII DO SISTEMA (/ETC/ISSUE)
     # ======================================================================
     cat << EOF > /etc/issue
@@ -297,7 +308,7 @@ Ubuntu \n \l
              |                                                       |
              |  ===================================================  |
              |  PAINEL DE CONTROLE / CONTROL DASHBOARD:              |
-             |  sudo bash koha-easy-install                          |
+             |  sudo options.sh                                      |
              |  ===================================================  |
              |  ENDEREÇOS DE ACESSO / WEB ACCESS URLS:
              |  - Staff (Adm/Intranet):  http://${IP_REAL}:8080
@@ -318,7 +329,7 @@ EOF
     cp /etc/issue /etc/issue.net
     cp /etc/issue /etc/motd
 
-    whiptail --title "Sucesso / Success" --msgbox "[POR] Instalação concluída com sucesso!\n\nEndereço Staff: http://${IP_REAL}:8080\nEndereço OPAC:  http://${IP_REAL}:80\n\nUsuário: $DB_USER\nSenha:   $DB_PASS\n\n(Salva com segurança em /root/credenciais_koha.txt)\n--------------------------------------------------\n[EN] Installation completed successfully!\n\nStaff URL: http://${IP_REAL}:8080\nOPAC URL:  http://${IP_REAL}:80\n\nUsername: $DB_USER\nPassword: $DB_PASS\n\n(Safely archived in /root/credenciais_koha.txt)" 19 75
+    whiptail --title "Sucesso / Success" --msgbox "[POR] Instalação concluída com sucesso!\n\nStaff: http://${IP_REAL}:8080\nOPAC:  http://${IP_REAL}:80\nUsuário: $DB_USER | Senha: $DB_PASS\nPainel: sudo options.sh\n\nBACKUP EM NUVEM (GOOGLE DRIVE):\nPara sincronizar backups com o Google Drive, execute a Opção 7 (Rclone) deste painel.\nDocumentação oficial: https://rclone.org/drive/\n--------------------------------------------------\n[EN] Installation completed successfully!\n\nStaff URL: http://${IP_REAL}:8080\nOPAC URL:  http://${IP_REAL}:80\nUser: $DB_USER | Password: $DB_PASS\nDashboard: sudo options.sh\n\nCLOUD BACKUP (GOOGLE DRIVE):\nTo sync backups to Google Drive, select Option 7 (Rclone) from this menu.\nOfficial documentation: https://rclone.org/drive/" 22 78
 }
 
 # ======================================================================
@@ -339,28 +350,7 @@ funcao_ver_credenciais() {
 }
 
 # ======================================================================
-# 3. GERENCIADOR DE CRONJOBS / CRONJOB TASK MANAGER
-# ======================================================================
-funcao_gerenciar_crons() {
-    whiptail --title "Tarefas / Tasks (Cron)" --msgbox "[POR] Você será levado ao arquivo central de configurações (Cronjobs).\nEle contém instruções em ambos os idiomas sobre horários de backup e avisos.\nPara salvar e sair: aperte CTRL+O, ENTER, e CTRL+X.\n\n[EN] You will be redirected to the central crontab configuration file.\nIt contains bilingual instructions on adjusting backup schedules.\nTo save and exit: press CTRL+O, ENTER, and CTRL+X." 14 75
-    nano /etc/cron.d/koha_tasks
-    systemctl restart cron
-    whiptail --title "Sucesso / Success" --msgbox "[POR] Tarefas e horários atualizados!\n[EN] Tasks and schedules updated successfully!" 8 60
-}
-
-# ======================================================================
-# 4. CONFIGURAR NUVEM (RCLONE) / CLOUD BACKUP (RCLONE)
-# ======================================================================
-funcao_configurar_rclone() {
-    whiptail --title "Backup em Nuvem / Cloud Backup" --msgbox "[POR] Siga o assistente interativo para vincular Google Drive, OneDrive ou Dropbox.\n\nAVISO CRUCIAL: Quando o assistente perguntar 'name', digite exatamente: koha_cloud\n\n[EN] Follow the wizard to link Google Drive, OneDrive, or Dropbox.\n\nCRITICAL NOTE: When asked for the remote 'name', type exactly: koha_cloud" 14 75
-    clear
-    mkdir -p /root/.config/rclone
-    rclone config
-    whiptail --title "Sucesso / Success" --msgbox "[POR] Nuvem vinculada! Backups SQL diários e MARC semanais serão sincronizados.\n\n[EN] Cloud linked! Daily SQL and weekly MARC backups will be synchronized." 10 70
-}
-
-# ======================================================================
-# 5. RESTAURAR BANCO DE DADOS / RESTORE DATABASE
+# 3. RESTAURAR BANCO DE DADOS / RESTORE DATABASE (CORRIGIDO)
 # ======================================================================
 funcao_restaurar_banco() {
     LOCAL_ARQUIVO="$REAL_HOME/koha_library.sql"
@@ -421,21 +411,38 @@ OPTION 2: COMMAND LINE (WINDOWS POWERSHELL / TERMINAL)
     systemctl restart memcached
     koha-upgrade-schema library
 
-    MOTOR_ATUAL=$(mysql -N -e "SELECT value FROM koha_library.systempreferences WHERE variable='SearchEngine';" 2>/dev/null || echo "Zebra")
-    if [ "$MOTOR_ATUAL" == "Elasticsearch" ]; then
+    caixa_explicacao "Sincronizando Motor de Busca..." "Synchronizing Search Engine..."
+    # -----------------------------------------------------------------------
+    # VALIDAÇÃO DE VERDADE DO SERVIDOR:
+    # Ignora o valor do banco de dados e verifica a infraestrutura real instalada.
+    # -----------------------------------------------------------------------
+    if dpkg -s koha-elasticsearch &>/dev/null && grep -q "<elasticsearch>" /etc/koha/sites/library/koha-conf.xml; then
+        MOTOR_REAL="Elasticsearch"
+    else
+        MOTOR_REAL="Zebra"
+    fi
+
+    # Força o banco recém-restaurado a obedecer à realidade do servidor
+    mysql -e "UPDATE koha_library.systempreferences SET value='$MOTOR_REAL' WHERE variable='SearchEngine';"
+
+    if [ "$MOTOR_REAL" == "Elasticsearch" ]; then
+        mysql -e "UPDATE koha_library.systempreferences SET value='1' WHERE variable='ElasticsearchCommitImmediately';"
         curl -s -X DELETE 'localhost:9200/koha_library_biblios' >/dev/null 2>&1 || true
         curl -s -X DELETE 'localhost:9200/koha_library_authorities' >/dev/null 2>&1 || true
         koha-elasticsearch --rebuild -d library
     else
+        # Garante que os serviços do Zebra subam caso o backup anterior estivesse com Elasticsearch
+        systemctl enable --now koha-zebra-daemon@library 2>/dev/null || true
+        koha-zebra --start library 2>/dev/null || true
         koha-rebuild-zebra -f -v -b -a library
     fi
 
     koha-plack --restart library
-    whiptail --title "Sucesso / Success" --msgbox "[POR] Acervo 'koha_library.sql' restaurado e indexado com sucesso!\n[EN] Database 'koha_library.sql' restored and indexed successfully!" 8 68
+    whiptail --title "Sucesso / Success" --msgbox "[POR] Acervo 'koha_library.sql' restaurado e indexado com sucesso!\nO servidor identificou e ativou automaticamente o motor: $MOTOR_REAL.\n\n[EN] Database 'koha_library.sql' restored and indexed successfully!\nThe server automatically detected and enabled the engine: $MOTOR_REAL." 10 74
 }
 
 # ======================================================================
-# 6. INSTALAR IDIOMAS DO KOHA / INSTALL KOHA LANGUAGES
+# 4. INSTALAR IDIOMAS DO KOHA / INSTALL KOHA LANGUAGES
 # ======================================================================
 funcao_instalar_idiomas() {
     IDIOMA_SELECIONADO=$(whiptail --title "Idiomas do Koha / Koha Languages" \
@@ -550,7 +557,7 @@ funcao_instalar_idiomas() {
 }
 
 # ======================================================================
-# 7. ALTERNAR MOTOR DE BUSCA / TOGGLE SEARCH ENGINE
+# 5. ALTERNAR MOTOR DE BUSCA / TOGGLE SEARCH ENGINE
 # ======================================================================
 funcao_alternar_motor_busca() {
     MOTOR_ATUAL=$(mysql -N -e "SELECT value FROM koha_library.systempreferences WHERE variable='SearchEngine';" 2>/dev/null || echo "Zebra")
@@ -632,7 +639,7 @@ JVMEOF
 }
 
 # ======================================================================
-# 8. DIMENSIONAMENTO DE SERVIDOR / SERVER TUNING
+# 6. DIMENSIONAMENTO DE SERVIDOR / SERVER TUNING
 # ======================================================================
 funcao_dimensionar_servidor() {
     PERFIL=$(whiptail --title "Tuning / Sizing" \
@@ -656,6 +663,27 @@ funcao_dimensionar_servidor() {
     systemctl restart memcached mariadb koha-common
     koha-plack --restart library
     whiptail --title "Sucesso / Success" --msgbox "[POR] Servidor ajustado e reiniciado com sucesso!\n[EN] Server tuned and services restarted successfully!" 8 65
+}
+
+# ======================================================================
+# 7. CONFIGURAR NUVEM (RCLONE) / CLOUD BACKUP (RCLONE)
+# ======================================================================
+funcao_configurar_rclone() {
+    whiptail --title "Backup em Nuvem / Cloud Backup" --msgbox "[POR] Siga o assistente interativo para vincular Google Drive, OneDrive ou Dropbox.\n\nAVISO CRUCIAL: Quando o assistente perguntar 'name', digite exatamente: koha_cloud\nTutorial Google Drive: https://rclone.org/drive/\n\n[EN] Follow the wizard to link Google Drive, OneDrive, or Dropbox.\n\nCRITICAL NOTE: When asked for the remote 'name', type exactly: koha_cloud\nGoogle Drive Guide: https://rclone.org/drive/" 16 78
+    clear
+    mkdir -p /root/.config/rclone
+    rclone config
+    whiptail --title "Sucesso / Success" --msgbox "[POR] Nuvem vinculada! Backups SQL diários e MARC semanais serão sincronizados.\n\n[EN] Cloud linked! Daily SQL and weekly MARC backups will be synchronized." 10 70
+}
+
+# ======================================================================
+# 8. GERENCIADOR DE CRONJOBS / CRONJOB TASK MANAGER
+# ======================================================================
+funcao_gerenciar_crons() {
+    whiptail --title "Tarefas / Tasks (Cron)" --msgbox "[POR] Você será levado ao arquivo central de configurações (Cronjobs).\nEle contém instruções em ambos os idiomas sobre horários de backup e avisos.\nPara salvar e sair: aperte CTRL+O, ENTER, e CTRL+X.\n\n[EN] You will be redirected to the central crontab configuration file.\nIt contains bilingual instructions on adjusting backup schedules.\nTo save and exit: press CTRL+O, ENTER, and CTRL+X." 14 75
+    nano /etc/cron.d/koha_tasks
+    systemctl restart cron
+    whiptail --title "Sucesso / Success" --msgbox "[POR] Tarefas e horários atualizados!\n[EN] Tasks and schedules updated successfully!" 8 60
 }
 
 # ======================================================================
