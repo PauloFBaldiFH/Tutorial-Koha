@@ -160,9 +160,9 @@ funcao_instalar_koha() {
     systemctl restart koha-common
 
     caixa_explicacao "Ativando o motor de busca Zebra (padrão)..." "Enabling the Zebra search engine (default)..."
-    koha-zebra --enable library
-    koha-zebra --start library
-    systemctl enable --now koha-zebra-daemon@library
+    koha-zebra --enable library 2>/dev/null || true
+    koha-zebra --start library 2>/dev/null || true
+    systemctl enable --now koha-zebra-daemon@library 2>/dev/null || true
 
     # ======================================================================
     # ARQUIVOS DE BACKUP E CREDENCIAIS / BACKUP FILES AND CREDENTIALS
@@ -300,7 +300,7 @@ Ubuntu \n \l
              |                                                       |
              |  ===================================================  |
              |  PAINEL DE CONTROLE / CONTROL DASHBOARD:              |
-             |  sudo bash install.sh                                 |
+             |  sudo bash koha-easy-install                          |
              |  ===================================================  |
              |  ENDEREÇOS DE ACESSO / WEB ACCESS URLS:
              |  - Staff (Adm/Intranet):  http://${IP_REAL}:8080
@@ -422,8 +422,9 @@ funcao_alternar_motor_busca() {
             fi
 
             caixa_explicacao "Ativando Zebra..." "Enabling Zebra..."
-            koha-zebra --enable library && koha-zebra --start library
-            systemctl enable --now koha-zebra-daemon@library
+            koha-zebra --enable library 2>/dev/null || true
+            koha-zebra --start library 2>/dev/null || true
+            systemctl enable --now koha-zebra-daemon@library 2>/dev/null || true
             mysql -e "UPDATE koha_library.systempreferences SET value='Zebra' WHERE variable='SearchEngine';"
             koha-rebuild-zebra -f -v -b -a library
             koha-plack --restart library
