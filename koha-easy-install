@@ -260,7 +260,7 @@ EOF
     chmod 644 /etc/cron.d/koha_tasks
     systemctl restart cron
 
-    # Firewall UFW (silenciado para não poluir terminal)
+    # Firewall UFW
     echo "ufw disable" | at now + 10 minutes >/dev/null 2>&1
     ufw allow 22/tcp >/dev/null 2>&1
     ufw allow 80/tcp >/dev/null 2>&1
@@ -275,7 +275,7 @@ EOF
     [ -z "$IP_REAL" ] && IP_REAL="ipdoservidor"
 
     # ======================================================================
-    # ARTE ASCII DO SISTEMA (/ETC/ISSUE) - FACHADA AMPLA E BILÍNGUE
+    # ARTE ASCII DO SISTEMA (/ETC/ISSUE)
     # ======================================================================
     cat << EOF > /etc/issue
 Ubuntu \n \l
@@ -363,25 +363,59 @@ funcao_configurar_rclone() {
 # 5. RESTAURAR BANCO DE DADOS / RESTORE DATABASE
 # ======================================================================
 funcao_restaurar_banco() {
-    BACKUP_FILE=$(whiptail --title "Restauração / Restore" --inputbox "[POR] Digite o caminho do arquivo (.sql ou .sql.gz):\n[EN] Enter the full backup file path (.sql or .sql.gz):" 11 70 "/var/backups/koha_sql/" 3>&1 1>&2 2>&3)
-    if [ $? -ne 0 ]; then return; fi
+    LOCAL_ARQUIVO="$REAL_HOME/koha_library.sql"
+    IP_REAL=$(hostname -I | awk '{print $1}')
+    [ -z "$IP_REAL" ] && IP_REAL="ip_do_servidor"
 
-    if [ ! -f "$BACKUP_FILE" ]; then
-       whiptail --title "Erro / Error" --msgbox "[POR] Arquivo não encontrado: $BACKUP_FILE\n[EN] File not found: $BACKUP_FILE" 8 65
-       return
+    if [ ! -f "$LOCAL_ARQUIVO" ]; then
+        TEXTO_SCP="
+======================================================================
+ [POR] COMO ENVIAR O ARQUIVO DE BACKUP PARA RESTAURAÇÃO
+ [EN]  HOW TO SEND THE BACKUP FILE FOR RESTORATION
+======================================================================
+
+[POR] O Koha Easy Install exige que o arquivo se chame estritamente:
+      koha_library.sql
+      E esteja na pasta de usuário: $REAL_HOME/
+
+OPÇÃO 1: VIA WINSCP (MÉTODO VISUAL MAIS FÁCIL)
+1. No seu computador, baixe o WinSCP (winscp.net).
+2. Conecte no IP: $IP_REAL (Porta 22, com seu usuário e senha).
+3. Renomeie seu backup para 'koha_library.sql'.
+4. Arraste o arquivo diretamente para a pasta inicial ($REAL_HOME/).
+
+OPÇÃO 2: VIA LINHA DE COMANDO / SCP (WINDOWS POWERHELL OU CMD)
+1. Coloque o backup na raiz do seu drive C: com o nome 'koha_library.sql'.
+2. Abra o CMD ou PowerShell no seu computador e execute:
+   scp C:\\koha_library.sql $REAL_USER@$IP_REAL:~
+3. Digite sua senha. O arquivo irá direto para a pasta correta!
+
+----------------------------------------------------------------------
+[EN] The file MUST be named strictly: koha_library.sql
+     And located at the user home directory: $REAL_HOME/
+
+OPTION 1: WINSCP (VISUAL DRAG & DROP)
+- Connect to $IP_REAL on Port 22 and drop 'koha_library.sql' in $REAL_HOME/
+
+OPTION 2: COMMAND LINE (WINDOWS POWERSHELL / TERMINAL)
+- Place file in C:\\ and run:
+  scp C:\\koha_library.sql $REAL_USER@$IP_REAL:~
+======================================================================
+"
+        whiptail --title "Como Enviar o Backup / Backup Guide" --scrolltext "$TEXTO_SCP" 26 82
+        return
     fi
 
-    whiptail --title "Restaurando / Restoring" --msgbox "[POR] O banco 'koha_library' será recriado e reindexado.\n[EN] The 'koha_library' database will be recreated and reindexed." 8 65
-    clear
+    if ! whiptail --title "Confirmar Restauração / Confirm Restore" --yesno "[POR] Arquivo encontrado em:\n$LOCAL_ARQUIVO\n\nATENÇÃO: O acervo atual será totalmente substituído pelo backup.\nDeseja continuar?\n\n[EN] Backup file found at:\n$LOCAL_ARQUIVO\n\nWARNING: Current catalog will be replaced by the backup.\nDo you want to proceed?" 14 74; then
+        return
+    fi
 
+    clear
     caixa_explicacao "Recriando banco de dados koha_library..." "Recreating koha_library database..."
     mysql -e "DROP DATABASE IF EXISTS koha_library; CREATE DATABASE koha_library;"
 
-    if [[ "$BACKUP_FILE" == *.gz ]]; then
-        zcat "$BACKUP_FILE" | mysql koha_library
-    else
-        mysql koha_library < "$BACKUP_FILE"
-    fi
+    caixa_explicacao "Importando acervo (koha_library.sql)..." "Importing catalog (koha_library.sql)..."
+    mysql koha_library < "$LOCAL_ARQUIVO"
 
     caixa_explicacao "Atualizando schemas e reiniciando daemons..." "Upgrading schemas and restarting daemons..."
     systemctl restart memcached
@@ -397,11 +431,126 @@ funcao_restaurar_banco() {
     fi
 
     koha-plack --restart library
-    whiptail --title "Sucesso / Success" --msgbox "[POR] Acervo restaurado e indexado com sucesso!\n[EN] Catalog restored and indexed successfully!" 8 65
+    whiptail --title "Sucesso / Success" --msgbox "[POR] Acervo 'koha_library.sql' restaurado e indexado com sucesso!\n[EN] Database 'koha_library.sql' restored and indexed successfully!" 8 68
 }
 
 # ======================================================================
-# 6. ALTERNAR MOTOR DE BUSCA / TOGGLE SEARCH ENGINE
+# 6. INSTALAR IDIOMAS DO KOHA / INSTALL KOHA LANGUAGES
+# ======================================================================
+funcao_instalar_idiomas() {
+    IDIOMA_SELECIONADO=$(whiptail --title "Idiomas do Koha / Koha Languages" \
+    --menu "[POR] Selecione o pacote de idioma para download e instalação:\n[EN] Select the language package to download and install:" 22 80 13 \
+    "am-Ethi"     "Amharic (Ethiopia)" \
+    "ar-Arab"     "Arabic" \
+    "as-IN"       "Assamese (India)" \
+    "az-AZ"       "Azerbaijani" \
+    "be-BY"       "Belarusian" \
+    "bg-Cyrl"     "Bulgarian" \
+    "bn-IN"       "Bengali (India)" \
+    "bo-CN"       "Tibetan (China)" \
+    "ca-ES"       "Catalan (Spain)" \
+    "cs-CZ"       "Czech" \
+    "cy-GB"       "Welsh" \
+    "da-DK"       "Danish" \
+    "de-CH"       "German (Switzerland)" \
+    "de-DE"       "German (Germany)" \
+    "dz"          "Dzongkha" \
+    "el-GR"       "Greek" \
+    "en-GB"       "English (United Kingdom)" \
+    "en-NZ"       "English (New Zealand)" \
+    "eo"          "Esperanto" \
+    "es-ES"       "Spanish (Spain)" \
+    "et"          "Estonian" \
+    "eu"          "Basque" \
+    "fa-Arab"     "Persian" \
+    "fi-FI"       "Finnish" \
+    "fo-FO"       "Faroese" \
+    "fr-CA"       "French (Canada)" \
+    "fr-FR"       "French (France)" \
+    "ga"          "Irish" \
+    "gd"          "Scottish Gaelic" \
+    "gl"          "Galician" \
+    "he-Hebr"     "Hebrew" \
+    "hi"          "Hindi" \
+    "hr-HR"       "Croatian" \
+    "hu-HU"       "Hungarian" \
+    "hy-Armn"     "Armenian" \
+    "hyw-Armn"    "Western Armenian" \
+    "ia"          "Interlingua" \
+    "id-ID"       "Indonesian" \
+    "iq-CA"       "Inuktitut" \
+    "is-IS"       "Icelandic" \
+    "it-IT"       "Italian" \
+    "iu-CA"       "Inuktitut (Canada)" \
+    "ja-Jpan-JP"  "Japanese" \
+    "ka"          "Georgian" \
+    "kk-KZ"       "Kazakh" \
+    "km-KH"       "Khmer" \
+    "kn-Knda"     "Kannada" \
+    "ko-Kore-KP"  "Korean" \
+    "ku-Arab"     "Kurdish" \
+    "lo-Laoo"     "Lao" \
+    "lv"          "Latvian" \
+    "mi-NZ"       "Maori" \
+    "ml"          "Malayalam" \
+    "mon"         "Mongolian" \
+    "mr"          "Marathi" \
+    "ms-MY"       "Malay" \
+    "my"          "Burmese" \
+    "nb-NO"       "Norwegian Bokmål" \
+    "ne-NE"       "Nepali" \
+    "nl-BE"       "Dutch (Belgium)" \
+    "nl-NL"       "Dutch (Netherlands)" \
+    "nn-NO"       "Norwegian Nynorsk" \
+    "oc"          "Occitan" \
+    "pbr"         "Portuguese (Brazil - Alt)" \
+    "pl-PL"       "Polish" \
+    "prs"         "Dari" \
+    "pt-BR"       "Portuguese (Brazil)" \
+    "pt-PT"       "Portuguese (Portugal)" \
+    "ro-RO"       "Romanian" \
+    "ru-RU"       "Russian" \
+    "rw-RW"       "Kinyarwanda" \
+    "sd-PK"       "Sindhi" \
+    "si"          "Sinhala" \
+    "sk-SK"       "Slovak" \
+    "sl-SI"       "Slovenian" \
+    "sq-AL"       "Albanian" \
+    "sr-Cyrl"     "Serbian (Cyrillic)" \
+    "sv-SE"       "Swedish" \
+    "sw-KE"       "Swahili" \
+    "ta-LK"       "Tamil (Sri Lanka)" \
+    "ta"          "Tamil" \
+    "te"          "Telugu" \
+    "tet"         "Tetum" \
+    "th-TH"       "Thai" \
+    "tk"          "Turkmen" \
+    "tl-PH"       "Tagalog (Philippines)" \
+    "tr-TR"       "Turkish" \
+    "tvl"         "Tuvaluan" \
+    "ty"          "Tahitian" \
+    "uk-UA"       "Ukrainian" \
+    "ur-Arab"     "Urdu" \
+    "uz"          "Uzbek" \
+    "vi-VN"       "Vietnamese" \
+    "zh-Hans-CN"  "Chinese (Simplified)" \
+    "zh-Hant-TW"  "Chinese (Traditional)" 3>&1 1>&2 2>&3)
+
+    if [ $? -ne 0 ] || [ -z "$IDIOMA_SELECIONADO" ]; then return; fi
+
+    clear
+    caixa_explicacao "Baixando e instalando idioma: $IDIOMA_SELECIONADO..." "Downloading and installing language: $IDIOMA_SELECIONADO..."
+    if koha-translate --install "$IDIOMA_SELECIONADO"; then
+        systemctl restart memcached apache2 koha-common
+        koha-plack --restart library
+        whiptail --title "Sucesso / Success" --msgbox "[POR] Pacote '$IDIOMA_SELECIONADO' instalado com sucesso!\nPara ativá-lo, acesse o painel web do Koha em:\nAdministração > Preferências do Sistema > Idiomas (language).\n\n[EN] Package '$IDIOMA_SELECIONADO' installed successfully!\nTo activate it, log into the Koha web dashboard and navigate to:\nAdministration > System Preferences > Languages." 13 74
+    else
+        whiptail --title "Erro / Error" --msgbox "[POR] Falha ao baixar o idioma '$IDIOMA_SELECIONADO'. Verifique a conexão com a internet.\n\n[EN] Failed to download language '$IDIOMA_SELECIONADO'. Please check your internet connection." 9 70
+    fi
+}
+
+# ======================================================================
+# 7. ALTERNAR MOTOR DE BUSCA / TOGGLE SEARCH ENGINE
 # ======================================================================
 funcao_alternar_motor_busca() {
     MOTOR_ATUAL=$(mysql -N -e "SELECT value FROM koha_library.systempreferences WHERE variable='SearchEngine';" 2>/dev/null || echo "Zebra")
@@ -483,7 +632,7 @@ JVMEOF
 }
 
 # ======================================================================
-# 7. DIMENSIONAMENTO DE SERVIDOR / SERVER TUNING
+# 8. DIMENSIONAMENTO DE SERVIDOR / SERVER TUNING
 # ======================================================================
 funcao_dimensionar_servidor() {
     PERFIL=$(whiptail --title "Tuning / Sizing" \
@@ -510,7 +659,7 @@ funcao_dimensionar_servidor() {
 }
 
 # ======================================================================
-# 8. CONFIGURAR E-MAILS (SMTP) / EMAIL NOTICES SETUP
+# 9. CONFIGURAR E-MAILS (SMTP) / EMAIL NOTICES SETUP
 # ======================================================================
 funcao_configurar_emails() {
     whiptail --title "E-mails (SMTP)" --msgbox "[POR] Instalando dependências e abrindo tutorial SMTP.\n[EN] Installing dependencies and opening SMTP setup guide." 8 70
@@ -554,7 +703,7 @@ CRON SCHEDULE: Notice generation at 08:00 and queue processing at 08:05.
 }
 
 # ======================================================================
-# 9. ACESSO EXTERNO (CLOUDFLARE) / EXTERNAL ACCESS (CLOUDFLARE)
+# 10. ACESSO EXTERNO (CLOUDFLARE) / EXTERNAL ACCESS (CLOUDFLARE)
 # ======================================================================
 funcao_configurar_cloudflare() {
     TEXTO_TUTORIAL_CF="
@@ -614,7 +763,7 @@ CLOSE THIS WINDOW TO PASTE YOUR TOKEN AND ACTIVATE THE SERVICE!
 }
 
 # ======================================================================
-# 10. ATUALIZAR SISTEMA / SYSTEM & DATABASE UPDATE
+# 11. ATUALIZAR SISTEMA / SYSTEM & DATABASE UPDATE
 # ======================================================================
 funcao_atualizar_sistema() {
     whiptail --title "Atualização / Update" --msgbox "[POR] Baixando atualizações do Ubuntu e do Koha.\n[EN] Downloading Ubuntu and Koha system updates." 8 65
@@ -632,19 +781,20 @@ funcao_atualizar_sistema() {
 while true; do
     OPCAO=""
     OPCAO=$(whiptail --title "Koha Easy Install - Control Dashboard" \
-    --menu "[POR] Escolha uma opção / [EN] Choose an option:" 23 88 12 \
+    --menu "[POR] Escolha uma opção / [EN] Choose an option:" 23 88 13 \
     "1"  "Instalar Servidor Koha / Install Koha Server (Zebra Default)" \
     "2"  "Ver Credenciais de Acesso / View Stored Credentials" \
-    "3"  "Restaurar Acervo (SQL) / Restore Database Dump" \
-    "4"  "Alternar Motor de Busca / Toggle Search (Zebra <-> Elasticsearch)" \
-    "5"  "Dimensionar Servidor / Server Sizing & Memory Tuning" \
-    "6"  "Configurar Backup em Nuvem / Setup Cloud Backup (Rclone)" \
-    "7"  "Gerenciar Tarefas Agendadas / Manage Crontab Schedules" \
-    "8"  "Configurar E-mails e Avisos / Setup SMTP Email Notices" \
-    "9"  "Acesso Externo Seguro / Setup Cloudflare Tunnel" \
-    "10" "Atualizar Sistema e Schemas / Update System & Schemas" \
-    "11" "Status dos Serviços / Detailed Services Status" \
-    "12" "Sair / Exit" 3>&1 1>&2 2>&3) || { clear; exit 0; }
+    "3"  "Restaurar Acervo (koha_library.sql) / Restore Database" \
+    "4"  "Baixar Idiomas do Koha / Download Koha Languages" \
+    "5"  "Alternar Motor de Busca / Toggle Search (Zebra <-> Elasticsearch)" \
+    "6"  "Dimensionar Servidor / Server Sizing & Memory Tuning" \
+    "7"  "Configurar Backup em Nuvem / Setup Cloud Backup (Rclone)" \
+    "8"  "Gerenciar Tarefas Agendadas / Manage Crontab Schedules" \
+    "9"  "Configurar E-mails e Avisos / Setup SMTP Email Notices" \
+    "10" "Acesso Externo Seguro / Setup Cloudflare Tunnel" \
+    "11" "Atualizar Sistema e Schemas / Update System & Schemas" \
+    "12" "Status dos Serviços / Detailed Services Status" \
+    "13" "Sair / Exit" 3>&1 1>&2 2>&3) || { clear; exit 0; }
 
     [ -z "$OPCAO" ] && { clear; exit 0; }
 
@@ -652,14 +802,15 @@ while true; do
         1)  funcao_instalar_koha ;;
         2)  funcao_ver_credenciais ;;
         3)  funcao_restaurar_banco ;;
-        4)  funcao_alternar_motor_busca ;;
-        5)  funcao_dimensionar_servidor ;;
-        6)  funcao_configurar_rclone ;;
-        7)  funcao_gerenciar_crons ;;
-        8)  funcao_configurar_emails ;;
-        9)  funcao_configurar_cloudflare ;;
-        10) funcao_atualizar_sistema ;;
-        11)
+        4)  funcao_instalar_idiomas ;;
+        5)  funcao_alternar_motor_busca ;;
+        6)  funcao_dimensionar_servidor ;;
+        7)  funcao_configurar_rclone ;;
+        8)  funcao_gerenciar_crons ;;
+        9)  funcao_configurar_emails ;;
+        10) funcao_configurar_cloudflare ;;
+        11) funcao_atualizar_sistema ;;
+        12)
             S_APA=$(systemctl is-active apache2 2>/dev/null || echo "inativo/inactive")
             S_MAR=$(systemctl is-active mariadb 2>/dev/null || echo "inativo/inactive")
             S_MEM=$(systemctl is-active memcached 2>/dev/null || echo "inativo/inactive")
@@ -667,7 +818,7 @@ while true; do
             S_CLD=$(systemctl is-active cloudflared 2>/dev/null || echo "não instalado/uninstalled")
             whiptail --title "Status dos Serviços / Services Status" --msgbox "Apache:     $S_APA\nMariaDB:    $S_MAR\nMemcached:  $S_MEM\nKoha ILS:   $S_KOH\nCloudflare: $S_CLD" 11 50
             ;;
-        12) clear; exit 0 ;;
+        13) clear; exit 0 ;;
     esac
     OPCAO=""
 done
