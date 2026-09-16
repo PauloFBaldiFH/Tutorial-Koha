@@ -10,15 +10,15 @@ set -e
 set -o pipefail
 
 # ======================================================================
-# FUNÇÃO DE CAIXAS DE EXPLICAÇÃO
+# FUNÇÃO DE CAIXAS DE EXPLICAÇÃO / EXPLANATION BOX FUNCTION
 # ======================================================================
 caixa_explicacao() {
     local msg_pt="$1"
     local msg_en="$2"
-    echo -e "\n+--------------------------------------------------------------------+"
+    echo -e "\n+-----------------------------------------------------------------------------------------+"
     echo -e "| [POR] $msg_pt"
     echo -e "| [EN]  $msg_en"
-    echo -e "+--------------------------------------------------------------------+\n"
+    echo -e "+-----------------------------------------------------------------------------------------+\n"
 }
 
 if [ "$EUID" -ne 0 ]; then
@@ -31,7 +31,8 @@ REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 [ -z "$REAL_HOME" ] && REAL_HOME="/home/$REAL_USER"
 
 # ======================================================================
-# FUNÇÃO AUXILIAR: inserir/remover o bloco <elasticsearch> com segurança
+# FUNÇÃO AUXILIAR: Inserir/Remover Elasticsearch no XML com segurança
+# HELPER FUNCTION: Safely insert/remove Elasticsearch block in XML
 # ======================================================================
 xml_set_elasticsearch() {
     local ACAO="$1"
@@ -65,16 +66,16 @@ PYEOF
 }
 
 # ======================================================================
-# 1. INSTALAÇÃO BASE (PADRÃO ZEBRA + LOCALE + SCRIPTS DE BACKUP)
+# 1. INSTALAÇÃO BASE / BASE INSTALLATION
 # ======================================================================
 funcao_instalar_koha() {
-    whiptail --title "Instalação / Installation" --msgbox "[POR] Iniciando o Koha Easy Install (Modo Leve - Zebra por padrão).\n\n[EN] Starting Koha Easy Install (Light Mode - Zebra default)." 9 75
+    whiptail --title "Instalação / Installation" --msgbox "[POR] Iniciando o Koha Easy Install (Modo Leve - Zebra por padrão).\n\n[EN] Starting Koha Easy Install (Lightweight Mode - Zebra default)." 10 75
     clear
 
     caixa_explicacao "Configurando Locales e Codificação UTF-8..." "Configuring Locales and UTF-8 Encoding..."
     apt-get update -o Acquire::Check-Valid-Until=false -y || true
     DEBIAN_FRONTEND=noninteractive apt-get install -y locales
-    locale-gen pt_BR.UTF-8
+    locale-gen pt_BR.UTF-8 en_US.UTF-8
     update-locale LANG=pt_BR.UTF-8 LC_ALL=pt_BR.UTF-8
     export LANG=pt_BR.UTF-8
     export LC_ALL=pt_BR.UTF-8
@@ -95,7 +96,7 @@ funcao_instalar_koha() {
       echo '/swapfile none swap sw 0 0' >> /etc/fstab
     fi
 
-    caixa_explicacao "Instalando dependências essenciais..." "Installing core dependencies..."
+    caixa_explicacao "Instalando dependências essenciais..." "Installing essential dependencies..."
     apt-get update && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
     DEBIAN_FRONTEND=noninteractive apt-get install -y nano curl wget gpg ufw software-properties-common default-jre-headless \
                   libapache2-mod-security2 fail2ban postfix libsasl2-modules glabels \
@@ -115,7 +116,7 @@ funcao_instalar_koha() {
     DEBIAN_FRONTEND=noninteractive apt-get install -y mariadb-server koha-common
     systemctl enable --now mariadb
 
-    caixa_explicacao "Configurando Apache e portas..." "Configuring Apache and ports..."
+    caixa_explicacao "Configurando Apache e portas de rede..." "Configuring Apache and network ports..."
     sed -i 's/^INTRAPORT=.*/INTRAPORT="8080"/' /etc/koha/koha-sites.conf
     sed -i 's/^OPACPORT=.*/OPACPORT="80"/' /etc/koha/koha-sites.conf
     sed -i 's/^#*MEMCACHED_SERVERS=.*/MEMCACHED_SERVERS="127.0.0.1:11211"/' /etc/koha/koha-sites.conf
@@ -139,7 +140,7 @@ funcao_instalar_koha() {
     a2dissite 000-default 2>/dev/null || true
     a2ensite library
     systemctl restart apache2 memcached
-    koha-translate --install pt-BR
+    koha-translate --install pt-BR || true
     koha-plack --enable library
     koha-plack --start library
     systemctl restart koha-common
@@ -150,7 +151,7 @@ funcao_instalar_koha() {
     systemctl enable --now koha-zebra-daemon@library
 
     # ======================================================================
-    # ARQUIVOS DE BACKUP E CREDENCIAIS
+    # ARQUIVOS DE BACKUP E CREDENCIAIS / BACKUP FILES AND CREDENTIALS
     # ======================================================================
     caixa_explicacao "Estruturando scripts de Backup e Credenciais..." "Structuring Backup scripts and Credentials..."
     ARQUIVO_CONF="/etc/koha/sites/library/koha-conf.xml"
@@ -159,18 +160,18 @@ funcao_instalar_koha() {
 
     mkdir -p /var/backups/koha_sql /var/backups/koha_marc "$REAL_HOME/logs"
 
-    # Salva arquivo protegido de credenciais acessível apenas pelo root
     cat << EOF > /root/credenciais_koha.txt
 ======================================================================
- CREDENCIAIS DE ACESSO AO KOHA (INSTÂNCIA: library)
+ [POR] CREDENCIAIS DE ACESSO AO KOHA (INSTÂNCIA: library)
+ [EN]  KOHA ACCESS CREDENTIALS (INSTANCE: library)
 ======================================================================
- Endereço Staff (Adm):  http://$(hostname -I | awk '{print $1}'):8080
- Endereço OPAC (Público): http://$(hostname -I | awk '{print $1}'):80
+ Staff (Adm / Intranet): http://$(hostname -I | awk '{print $1}'):8080
+ OPAC (Public Catalog):  http://$(hostname -I | awk '{print $1}'):80
 
- Usuário Master do Banco: $DB_USER
- Senha de Instalação:     $DB_PASS
+ DB Master User: $DB_USER
+ Setup Password: $DB_PASS
 
- Arquivo de Configuração: /etc/koha/sites/library/koha-conf.xml
+ Config File:    /etc/koha/sites/library/koha-conf.xml
 ======================================================================
 EOF
     chmod 600 /root/credenciais_koha.txt
@@ -221,34 +222,34 @@ EOF
     chmod 600 /root/backup_sql.sh
 
     # ======================================================================
-    # ARQUIVO CENTRAL DE CRONS (FÁCIL EDIÇÃO)
+    # ARQUIVO CENTRAL DE CRONS / CENTRAL CRONTAB FILE
     # ======================================================================
     cat << EOF > /etc/cron.d/koha_tasks
 # ======================================================================
-# KOHA EASY INSTALL - GERENCIADOR DE TAREFAS (CRON)
+# KOHA EASY INSTALL - GERENCIADOR DE TAREFAS / TASK MANAGER (CRON)
 # ======================================================================
-# Formato: Minuto(0-59) | Hora(0-23) | Dia do Mes(1-31) | Mes(1-12) | Dia da Semana(0-6, 0=Domingo)
-# Exemplo: 30 17 * * * comando  => Executa todos os dias as 17:30
+# [POR] Formato: Minuto(0-59) | Hora(0-23) | Dia do Mes(1-31) | Mes(1-12) | Dia da Semana(0-6, 0=Dom)
+# [EN]  Format:  Minute(0-59) | Hour(0-23) | Day of Month(1-31) | Month(1-12) | Day of Week(0-6, 0=Sun)
 
-# 1. Limpeza de logs do sistema a cada 14 dias (Roda todo dia as 00:30)
+# 1. Vacuum journalctl logs every 14 days (Runs daily at 00:30)
 30 0 * * * root /usr/bin/journalctl --vacuum-time=14d >/dev/null 2>&1
 
-# 2. Verificacao e Reparo do Banco de Dados (Roda todo dia 05 as 01:00)
+# 2. Database repair & check (Runs on the 5th day of every month at 01:00)
 0 1 5 * * root /usr/bin/mysqlcheck --check --auto-repair --databases koha_library >/dev/null 2>&1
 
-# 3. Reinicio automatico da interface web Plack para limpar memoria (Todo dia as 05:00)
+# 3. Automatic restart of Plack web engine (Runs daily at 05:00)
 0 5 * * * root /usr/sbin/koha-plack --restart library >/dev/null 2>&1
 
-# 4. BACKUP SQL DO BANCO DE DADOS - Diariamente as 17:40
+# 4. DAILY SQL DATABASE BACKUP (Runs daily at 17:40)
 40 17 * * * root /bin/bash /root/backup_sql.sh >/dev/null 2>&1
 
-# 5. BACKUP MARC21 E AUTORIDADES - Semanalmente aos Domingos as 03:00 (Dia 0)
+# 5. WEEKLY MARC21 & AUTHORITIES BACKUP (Runs every Sunday at 03:00)
 0 3 * * 0 root /bin/bash /root/backup_marc.sh >/dev/null 2>&1
 EOF
     chmod 644 /etc/cron.d/koha_tasks
     systemctl restart cron
 
-    # Firewall
+    # Firewall UFW
     echo "ufw disable" | at now + 10 minutes
     ufw allow 22/tcp
     ufw allow 80/tcp
@@ -263,60 +264,59 @@ EOF
     [ -z "$IP_REAL" ] && IP_REAL="ipdoservidor"
 
     # ======================================================================
-    # ARTE ASCII DO SISTEMA (/ETC/ISSUE)
+    # ARTE ASCII DO SISTEMA (/ETC/ISSUE) - FACHADA AMPLA E BILÍNGUE
     # ======================================================================
     cat << EOF > /etc/issue
 Ubuntu \n \l
 
-                           .-=========-.
-                          (  KOHA ILS   )
-                           \`-=========-'
-                  /=============================\\
-                 /       .---------------.       \\
-                /        | KOHA  LIBRARY |        \\
-               /    .----'---------------'----.    \\
-              /====[   ACERVO  &  COMUNIDADE   ]====\\
-             /_______________________________________\\
-             |   ||   ||   ||   ||   ||   ||   ||   |
-             |===||===||===||===||===||===||===||===|
-             |                                       |
-             |  [POR] Boas-vindas ao Koha Easy!      |
-             |  [EN]  Welcome to Koha Easy Install!  |
-             |                                       |
-             |  ===================================  |
-             |  PAINEL DE CONTROLE / DASHBOARD:      |
-             |  sudo bash install.sh                 |
-             |  ===================================  |
-             |  ENDEREÇOS DE ACESSO / WEB ACCESS:
-             |  - Staff (Adm):   http://${IP_REAL}:8080
-             |  - OPAC (Leitor): http://${IP_REAL}:80
-             |  -----------------------------------  |
-             |  PRIMEIRO ACESSO / CREDENCIAIS:
-             |  - Usuário: $DB_USER
-             |  - Senha:   Para ver, rode no terminal:
-             |             cat /root/credenciais_koha.txt
-             |  ===================================  |
-             |                                       |
-             |    |---|   |---|   .---.   |---|      |
-             |    |* *|   |* *|   |# #|   |* *|      |
-             |    |===|   |===|   |===|   |===|      |
-            /=========================================\\
-           /___________________________________________\\
+                                    .-=========-.
+                                   (  KOHA ILS   )
+                                    \`-=========-'
+                  /===============================================\\
+                 /        .-----------------------------.        \\
+                /         |     K O H A   L I B R A R Y |         \\
+               /     .----'-----------------------------'----.     \\
+              /=====[     PUBLIC CATALOG & AUTOMATION SUITE   ]=====\\
+             /_______________________________________________________\\
+             |  ||  ||  ||  ||  ||  ||  ||  ||  ||  ||  ||  ||  ||  |
+             |==||==||==||==||==||==||==||==||==||==||==||==||==||==|
+             |                                                       |
+             |  [POR] Boas-vindas ao Koha Easy Install!              |
+             |  [EN]  Welcome to Koha Easy Install!                  |
+             |                                                       |
+             |  ===================================================  |
+             |  PAINEL DE CONTROLE / CONTROL DASHBOARD:              |
+             |  sudo bash install.sh                                 |
+             |  ===================================================  |
+             |  ENDEREÇOS DE ACESSO / WEB ACCESS URLS:
+             |  - Staff (Adm/Intranet):  http://${IP_REAL}:8080
+             |  - OPAC (Public Catalog): http://${IP_REAL}:80
+             |  ---------------------------------------------------  |
+             |  PRIMEIRO ACESSO / INITIAL CREDENTIALS:
+             |  - Usuário / Username: $DB_USER
+             |  - Senha / Password:   cat /root/credenciais_koha.txt
+             |  ===================================================  |
+             |                                                       |
+             |    |---|   |---|   |---|   .---.   |---|   |---|      |
+             |    |* *|   |* *|   |* *|   |# #|   |* *|   |* *|      |
+             |    |===|   |===|   |===|   |===|   |===|   |===|      |
+            /=========================================================\\
+           /___________________________________________________________\\
 
 EOF
     cp /etc/issue /etc/issue.net
     cp /etc/issue /etc/motd
 
-    whiptail --title "Sucesso / Success" --msgbox "[POR] Instalação concluída com sucesso!\n\nEndereço Staff: http://${IP_REAL}:8080\nEndereço OPAC:  http://${IP_REAL}:80\n\nUsuário de Acesso: $DB_USER\nSenha Gerada:     $DB_PASS\n\n(Esta senha foi salva com segurança em /root/credenciais_koha.txt)\n\n[EN] Installation completed!\nUser: $DB_USER\nPass: $DB_PASS" 17 74
+    whiptail --title "Sucesso / Success" --msgbox "[POR] Instalação concluída com sucesso!\n\nEndereço Staff: http://${IP_REAL}:8080\nEndereço OPAC:  http://${IP_REAL}:80\n\nUsuário: $DB_USER\nSenha:   $DB_PASS\n\n(Salva com segurança em /root/credenciais_koha.txt)\n--------------------------------------------------\n[EN] Installation completed successfully!\n\nStaff URL: http://${IP_REAL}:8080\nOPAC URL:  http://${IP_REAL}:80\n\nUsername: $DB_USER\nPassword: $DB_PASS\n\n(Safely archived in /root/credenciais_koha.txt)" 19 75
 }
 
 # ======================================================================
-# 2. VISUALIZAR CREDENCIAIS DE ACESSO
+# 2. VISUALIZAR CREDENCIAIS / VIEW CREDENTIALS
 # ======================================================================
 funcao_ver_credenciais() {
     ARQUIVO_CONF="/etc/koha/sites/library/koha-conf.xml"
     if [ ! -f "$ARQUIVO_CONF" ]; then
-        whiptail --title "Erro" --msgbox "O Koha ainda não foi instalado neste servidor." 8 60
+        whiptail --title "Erro / Error" --msgbox "[POR] O Koha ainda não foi instalado.\n[EN] Koha has not been installed yet." 8 60
         return
     fi
 
@@ -324,46 +324,46 @@ funcao_ver_credenciais() {
     DB_USER="koha_library"
     IP_REAL=$(hostname -I | awk '{print $1}')
 
-    whiptail --title "Credenciais de Acesso" --msgbox "[POR] Dados de acesso ao Koha:\n\nStaff (Painel Adm): http://${IP_REAL}:8080\nOPAC (Catálogo):    http://${IP_REAL}:80\n\nUsuário: $DB_USER\nSenha:   $DB_PASS\n\nArquivo local protegido: /root/credenciais_koha.txt" 14 70
+    whiptail --title "Credenciais / Credentials" --msgbox "[POR] DADOS DE ACESSO AO KOHA:\n- Staff (Adm): http://${IP_REAL}:8080\n- OPAC (Público): http://${IP_REAL}:80\n- Usuário: $DB_USER\n- Senha:   $DB_PASS\n\n[EN] KOHA ACCESS CREDENTIALS:\n- Staff URL: http://${IP_REAL}:8080\n- OPAC URL:  http://${IP_REAL}:80\n- Username:  $DB_USER\n- Password:  $DB_PASS\n\nFile / Arquivo: /root/credenciais_koha.txt" 17 72
 }
 
 # ======================================================================
-# 3. GERENCIADOR DE CRONJOBS (HORÁRIOS DE BACKUP/TAREFAS)
+# 3. GERENCIADOR DE CRONJOBS / CRONJOB TASK MANAGER
 # ======================================================================
 funcao_gerenciar_crons() {
-    whiptail --title "Gerenciador de Tarefas (Cron)" --msgbox "[POR] Você será levado ao arquivo central de configurações (Cronjobs).\nEle contém instruções de como mudar o horário dos backups e avisos.\nPara salvar e sair do arquivo, aperte: CTRL+O, ENTER, e CTRL+X." 12 75
+    whiptail --title "Tarefas / Tasks (Cron)" --msgbox "[POR] Você será levado ao arquivo central de configurações (Cronjobs).\nEle contém instruções em ambos os idiomas sobre horários de backup e avisos.\nPara salvar e sair: aperte CTRL+O, ENTER, e CTRL+X.\n\n[EN] You will be redirected to the central crontab configuration file.\nIt contains bilingual instructions on adjusting backup schedules.\nTo save and exit: press CTRL+O, ENTER, and CTRL+X." 14 75
     nano /etc/cron.d/koha_tasks
     systemctl restart cron
-    whiptail --title "Sucesso" --msgbox "Horários atualizados com sucesso!" 8 60
+    whiptail --title "Sucesso / Success" --msgbox "[POR] Tarefas e horários atualizados!\n[EN] Tasks and schedules updated successfully!" 8 60
 }
 
 # ======================================================================
-# 4. CONFIGURAR NUVEM (RCLONE: GDRIVE, ONEDRIVE, ETC)
+# 4. CONFIGURAR NUVEM (RCLONE) / CLOUD BACKUP (RCLONE)
 # ======================================================================
 funcao_configurar_rclone() {
-    whiptail --title "Cloud Backup (Rclone)" --msgbox "[POR] Siga o assistente para conectar sua conta (Google Drive, OneDrive, Dropbox, etc).\n\nMUITO IMPORTANTE: Quando o assistente perguntar o 'name' do remote, digite exatamente: koha_cloud" 12 75
+    whiptail --title "Backup em Nuvem / Cloud Backup" --msgbox "[POR] Siga o assistente interativo para vincular Google Drive, OneDrive ou Dropbox.\n\nAVISO CRUCIAL: Quando o assistente perguntar 'name', digite exatamente: koha_cloud\n\n[EN] Follow the wizard to link Google Drive, OneDrive, or Dropbox.\n\nCRITICAL NOTE: When asked for the remote 'name', type exactly: koha_cloud" 14 75
     clear
     mkdir -p /root/.config/rclone
     rclone config
-    whiptail --title "Sucesso" --msgbox "[POR] Conta de nuvem vinculada! Os backups diários (SQL) e semanais (MARC) serão enviados automaticamente para lá." 10 70
+    whiptail --title "Sucesso / Success" --msgbox "[POR] Nuvem vinculada! Backups SQL diários e MARC semanais serão sincronizados.\n\n[EN] Cloud linked! Daily SQL and weekly MARC backups will be synchronized." 10 70
 }
 
 # ======================================================================
-# 5. RESTAURAR BANCO DE DADOS
+# 5. RESTAURAR BANCO DE DADOS / RESTORE DATABASE
 # ======================================================================
 funcao_restaurar_banco() {
-    BACKUP_FILE=$(whiptail --title "Restauração / Restore" --inputbox "[POR] Digite o caminho do arquivo de backup (.sql ou .sql.gz):" 10 65 "/var/backups/koha_sql/" 3>&1 1>&2 2>&3)
+    BACKUP_FILE=$(whiptail --title "Restauração / Restore" --inputbox "[POR] Digite o caminho do arquivo (.sql ou .sql.gz):\n[EN] Enter the full backup file path (.sql or .sql.gz):" 11 70 "/var/backups/koha_sql/" 3>&1 1>&2 2>&3)
     if [ $? -ne 0 ]; then return; fi
 
     if [ ! -f "$BACKUP_FILE" ]; then
-       whiptail --title "Erro / Error" --msgbox "Arquivo não encontrado: $BACKUP_FILE" 8 60
+       whiptail --title "Erro / Error" --msgbox "[POR] Arquivo não encontrado: $BACKUP_FILE\n[EN] File not found: $BACKUP_FILE" 8 65
        return
     fi
 
-    whiptail --title "Restaurando / Restoring" --msgbox "[POR] O banco 'koha_library' será recriado." 8 65
+    whiptail --title "Restaurando / Restoring" --msgbox "[POR] O banco 'koha_library' será recriado e reindexado.\n[EN] The 'koha_library' database will be recreated and reindexed." 8 65
     clear
 
-    caixa_explicacao "Recriando banco koha_library..." "Recreating koha_library database..."
+    caixa_explicacao "Recriando banco de dados koha_library..." "Recreating koha_library database..."
     mysql -e "DROP DATABASE IF EXISTS koha_library; CREATE DATABASE koha_library;"
 
     if [[ "$BACKUP_FILE" == *.gz ]]; then
@@ -372,7 +372,7 @@ funcao_restaurar_banco() {
         mysql koha_library < "$BACKUP_FILE"
     fi
 
-    caixa_explicacao "Atualizando schemas e reiniciando..." "Upgrading schemas and restarting..."
+    caixa_explicacao "Atualizando schemas e reiniciando daemons..." "Upgrading schemas and restarting daemons..."
     systemctl restart memcached
     koha-upgrade-schema library
 
@@ -386,24 +386,24 @@ funcao_restaurar_banco() {
     fi
 
     koha-plack --restart library
-    whiptail --title "Sucesso" --msgbox "[POR] Acervo restaurado e indexado com sucesso!" 8 65
+    whiptail --title "Sucesso / Success" --msgbox "[POR] Acervo restaurado e indexado com sucesso!\n[EN] Catalog restored and indexed successfully!" 8 65
 }
 
 # ======================================================================
-# 6. ALTERNAR MOTOR DE BUSCA (ZEBRA <-> ELASTICSEARCH)
+# 6. ALTERNAR MOTOR DE BUSCA / TOGGLE SEARCH ENGINE
 # ======================================================================
 funcao_alternar_motor_busca() {
     MOTOR_ATUAL=$(mysql -N -e "SELECT value FROM koha_library.systempreferences WHERE variable='SearchEngine';" 2>/dev/null || echo "Zebra")
 
     if [ "$MOTOR_ATUAL" == "Elasticsearch" ]; then
-        if whiptail --title "Motor de Busca" --yesno "[POR] Motor atual: ELASTICSEARCH.\nDeseja voltar para o ZEBRA (Libera ~1.5GB de RAM)?" 10 70; then
+        if whiptail --title "Motor de Busca / Search Engine" --yesno "[POR] Motor atual: ELASTICSEARCH.\nDeseja voltar para o ZEBRA (Economiza ~1.5GB de RAM)?\n\n[EN] Current engine: ELASTICSEARCH.\nSwitch back to ZEBRA (Saves ~1.5GB RAM)?" 11 72; then
             clear
             caixa_explicacao "Desativando Elasticsearch..." "Disabling Elasticsearch..."
             systemctl stop elasticsearch && systemctl disable elasticsearch
 
             caixa_explicacao "Removendo bloco <elasticsearch> do koha-conf.xml..." "Removing <elasticsearch> block from koha-conf.xml..."
             if ! xml_set_elasticsearch remover; then
-                whiptail --title "Erro" --msgbox "[POR] Falha ao editar koha-conf.xml. Nada foi alterado na configuracao XML." 10 70
+                whiptail --title "Erro / Error" --msgbox "[POR] Falha ao editar koha-conf.xml.\n[EN] Failed to edit koha-conf.xml." 8 60
                 return
             fi
 
@@ -413,21 +413,21 @@ funcao_alternar_motor_busca() {
             mysql -e "UPDATE koha_library.systempreferences SET value='Zebra' WHERE variable='SearchEngine';"
             koha-rebuild-zebra -f -v -b -a library
             koha-plack --restart library
-            whiptail --title "Sucesso" --msgbox "Sistema operando com ZEBRA!" 8 60
+            whiptail --title "Sucesso / Success" --msgbox "[POR] Sistema operando com ZEBRA!\n[EN] System is now running on ZEBRA!" 8 60
         fi
     else
-        if whiptail --title "Motor de Busca" --yesno "[POR] Motor atual: ZEBRA.\nDeseja ativar o ELASTICSEARCH (Busca avançada)?" 10 70; then
+        if whiptail --title "Motor de Busca / Search Engine" --yesno "[POR] Motor atual: ZEBRA.\nDeseja ativar o ELASTICSEARCH (Busca avançada)?\n\n[EN] Current engine: ZEBRA.\nEnable ELASTICSEARCH (Advanced search)?" 11 72; then
             clear
 
             if ! dpkg -s koha-elasticsearch &>/dev/null; then
-                caixa_explicacao "Instalando pacotes do Elasticsearch (primeira ativação)..." "Installing Elasticsearch packages (first activation)..."
+                caixa_explicacao "Instalando pacotes do Elasticsearch..." "Installing Elasticsearch packages..."
                 apt-get update
                 if ! DEBIAN_FRONTEND=noninteractive apt-get install -y elasticsearch koha-elasticsearch; then
-                    whiptail --title "Erro" --msgbox "[POR] Falha ao instalar os pacotes do Elasticsearch. Motor de busca continua em ZEBRA." 10 70
+                    whiptail --title "Erro / Error" --msgbox "[POR] Falha na instalação do Elasticsearch.\n[EN] Failed to install Elasticsearch." 8 60
                     return
                 fi
 
-                caixa_explicacao "Ajustando memória (JVM) do Elasticsearch..." "Tuning Elasticsearch JVM memory..."
+                caixa_explicacao "Ajustando memória JVM do Elasticsearch..." "Tuning Elasticsearch JVM memory..."
                 mkdir -p /etc/elasticsearch/jvm.options.d
                 cat << 'JVMEOF' > /etc/elasticsearch/jvm.options.d/koha.options
 -Xms1g
@@ -441,7 +441,7 @@ JVMEOF
 
             caixa_explicacao "Inserindo bloco <elasticsearch> no koha-conf.xml..." "Inserting <elasticsearch> block into koha-conf.xml..."
             if ! xml_set_elasticsearch inserir; then
-                whiptail --title "Erro" --msgbox "[POR] Falha ao editar koha-conf.xml. Nada foi alterado." 10 70
+                whiptail --title "Erro / Error" --msgbox "[POR] Falha ao editar koha-conf.xml.\n[EN] Failed to edit koha-conf.xml." 8 60
                 systemctl stop elasticsearch 2>/dev/null || true
                 systemctl disable elasticsearch 2>/dev/null || true
                 return
@@ -461,24 +461,24 @@ JVMEOF
 
             caixa_explicacao "Reindexando acervo..." "Reindexing catalog..."
             if ! koha-elasticsearch --rebuild -d library; then
-                whiptail --title "Aviso" --msgbox "[POR] Elasticsearch foi ativado mas a reindexação falhou. Rode manualmente depois: koha-elasticsearch --rebuild -d library" 10 70
+                whiptail --title "Aviso / Warning" --msgbox "[POR] Reindexação falhou. Rode depois: koha-elasticsearch --rebuild -d library\n[EN] Reindexing failed. Run later: koha-elasticsearch --rebuild -d library" 9 70
             fi
 
             koha-plack --restart library
-            whiptail --title "Sucesso" --msgbox "Sistema operando com ELASTICSEARCH!" 8 60
+            whiptail --title "Sucesso / Success" --msgbox "[POR] Sistema operando com ELASTICSEARCH!\n[EN] System is now running on ELASTICSEARCH!" 8 60
         fi
     fi
 }
 
 # ======================================================================
-# 7. DIMENSIONAMENTO DE SERVIDOR (TUNING)
+# 7. DIMENSIONAMENTO DE SERVIDOR / SERVER TUNING
 # ======================================================================
 funcao_dimensionar_servidor() {
-    PERFIL=$(whiptail --title "Tuning do Servidor" \
-    --menu "[POR] Selecione o perfil ideal para a RAM da máquina:" 15 80 4 \
-    "1" "Leve (~2GB RAM) - 2 Workers, 64MB Cache, 256MB DB" \
-    "2" "Médio (~4GB RAM) - 4 Workers, 128MB Cache, 1GB DB" \
-    "3" "Alto (8GB+ RAM) - 8 Workers, 256MB Cache, 2GB DB" \
+    PERFIL=$(whiptail --title "Tuning / Sizing" \
+    --menu "[POR] Selecione o perfil de hardware / [EN] Select hardware profile:" 16 80 4 \
+    "1" "Low (~2GB RAM)  - 2 Plack Workers, 64MB Cache, 256MB DB" \
+    "2" "Mid (~4GB RAM)  - 4 Plack Workers, 128MB Cache, 1GB DB" \
+    "3" "High (8GB+ RAM) - 8 Plack Workers, 256MB Cache, 2GB DB" \
     "4" "Cancelar / Cancel" 3>&1 1>&2 2>&3)
     if [ $? -ne 0 ] || [ "$PERFIL" -eq 4 ]; then return; fi
     case $PERFIL in
@@ -494,91 +494,93 @@ funcao_dimensionar_servidor() {
     echo -e "[mysqld]\ninnodb_buffer_pool_size = $DB" > /etc/mysql/mariadb.conf.d/99-koha-tuning.cnf
     systemctl restart memcached mariadb koha-common
     koha-plack --restart library
-    whiptail --title "Sucesso" --msgbox "Servidor redimensionado com sucesso!" 8 60
+    whiptail --title "Sucesso / Success" --msgbox "[POR] Servidor ajustado e reiniciado com sucesso!\n[EN] Server tuned and services restarted successfully!" 8 65
 }
 
 # ======================================================================
-# 8. CONFIGURAR E-MAILS E AVISOS (SMTP)
+# 8. CONFIGURAR E-MAILS (SMTP) / EMAIL NOTICES SETUP
 # ======================================================================
 funcao_configurar_emails() {
-    whiptail --title "E-mails (SMTP)" --msgbox "[POR] O assistente instalará as dependências e exibirá o guia SMTP." 8 70
+    whiptail --title "E-mails (SMTP)" --msgbox "[POR] Instalando dependências e abrindo tutorial SMTP.\n[EN] Installing dependencies and opening SMTP setup guide." 8 70
     clear
     apt-get install -y postfix libsasl2-modules
     cat << EOF >> /etc/cron.d/koha_tasks
-# 6. ENVIOS DE EMAIL - Avisos de atraso as 08:00 (Segunda-feira)
+# 6. EMAIL CRONJOB: Overdue notices (Every Monday at 08:00)
 00 08 * * 1 root koha-shell library -c "/usr/share/koha/bin/cronjobs/overdue_notices.pl -v -t -e" >/dev/null 2>&1
-# 7. ENVIOS DE EMAIL - Processa a fila as 08:05 (Segunda-feira)
+# 7. EMAIL CRONJOB: Process message queue (Every Monday at 08:05)
 05 08 * * 1 root koha-shell library -c "/usr/share/koha/bin/cronjobs/process_message_queue.pl -v" >/dev/null 2>&1
 EOF
     systemctl restart cron
     TEXTO_TUTORIAL="
 ======================================================================
- PASSO A PASSO: CONFIGURAÇÃO DE E-MAIL (GMAIL) NO KOHA
+ [POR] PASSO A PASSO: CONFIGURAÇÃO DE E-MAIL (GMAIL) NO KOHA
+ [EN]  STEP-BY-STEP: GMAIL SMTP CONFIGURATION IN KOHA
 ======================================================================
-1. ACESSE AS PREFERÊNCIAS SMTP NO KOHA:
-   Vá em Administração > Servidores SMTP e configure:
-   - Anfitrião (Host): smtp.gmail.com
-   - Porta: 587
-   - SSL: STARTTLS
-   - Autenticação: Sim
-   - Nome de Usuário: [Email da biblioteca]
+1. KOHA SMTP PREFERENCES / PREFERÊNCIAS SMTP:
+   Administration > SMTP Servers / Servidores SMTP:
+   - Host / Anfitrião: smtp.gmail.com
+   - Port / Porta:     587
+   - SSL / TLS:        STARTTLS
+   - Auth / Autenticar: Yes / Sim
+   - Username:         [Library email / Email da biblioteca]
 
-2. SENHA DE APLICATIVO DO GOOGLE:
-   Não use sua senha normal! Acesse myaccount.google.com > Segurança
-   > Verificação em 2 etapas > Senhas de App. Digite 'koha', gere e
-   cole a senha de 16 dígitos no Koha.
+2. GOOGLE APP PASSWORD / SENHA DE APP DO GOOGLE:
+   Access myaccount.google.com > Security > 2-Step Verification > App Passwords.
+   Generate a 16-character password and paste it into Koha.
+   (Acesse a conta Google da biblioteca > Segurança > Verificação em 2 etapas
+   > Senhas de App. Crie uma de 16 dígitos e cole no Koha).
 
-3. PREFERÊNCIAS GLOBAIS:
-   - EnhancedMessagingPreferences: Permitir
-   - EmailAddressForSuggestions: [Email da biblioteca]
-   - KohaAdminEmailAddress: [Email da biblioteca]
+3. GLOBAL PREFERENCES / PREFERÊNCIAS GLOBAIS:
+   - EnhancedMessagingPreferences: Allow / Permitir
+   - EmailAddressForSuggestions:   [Library email]
+   - KohaAdminEmailAddress:        [Library email]
 
-O SISTEMA FOI PROGRAMADO PARA PROCESSAR OS EMAILS SEGUNDA ÀS 08:00.
-(Para alterar o dia ou a hora, use o Gerenciador de Cron no painel).
+CRON SCHEDULE: Notice generation at 08:00 and queue processing at 08:05.
+(HORÁRIOS NO CRON: Avisos às 08:00 e envio às 08:05 nas segundas-feiras).
 "
     whiptail --title "Tutorial SMTP" --scrolltext "$TEXTO_TUTORIAL" 24 75
 }
 
 # ======================================================================
-# 9. ACESSO EXTERNO SEGURO (CLOUDFLARE TUNNEL)
+# 9. ACESSO EXTERNO (CLOUDFLARE) / EXTERNAL ACCESS (CLOUDFLARE)
 # ======================================================================
 funcao_configurar_cloudflare() {
     TEXTO_TUTORIAL_CF="
 ======================================================================
- PASSO A PASSO: ACESSO EXTERNO (CLOUDFLARE + DOMÍNIO GRÁTIS)
+ [POR] GUIA: DOMÍNIO GRÁTIS E CLOUDFLARE TUNNEL
+ [EN]  GUIDE: FREE DOMAIN AND CLOUDFLARE TUNNEL
 ======================================================================
 
-Para expor sua biblioteca para a internet sem abrir portas no roteador
-e com HTTPS gratuito, você precisa de um Domínio e do Cloudflare Tunnel.
+[POR] PARTE 1: OBTER DOMÍNIO GRATUITO (DigitalPlat ou eu.org)
+[EN]  PART 1: GETTING A FREE DOMAIN (DigitalPlat or eu.org)
+1. Acesse / Visit: domain.digitalplat.org (free registration / registro grátis).
+2. Menu: 'Register a domain' > 'Domain registration'.
+3. Escolha nome e extensão / Choose name & extension (.dpdns.org, .us.kg, .qzz.io, .xx.kg).
+4. Clique 'Check availability'. Deixe os campos Name Server 1 e 2 abertos na tela.
 
-PARTE 1: CONSEGUIR UM DOMÍNIO GRATUITO (DigitalPlat ou eu.org)
-O eu.org é muito bom, mas pode demorar a aprovar. O DigitalPlat é imediato:
-1. Acesse domain.digitalplat.org e crie uma conta gratuita.
-2. No menu lateral esquerdo, clique em 'Register a domain' > 'Domain registration'.
-3. Digite o nome escolhido para a biblioteca e escolha uma extensão
-   (ex: .dpdns.org, .us.kg, .qzz.io ou .xx.kg).
-4. Clique em 'Check availability'. Se estiver disponível, aparecerão os campos
-   de Name Server 1 até 4. MANTENHA ESSA PÁGINA ABERTA.
+[POR] PARTE 2: VINCULAR NA CLOUDFLARE
+[EN]  PART 2: CONNECTING TO CLOUDFLARE
+1. Acesse / Access: dash.cloudflare.com > 'Add a site' / 'Adicionar um site'.
+2. Cole o domínio / Paste full domain (ex: bibliotecamunicipal.dpdns.org).
+3. Selecione o Plano Grátis / Choose Free Plan.
+4. Copie os 2 Name Servers autoritativos da Cloudflare (ns1... e ns2...).
+5. Cole-os nos campos Name Server 1 e 2 do DigitalPlat e salve.
+6. Na Cloudflare, clique 'Check nameservers' / 'Atualizei meus nameservers'.
 
-PARTE 2: VINCULAR À CLOUDFLARE
-1. Em outra aba, acesse o painel da Cloudflare e clique em 'Adicionar um site'.
-2. Cole o nome completo do subdomínio criado (ex: bibliotecamunicipal.dpdns.org).
-3. Selecione o Plano Gratuito (Free) no final da página.
-4. A Cloudflare fornecerá 2 servidores de nome (ex: ns1.cloudflare.com).
-5. Volte à aba do DigitalPlat, cole o 1º no 'Name Server 1' e o 2º no 'Name Server 2'. Salve.
-6. De volta à Cloudflare, clique em 'Atualizei meus nameservers'.
+[POR] PARTE 3: GERAR O TOKEN DO TÚNEL
+[EN]  PART 3: GENERATING THE TUNNEL TOKEN
+1. Zero Trust Dashboard: one.dash.cloudflare.com
+2. Networks > Tunnels > 'Add a tunnel' (Cloudflare managed).
+3. Escolha / Choose 'Debian 64-bit'.
+4. Copie apenas o TOKEN alfanumérico longo (começando com eyJh...).
+   Copy ONLY the long alphanumeric Token (starting with eyJh...).
 
-PARTE 3: GERAR O TOKEN DO TÚNEL
-1. No painel da Cloudflare, vá em Zero Trust > Networks > Tunnels.
-2. Clique em 'Create a tunnel' (Cloudflare) e dê um nome.
-3. Na tela de instalação, escolha seu ambiente (Debian/64-bit).
-4. Copie APENAS o código enorme (Token) que começa com 'eyJh...'
-
-AO FECHAR ESTA TELA, O SCRIPT PEDIRÁ O TOKEN PARA FINALIZAR A INSTALAÇÃO!
+CLOSE THIS WINDOW TO PASTE YOUR TOKEN AND ACTIVATE THE SERVICE!
+(FECHE ESTA JANELA PARA COLAR O TOKEN E ATIVAR O SERVIÇO!)
 "
-    whiptail --title "Tutorial Cloudflare & Domínio" --scrolltext "$TEXTO_TUTORIAL_CF" 30 85
+    whiptail --title "Cloudflare & Domain Guide" --scrolltext "$TEXTO_TUTORIAL_CF" 30 85
 
-    CF_TOKEN=$(whiptail --title "Ativação do Cloudflare Tunnel" --inputbox "[POR] Cole aqui o Token de Instalação (começa com eyJh...):\nDeixe em branco para cancelar." 10 75 3>&1 1>&2 2>&3)
+    CF_TOKEN=$(whiptail --title "Token Cloudflare" --inputbox "[POR] Cole aqui o Token de Instalação (começa com eyJh...):\n[EN] Paste Installation Token here (starts with eyJh...):\n\n(Deixe em branco para cancelar / Leave empty to cancel)" 12 75 3>&1 1>&2 2>&3)
 
     if [ $? -ne 0 ] || [ -z "$CF_TOKEN" ]; then return; fi
 
@@ -591,67 +593,67 @@ AO FECHAR ESTA TELA, O SCRIPT PEDIRÁ O TOKEN PARA FINALIZAR A INSTALAÇÃO!
         apt-get update && apt-get install -y cloudflared
     fi
 
-    caixa_explicacao "Ativando o Túnel Seguro..." "Activating Secure Tunnel..."
+    caixa_explicacao "Ativando o serviço do Túnel..." "Activating Tunnel daemon..."
     cloudflared service uninstall 2>/dev/null || true
     cloudflared service install "$CF_TOKEN"
     systemctl enable --now cloudflared
 
-    whiptail --title "Sucesso" --msgbox "[POR] Túnel configurado com sucesso!\nO servidor já está conectado à Cloudflare. Configure as rotas (Public Hostname) no painel web para as portas 80 e 8080." 9 70
+    whiptail --title "Sucesso / Success" --msgbox "[POR] Túnel ativado com sucesso!\nConfigure as rotas públicas (Public Hostnames) no painel web para as portas 80 (OPAC) e 8080 (Staff).\n\n[EN] Tunnel successfully enabled!\nConfigure Public Hostnames on the Cloudflare web dashboard targeting port 80 (OPAC) and port 8080 (Staff)." 11 74
 }
 
 # ======================================================================
-# 10. ATUALIZAR SISTEMA
+# 10. ATUALIZAR SISTEMA / SYSTEM & DATABASE UPDATE
 # ======================================================================
 funcao_atualizar_sistema() {
-    whiptail --title "Atualização" --msgbox "[POR] Baixando atualizações do Ubuntu e do Koha." 8 60
+    whiptail --title "Atualização / Update" --msgbox "[POR] Baixando atualizações do Ubuntu e do Koha.\n[EN] Downloading Ubuntu and Koha system updates." 8 65
     clear
     apt-get update -y && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
     koha-upgrade-schema library || true
     systemctl restart memcached apache2 koha-common mariadb
     koha-plack --restart library
-    whiptail --title "Sucesso" --msgbox "Sistema atualizado!" 8 60
+    whiptail --title "Sucesso / Success" --msgbox "[POR] Sistema e banco de dados atualizados!\n[EN] System and database updated successfully!" 8 60
 }
 
 # ======================================================================
-# MENU PRINCIPAL
+# MENU PRINCIPAL / MAIN INTERACTIVE MENU
 # ======================================================================
 while true; do
-    OPCAO=$(whiptail --title "Koha Easy Install" \
-    --menu "[POR] Painel de Administração Integrada:" 23 85 12 \
-    "1" "Instalar Servidor Koha (Base Leve) / Install" \
-    "2" "Ver Credenciais de Acesso (Login e Senha)" \
-    "3" "Restaurar Acervo (SQL) / Restore DB" \
-    "4" "Alternar Motor de Busca (Zebra <-> Elasticsearch)" \
-    "5" "Dimensionar Servidor (Tuning RAM)" \
-    "6" "Configurar Backup em Nuvem (GDrive/OneDrive)" \
-    "7" "Gerenciar Horários de Backup e Tarefas (Crontab)" \
-    "8" "Configurar E-mails e Avisos (SMTP)" \
-    "9" "Configurar Acesso Externo Seguro (Cloudflare Tunnel)" \
-    "10" "Atualizar Sistema e Banco de Dados" \
-    "11" "Status Detalhado dos Serviços" \
+    OPCAO=$(whiptail --title "Koha Easy Install - Control Dashboard" \
+    --menu "[POR] Escolha uma opção / [EN] Choose an option:" 23 88 12 \
+    "1"  "Instalar Servidor Koha / Install Koha Server (Zebra Default)" \
+    "2"  "Ver Credenciais de Acesso / View Stored Credentials" \
+    "3"  "Restaurar Acervo (SQL) / Restore Database Dump" \
+    "4"  "Alternar Motor de Busca / Toggle Search (Zebra <-> Elasticsearch)" \
+    "5"  "Dimensionar Servidor / Server Sizing & Memory Tuning" \
+    "6"  "Configurar Backup em Nuvem / Setup Cloud Backup (Rclone)" \
+    "7"  "Gerenciar Tarefas Agendadas / Manage Crontab Schedules" \
+    "8"  "Configurar E-mails e Avisos / Setup SMTP Email Notices" \
+    "9"  "Acesso Externo Seguro / Setup Cloudflare Tunnel" \
+    "10" "Atualizar Sistema e Schemas / Update System & Schemas" \
+    "11" "Status dos Serviços / Detailed Services Status" \
     "12" "Sair / Exit" 3>&1 1>&2 2>&3)
 
     if [ $? -ne 0 ]; then clear; exit 0; fi
 
     case $OPCAO in
-        1) funcao_instalar_koha ;;
-        2) funcao_ver_credenciais ;;
-        3) funcao_restaurar_banco ;;
-        4) funcao_alternar_motor_busca ;;
-        5) funcao_dimensionar_servidor ;;
-        6) funcao_configurar_rclone ;;
-        7) funcao_gerenciar_crons ;;
-        8) funcao_configurar_emails ;;
-        9) funcao_configurar_cloudflare ;;
+        1)  funcao_instalar_koha ;;
+        2)  funcao_ver_credenciais ;;
+        3)  funcao_restaurar_banco ;;
+        4)  funcao_alternar_motor_busca ;;
+        5)  funcao_dimensionar_servidor ;;
+        6)  funcao_configurar_rclone ;;
+        7)  funcao_gerenciar_crons ;;
+        8)  funcao_configurar_emails ;;
+        9)  funcao_configurar_cloudflare ;;
         10) funcao_atualizar_sistema ;;
         11)
-           S_APA=$(systemctl is-active apache2 2>/dev/null || echo "inativo")
-           S_MAR=$(systemctl is-active mariadb 2>/dev/null || echo "inativo")
-           S_MEM=$(systemctl is-active memcached 2>/dev/null || echo "inativo")
-           S_KOH=$(systemctl is-active koha-common 2>/dev/null || echo "inativo")
-           S_CLD=$(systemctl is-active cloudflared 2>/dev/null || echo "não instalado")
-           whiptail --title "Status" --msgbox "Apache: $S_APA\nMariaDB: $S_MAR\nMemcached: $S_MEM\nKoha: $S_KOH\nCloudflare: $S_CLD" 11 40
-           ;;
+            S_APA=$(systemctl is-active apache2 2>/dev/null || echo "inativo/inactive")
+            S_MAR=$(systemctl is-active mariadb 2>/dev/null || echo "inativo/inactive")
+            S_MEM=$(systemctl is-active memcached 2>/dev/null || echo "inativo/inactive")
+            S_KOH=$(systemctl is-active koha-common 2>/dev/null || echo "inativo/inactive")
+            S_CLD=$(systemctl is-active cloudflared 2>/dev/null || echo "não instalado/uninstalled")
+            whiptail --title "Status dos Serviços / Services Status" --msgbox "Apache:     $S_APA\nMariaDB:    $S_MAR\nMemcached:  $S_MEM\nKoha ILS:   $S_KOH\nCloudflare: $S_CLD" 11 50
+            ;;
         12) clear; exit 0 ;;
     esac
 done
