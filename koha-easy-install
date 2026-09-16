@@ -5,9 +5,32 @@
 # [EN] Complete suite for deployment, maintenance, tuning, and backups.
 # ======================================================================
 
-exec < /dev/tty
 set -e
 set -o pipefail
+
+# ======================================================================
+# ELEVAÇÃO AUTOMÁTICA DE PRIVILÉGIOS / AUTOMATIC PRIVILEGE ESCALATION
+# ======================================================================
+if [ "$EUID" -ne 0 ]; then
+  echo -e "\n+-----------------------------------------------------------------------------------------+"
+  echo -e "| [POR] Privilégios de administrador (root) necessários. Digite sua senha:                 |"
+  echo -e "| [EN]  Root privileges required. Please enter your password:                              |"
+  echo -e "+-----------------------------------------------------------------------------------------+\n"
+  
+  if [ -f "$0" ]; then
+    exec sudo bash "$0" "$@"
+  else
+    echo "ERRO/ERROR: Execute como root / Run with root privileges: 'sudo bash ...'"
+    exit 1
+  fi
+fi
+
+# Conecta a entrada ao terminal para compatibilidade total com whiptail
+exec < /dev/tty 2>/dev/null || true
+
+REAL_USER="${SUDO_USER:-$USER}"
+REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
+[ -z "$REAL_HOME" ] && REAL_HOME="/home/$REAL_USER"
 
 # ======================================================================
 # FUNÇÃO DE CAIXAS DE EXPLICAÇÃO / EXPLANATION BOX FUNCTION
@@ -20,15 +43,6 @@ caixa_explicacao() {
     echo -e "| [EN]  $msg_en"
     echo -e "+-----------------------------------------------------------------------------------------+\n"
 }
-
-if [ "$EUID" -ne 0 ]; then
-  echo "ERRO/ERROR: Execute este script como root / Run this script as root ('sudo -i')."
-  exit 1
-fi
-
-REAL_USER="${SUDO_USER:-$USER}"
-REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
-[ -z "$REAL_HOME" ] && REAL_HOME="/home/$REAL_USER"
 
 # ======================================================================
 # FUNÇÃO AUXILIAR: Inserir/Remover Elasticsearch no XML com segurança
