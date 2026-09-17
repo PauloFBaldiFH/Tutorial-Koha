@@ -101,6 +101,8 @@ funcao_instalar_koha() {
     whiptail --title "Instalação / Installation" --msgbox "[POR] Iniciando o Koha Easy Install (Modo Leve - Zebra por padrão).\n\n[EN] Starting Koha Easy Install (Lightweight Mode - Zebra default)." 10 75
     clear
 
+    aguardar_travas_apt
+
     caixa_explicacao "Configurando Locales e Codificação UTF-8..." "Configuring Locales and UTF-8 Encoding..."
     apt-get update -o Acquire::Check-Valid-Until=false -y || true
     DEBIAN_FRONTEND=noninteractive apt-get install -y locales
@@ -343,7 +345,7 @@ Ubuntu \n \l
              |  ===================================================  |
              |                                                       |
              |    |---|   |---|   |---|   .---.   |---|   |---|      |
-             |    |* *|   |* *|   |* *|   |# #|   |* *|   |* *|      |
+             |    |* *|   |* *|   |* *|   |* *|   |* *|   |* *|      |
              |    |===|   |===|   |===|   |===|   |===|   |===|      |
             /=========================================================\\
            /___________________________________________________________\\
@@ -351,6 +353,16 @@ Ubuntu \n \l
 EOF
     cp /etc/issue /etc/issue.net
     cp /etc/issue /etc/motd
+
+# Reativa as atualizações automáticas de segurança do Ubuntu
+    systemctl start unattended-upgrades 2>/dev/null || true
+
+    # ======================================================================
+    # CONFIGURAÇÃO DE NUVEM EMBUTIDA NO FINAL DA INSTALAÇÃO
+    # ======================================================================
+    if whiptail --title "Backup em Nuvem / Cloud Backup" --yesno "[POR] Deseja configurar o Google Drive (Rclone) agora mesmo, antes de finalizar a instalacao?\n\n[EN] Do you want to configure Google Drive (Rclone) right now, before finishing the installation?" 10 75; then
+        funcao_configurar_rclone
+    fi
 
     # ======================================================================
     # TELA FINAL DE SUCESSO IMPRESSA DIRETAMENTE NO TERMINAL
@@ -374,7 +386,7 @@ EOF
     echo -e "  Open the dashboard anytime by typing:       \e[1;35msudo options.sh\e[0m"
     echo -e ""
     echo -e "\e[1;36m  ☁️  NUVEM / CLOUD BACKUP:\e[0m"
-    echo -e "  Configure o Google Drive na \e[1;37mOpção 7\e[0m do painel."
+    echo -e "  Se não configurou o Google Drive agora, use a \e[1;37mOpção 7\e[0m do painel depois."
     echo -e "  Docs: https://rclone.org/drive/"
     echo -e "\e[1;32m======================================================================\e[0m"
     echo -e "\e[1;37mPressione [ENTER] para sair do instalador... / Press [ENTER] to exit...\e[0m"
@@ -889,6 +901,9 @@ Feche esta janela para colar o Token!
 funcao_atualizar_sistema() {
     whiptail --title "Atualização / Update" --msgbox "[POR] Baixando atualizações do Ubuntu e do Koha.\n[EN] Downloading Ubuntu and Koha system updates." 8 65
     clear
+    
+    aguardar_travas_apt
+
     apt-get update -y && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
     koha-upgrade-schema library || true
     systemctl restart memcached apache2 koha-common mariadb
