@@ -242,19 +242,24 @@ EOF
 # [POR] Formato: Minuto(0-59) | Hora(0-23) | Dia do Mes(1-31) | Mes(1-12) | Dia da Semana(0-6, 0=Dom)
 # [EN]  Format:  Minute(0-59) | Hour(0-23) | Day of Month(1-31) | Month(1-12) | Day of Week(0-6, 0=Sun)
 
-# 1. Vacuum journalctl logs every 14 days (Runs daily at 00:30)
+# 1. [EN] Vacuum journalctl logs every 14 days (Runs daily at 00:30)
+#    [POR] Limpeza de logs antigos do sistema (Roda diariamente às 00:30)
 30 0 * * * root /usr/bin/journalctl --vacuum-time=14d >/dev/null 2>&1
 
-# 2. Database repair & check (Runs on the 5th day of every month at 01:00)
+# 2. [EN] Database repair & check (Runs on the 5th day of every month at 01:00)
+#    [POR] Checagem e reparo do banco de dados (Roda dia 5 de cada mes as 01:00)
 0 1 5 * * root /usr/bin/mysqlcheck --check --auto-repair --databases koha_library >/dev/null 2>&1
 
-# 3. Automatic restart of Plack web engine (Runs daily at 05:00)
+# 3. [EN] Automatic restart of Plack web engine (Runs daily at 05:00)
+#    [POR] Reinicio automatico do motor web Plack (Roda diariamente as 05:00)
 0 5 * * * root /usr/sbin/koha-plack --restart library >/dev/null 2>&1
 
-# 4. DAILY SQL DATABASE BACKUP (Runs daily at 17:40)
+# 4. [EN] DAILY SQL DATABASE BACKUP (Runs daily at 17:40)
+#    [POR] BACKUP DIARIO DO BANCO DE DADOS SQL (Roda diariamente as 17:40)
 40 17 * * * root /bin/bash /root/backup_sql.sh >/dev/null 2>&1
 
-# 5. WEEKLY MARC21 & AUTHORITIES BACKUP (Runs every Sunday at 03:00)
+# 5. [EN] WEEKLY MARC21 & AUTHORITIES BACKUP (Runs every Sunday at 03:00)
+#    [POR] BACKUP SEMANAL DO ACERVO MARC E AUTORIDADES (Roda aos domingos as 03:00)
 0 3 * * 0 root /bin/bash /root/backup_marc.sh >/dev/null 2>&1
 EOF
     chmod 644 /etc/cron.d/koha_tasks
@@ -776,9 +781,13 @@ funcao_configurar_emails() {
     clear
     apt-get install -y postfix libsasl2-modules
     cat << EOF >> /etc/cron.d/koha_tasks
-# 6. EMAIL CRONJOB: Overdue notices (Every Monday at 08:00)
+
+# 6. [EN] EMAIL CRONJOB: Overdue notices (Every Monday at 08:00)
+#    [POR] CRONJOB DE E-MAIL: Avisos de atraso (Roda segundas-feiras às 08:00)
 00 08 * * 1 root koha-shell library -c "/usr/share/koha/bin/cronjobs/overdue_notices.pl -v -t -e" >/dev/null 2>&1
-# 7. EMAIL CRONJOB: Process message queue (Every Monday at 08:05)
+
+# 7. [EN] EMAIL CRONJOB: Process message queue (Every Monday at 08:05)
+#    [POR] CRONJOB DE E-MAIL: Processar fila de envio (Roda segundas-feiras às 08:05)
 05 08 * * 1 root koha-shell library -c "/usr/share/koha/bin/cronjobs/process_message_queue.pl -v" >/dev/null 2>&1
 EOF
     systemctl restart cron
@@ -849,7 +858,7 @@ funcao_configurar_cloudflare() {
 CLOSE THIS WINDOW TO PASTE YOUR TOKEN AND ACTIVATE THE SERVICE!
 (FECHE ESTA JANELA PARA COLAR O TOKEN E ATIVAR O SERVIÇO!)
 "
-    whiptail --title "Cloudflare & Domain Guide" --scrolltext "$TEXTO_TUTORIAL_CF" 30 85
+    whiptail --title "Cloudflare & Domain Guide" --scrolltext "$TEXTO_TUTORIAL_CF" 22 78
 
     CF_TOKEN=$(whiptail --title "Token Cloudflare" --inputbox "[POR] Cole aqui o Token de Instalação (começa com eyJh...):\n[EN] Paste Installation Token here (starts with eyJh...):\n\n(Deixe em branco para cancelar / Leave empty to cancel)" 12 75 3>&1 1>&2 2>&3)
 
