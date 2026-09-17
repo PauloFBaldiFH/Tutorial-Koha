@@ -94,12 +94,205 @@ with open(path, "w") as f:
 PYEOF
 }
 
+
+# ======================================================================
+# SISTEMA CENTRAL DE VALIDAÇÃO / CENTRAL VALIDATION SYSTEM
+# ======================================================================
+VALIDACAO_DIR="/var/log/koha-easy-install"
+mkdir -p "$VALIDACAO_DIR" 2>/dev/null || true
+VALIDACAO_LOG="$VALIDACAO_DIR/validacao-$(date '+%Y%m%d-%H%M%S').log"
+V_OK=0
+V_WARN=0
+V_FAIL=0
+V_CONTEXT=""
+
+v_reset() {
+    V_OK=0; V_WARN=0; V_FAIL=0; V_CONTEXT="$1"
+    VALIDACAO_LOG="$VALIDACAO_DIR/validacao-$(date '+%Y%m%d-%H%M%S').log"
+    {
+        echo "======================================================================"
+        echo "KOHA EASY INSTALL - RELATÓRIO DE VALIDAÇÃO"
+        echo "Contexto: $V_CONTEXT"
+        echo "Data: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+        echo "Host: $(hostname)"
+        echo "======================================================================"
+    } > "$VALIDACAO_LOG"
+}
+v_ok(){ V_OK=$((V_OK+1)); printf '[ OK ] %s\n' "$1" | tee -a "$VALIDACAO_LOG"; }
+v_warn(){ V_WARN=$((V_WARN+1)); printf '[WARN] %s\n' "$1" | tee -a "$VALIDACAO_LOG"; }
+v_fail(){ V_FAIL=$((V_FAIL+1)); printf '[FAIL] %s\n' "$1" | tee -a "$VALIDACAO_LOG"; }
+v_info(){ printf '[INFO] %s\n' "$1" | tee -a "$VALIDACAO_LOG"; }
+
+validar_comando(){
+    local c="$1" d="$2"
+    if command -v "$c" >/dev/null 2>&1; then v_ok "$d: '$c' disponível."; return 0; fi
+    v_fail "$d: '$c' não encontrado."; return 1
+}
+validar_arquivo(){
+    local p="$1" d="$2"
+    if [ -f "$p" ]; then v_ok "$d: $p"; return 0; fi
+    v_fail "$d: arquivo ausente: $p"; return 1
+}
+validar_servico(){
+    local s="$1" d="$2" req="${3:-sim}"
+    if ! systemctl cat "$s" >/dev/null 2>&1; then
+        [ "$req" = "sim" ] && v_fail "$d: serviço '$s' não encontrado." || v_warn "$d: serviço opcional '$s' não instalado."
+        return 1
+    fi
+    if systemctl is-active --quiet "$s"; then v_ok "$d: serviço '$s' ativo."; return 0; fi
+    [ "$req" = "sim" ] && v_fail "$d: serviço '$s' inativo." || v_warn "$d: serviço opcional '$s' inativo."
+    return 1
+}
+validar_porta_local(){
+    local p="$1" d="$2"
+    if ss -lnt 2>/dev/null | awk '{print $4}' | grep -Eq "([.:]${p})$"; then v_ok "$d: TCP $p em escuta."; return 0; fi
+    v_fail "$d: TCP $p não está em escuta."; return 1
+}
+validar_http(){
+    local u="$1" d="$2" code
+    code=$(curl -sS -L --max-time 8 -o /dev/null -w '%{http_code}' "$u" 2>/dev/null || true)
+    if [[ "$code" =~ ^[23][0-9][0-9]$ ]]; then v_ok "$d: HTTP $code em $u"; return 0; fi
+    v_fail "$d: HTTP inválido em $u (código ${code:-sem resposta})."; return 1
+}
+validar_mariadb(){
+    local c
+    if ! mysql -Nse 'SELECT 1;' >/dev/null 2>&1; then v_fail "MariaDB: conexão local falhou."; return 1; fi
+    v_ok "MariaDB: conexão local funcionando."
+    c=$(mysql -Nse "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='koha_library';" 2>/dev/null || echo 0)
+    if [[ "$c" =~ ^[0-9]+$ ]] && [ "$c" -gt 50 ]; then v_ok "koha_library: $c tabelas detectadas."; return 0; fi
+    v_fail "koha_library: banco ausente/vazio/incompleto (tabelas: ${c:-0})."; return 1
+}
+obter_motor_busca(){ mysql -Nse "SELECT value FROM koha_library.systempreferences WHERE variable='SearchEngine' LIMIT 1;" 2>/dev/null || true; }
+validar_koha_instancia(){
+    local c="/etc/koha/sites/library/koha-conf.xml" e
+    validar_arquivo "$c" "Koha: configuração" || true
+    validar_arquivo "/etc/apache2/sites-enabled/library.conf" "Apache: site Koha" || true
+    if command -v koha-list >/dev/null 2>&1 && koha-list 2>/dev/null | grep -qx library; then v_ok "Koha: instância 'library' registrada."; else v_fail "Koha: instância 'library' não registrada no koha-list."; fi
+    if [ -f "$c" ] && command -v xmllint >/dev/null 2>&1; then
+        xmllint --noout "$c" >/dev/null 2>&1 && v_ok "Koha: XML bem formado." || v_fail "Koha: erro de XML em koha-conf.xml."
+    elif [ -f "$c" ]; then v_warn "Koha: xmllint indisponível; XML não testado sintaticamente."; fi
+    if command -v koha-plack >/dev/null 2>&1; then
+        koha-plack --status library >/dev/null 2>&1 && v_ok "Plack: status da instância respondeu." || v_warn "Plack: status da instância não foi confirmado."
+    fi
+    e=$(obter_motor_busca)
+    case "$e" in
+        Zebra) v_info "Koha: SearchEngine=Zebra." ;;
+        Elasticsearch) v_info "Koha: SearchEngine=Elasticsearch." ;;
+        "") v_fail "Koha: preferência SearchEngine não foi lida." ;;
+        *) v_warn "Koha: SearchEngine contém valor inesperado: $e" ;;
+    esac
+}
+validar_zebra(){
+    [ "$1" != "Zebra" ] && return 0
+    systemctl is-active --quiet koha-zebra-daemon@library && v_ok "Zebra: daemon ativo." || v_fail "Zebra: daemon inativo."
+    command -v koha-rebuild-zebra >/dev/null 2>&1 && v_ok "Zebra: ferramenta de rebuild disponível." || v_fail "Zebra: koha-rebuild-zebra ausente."
+}
+validar_elasticsearch(){
+    local e="$1" r
+    if ! dpkg -s elasticsearch >/dev/null 2>&1 && ! dpkg -s koha-elasticsearch >/dev/null 2>&1; then
+        [ "$e" = "Elasticsearch" ] && v_fail "Elasticsearch: configurado no Koha, mas pacote ausente." || v_warn "Elasticsearch: não instalado; OK enquanto Zebra for o motor atual."
+        return 1
+    fi
+    if systemctl is-active --quiet elasticsearch; then v_ok "Elasticsearch: serviço ativo."; else [ "$e" = "Elasticsearch" ] && v_fail "Elasticsearch: serviço inativo." || v_warn "Elasticsearch: instalado, mas inativo."; fi
+    r=$(curl -sS --max-time 5 http://127.0.0.1:9200/ 2>/dev/null || true)
+    if [ -n "$r" ]; then v_ok "Elasticsearch: API 9200 respondeu."; elif [ "$e" = "Elasticsearch" ]; then v_fail "Elasticsearch: API 9200 sem resposta."; else v_warn "Elasticsearch: API 9200 sem resposta."; fi
+    if [ "$e" = "Elasticsearch" ]; then
+        curl -sS --max-time 5 'http://127.0.0.1:9200/_cat/indices/koha_library_*?format=json' 2>/dev/null | grep -q koha_library_ && v_ok "Elasticsearch: índices Koha encontrados." || v_warn "Elasticsearch: índices Koha não confirmados."
+    fi
+}
+validar_cron(){
+    local f="/etc/cron.d/koha_tasks"
+    validar_arquivo "$f" "Cron: arquivo central" || return 1
+    [ "$(stat -c '%a' "$f" 2>/dev/null || echo 0)" = 644 ] && v_ok "Cron: permissões 644." || v_warn "Cron: permissões diferentes de 644."
+    grep -q 'backup_sql.sh' "$f" 2>/dev/null && v_ok "Cron: backup SQL presente." || v_warn "Cron: backup SQL não encontrado."
+    grep -q 'backup_marc.sh' "$f" 2>/dev/null && v_ok "Cron: backup MARC21 presente." || v_warn "Cron: backup MARC21 não encontrado."
+    grep -q 'koha-plack --restart library' "$f" 2>/dev/null && v_ok "Cron: reinício diário do Plack presente." || v_warn "Cron: reinício do Plack não encontrado."
+    grep -q 'overdue_notices.pl' "$f" 2>/dev/null && v_ok "Cron: avisos de atraso presentes." || v_warn "Cron: avisos de atraso não configurados."
+    grep -q 'process_message_queue.pl' "$f" 2>/dev/null && v_ok "Cron: fila de mensagens presente." || v_warn "Cron: fila de mensagens não configurada."
+    systemctl is-active --quiet cron && v_ok "Cron: serviço ativo." || v_fail "Cron: serviço inativo."
+}
+validar_ufw(){
+    command -v ufw >/dev/null 2>&1 || { v_fail "UFW: comando ausente."; return 1; }
+    ufw status 2>/dev/null | grep -q '^Status: active' && v_ok "UFW: firewall ativo." || v_fail "UFW: firewall inativo."
+    local p
+    for p in 22 80 443 8080 587 53682; do
+        ufw status 2>/dev/null | grep -Eq "${p}/tcp|${p}" && v_ok "UFW: regra TCP $p encontrada." || v_warn "UFW: regra TCP $p não confirmada."
+    done
+}
+validar_rede_e_sistema(){
+    local ram free
+    validar_comando ss "Rede" || true
+    validar_comando curl "Rede" || true
+    if getent hosts debian.koha-community.org >/dev/null 2>&1; then v_ok "DNS: debian.koha-community.org resolve."; else v_fail "DNS: não resolve debian.koha-community.org."; fi
+    ram=$(awk '/MemTotal:/ {printf "%.1f", $2/1024/1024}' /proc/meminfo 2>/dev/null || echo 0)
+    v_info "RAM detectada: ${ram} GB."
+    free=$(df -Pm / 2>/dev/null | awk 'NR==2{print $4}')
+    if [[ "$free" =~ ^[0-9]+$ ]] && [ "$free" -ge 5120 ]; then v_ok "Disco: ${free} MB livres em /."; elif [[ "$free" =~ ^[0-9]+$ ]] && [ "$free" -ge 2048 ]; then v_warn "Disco: ${free} MB livres em /."; else v_fail "Disco: menos de 2 GB livres em /."; fi
+    swapon --show 2>/dev/null | grep -q '/' && v_ok "SWAP: ativa." || v_warn "SWAP: nenhuma área ativa."
+    timedatectl show -p NTPSynchronized --value 2>/dev/null | grep -q '^yes$' && v_ok "NTP: sincronizado." || v_warn "NTP: sincronização não confirmada."
+}
+validar_opcionais(){
+    if systemctl cat cloudflared.service >/dev/null 2>&1; then systemctl is-active --quiet cloudflared && v_ok "Cloudflare Tunnel: ativo." || v_warn "Cloudflare Tunnel: instalado, mas inativo."; else v_warn "Cloudflare Tunnel: não configurado."; fi
+    if [ -f /root/.config/rclone/rclone.conf ]; then
+        v_ok "Rclone: configuração encontrada."
+        if rclone lsd gdrive: >/dev/null 2>&1; then v_ok "Rclone: remoto gdrive acessível."; else v_warn "Rclone: remoto gdrive não respondeu."; fi
+    else v_warn "Rclone: configuração ainda não encontrada."; fi
+    [ -f /root/credenciais_koha.txt ] && v_ok "Credenciais: arquivo presente." || v_warn "Credenciais: arquivo ausente."
+}
+validar_sistema_completo(){
+    local ctx="${1:-validação completa}" ip engine
+    v_reset "$ctx"
+    v_info "=== SISTEMA / REDE ==="; validar_rede_e_sistema
+    v_info "=== SERVIÇOS ==="
+    validar_servico mariadb MariaDB
+    validar_servico apache2 Apache
+    validar_servico memcached Memcached
+    validar_servico koha-common "Koha common"
+    validar_servico cron Cron
+    validar_servico fail2ban Fail2ban opcional
+    v_info "=== KOHA / BANCO ==="; validar_mariadb; validar_koha_instancia
+    ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    if [ -n "$ip" ]; then validar_porta_local 80 OPAC; validar_porta_local 8080 Staff; validar_http http://127.0.0.1:80/ "OPAC local"; validar_http http://127.0.0.1:8080/ "Staff local"; else v_warn "IP do servidor não determinado."; fi
+    engine=$(obter_motor_busca)
+    v_info "=== BUSCA ==="; validar_zebra "$engine"; validar_elasticsearch "$engine"
+    v_info "=== APACHE / CRON / FIREWALL ==="
+    apachectl configtest >/dev/null 2>&1 && v_ok "Apache: configtest OK." || v_fail "Apache: configtest falhou."
+    validar_cron; validar_ufw
+    v_info "=== OPCIONAIS ==="; validar_opcionais
+    printf '\nRESULTADO: OK=%s | AVISOS=%s | ERROS=%s\n' "$V_OK" "$V_WARN" "$V_FAIL" | tee -a "$VALIDACAO_LOG"
+    echo "Log: $VALIDACAO_LOG" | tee -a "$VALIDACAO_LOG"
+    [ "$V_FAIL" -eq 0 ]
+}
+validar_pre_instalacao(){
+    local free ram p
+    v_reset "pré-instalação"
+    [ "$EUID" -eq 0 ] && v_ok "Root: execução como administrador." || v_fail "Root: privilégios insuficientes."
+    if [ -r /etc/os-release ] && grep -Eq '^(ID|ID_LIKE)=(ubuntu|debian)|^(ID_LIKE)=.*debian' /etc/os-release; then v_ok "SO: base Debian/Ubuntu detectada."; else v_warn "SO: não identificado claramente como Debian/Ubuntu."; fi
+    validar_comando apt-get APT || true; validar_comando dpkg DPKG || true; validar_comando systemctl Systemd || true; validar_comando ss Rede || true; validar_comando curl Internet || true; validar_comando wget Download || true; validar_comando gpg GPG || true
+    getent hosts debian.koha-community.org >/dev/null 2>&1 && v_ok "DNS: repositório Koha resolve." || v_fail "DNS: repositório Koha não resolve."
+    curl -fsSI --max-time 8 https://debian.koha-community.org/koha/ >/dev/null 2>&1 && v_ok "HTTPS: repositório Koha respondeu." || v_fail "HTTPS: repositório Koha não respondeu."
+    free=$(df -Pm / 2>/dev/null | awk 'NR==2{print $4}'); ram=$(awk '/MemTotal:/ {printf "%.1f",$2/1024/1024}' /proc/meminfo 2>/dev/null || echo 0)
+    if [[ "$free" =~ ^[0-9]+$ ]] && [ "$free" -ge 5120 ]; then v_ok "Disco: ${free} MB livres."; elif [[ "$free" =~ ^[0-9]+$ ]]; then v_warn "Disco: somente ${free} MB livres."; else v_warn "Disco: não calculado."; fi
+    v_info "RAM: ${ram} GB."
+    for p in 80 8080; do ss -lnt 2>/dev/null | awk '{print $4}' | grep -Eq "([.:]${p})$" && v_warn "TCP $p: já está em uso." || v_ok "TCP $p: livre."; done
+    [ "$V_FAIL" -eq 0 ] || { whiptail --title "Pré-validação falhou" --msgbox "Erros: $V_FAIL\nAvisos: $V_WARN\n\nLog: $VALIDACAO_LOG" 10 70; return 1; }
+    whiptail --title "Pré-validação OK" --yesno "Pré-validação concluída sem erros críticos.\n\nOK: $V_OK\nAvisos: $V_WARN\n\nIniciar instalação?" 12 70
+}
+mostrar_validacao(){
+    [ -f "$VALIDACAO_LOG" ] || { whiptail --title "Validação" --msgbox "Nenhum relatório de validação foi gerado ainda." 8 65; return; }
+    whiptail --title "Relatório de validação" --textbox "$VALIDACAO_LOG" 30 110 --scrolltext
+}
+
 # ======================================================================
 # 1. INSTALAÇÃO BASE / BASE INSTALLATION
 # ======================================================================
 funcao_instalar_koha() {
     whiptail --title "Instalação / Installation" --msgbox "[POR] Iniciando o Koha Easy Install (Modo Leve - Zebra por padrão).\n\n[EN] Starting Koha Easy Install (Lightweight Mode - Zebra default)." 10 75
     clear
+
+    if ! validar_pre_instalacao; then
+        return
+    fi
 
     aguardar_travas_apt
 
@@ -134,15 +327,15 @@ funcao_instalar_koha() {
     
     # O pacote 'expect' foi adicionado aqui para garantir a automacao perfeita do Rclone
     DEBIAN_FRONTEND=noninteractive apt-get install -y nano curl wget gpg ufw software-properties-common default-jre-headless \
-                  libapache2-mod-security2 fail2ban postfix libsasl2-modules glabels \
-                  at rclone avahi-daemon memcached python3 expect
+                  libapache2-mod-security2 fail2ban libsasl2-modules glabels \
+                  rclone avahi-daemon memcached python3 expect libxml2-utils
 
     systemctl enable --now avahi-daemon fail2ban
 
     caixa_explicacao "Adicionando repositórios (Koha e Elasticsearch)..." "Adding repositories (Koha and Elasticsearch)..."
     mkdir -p /usr/share/keyrings
     wget -q --timeout=20 --tries=3 -O - https://debian.koha-community.org/koha/gpg.asc | gpg --dearmor --yes -o /usr/share/keyrings/koha-keyring.gpg
-    echo "deb [signed-by=/usr/share/keyrings/koha-keyring.gpg] https://debian.koha-community.org/koha oldstable main" > /etc/apt/sources.list.d/koha.list
+    echo "deb [signed-by=/usr/share/keyrings/koha-keyring.gpg] https://debian.koha-community.org/koha stable main" > /etc/apt/sources.list.d/koha.list
 
     wget -q --timeout=20 --tries=3 -O - https://artifacts.elastic.co/GPG-KEY-elasticsearch | gpg --dearmor --yes -o /usr/share/keyrings/elasticsearch-keyring.gpg
     echo "deb [signed-by=/usr/share/keyrings/elasticsearch-keyring.gpg] https://artifacts.elastic.co/packages/7.x/apt stable main" > /etc/apt/sources.list.d/elastic-7.x.list
@@ -162,10 +355,39 @@ funcao_instalar_koha() {
     systemctl restart apache2
 
     caixa_explicacao "Criando instância 'library' do Koha..." "Creating 'library' Koha instance..."
-    koha-remove library 2>/dev/null || true
-    mysql -e "DROP DATABASE IF EXISTS koha_library;" 2>/dev/null || true
-    mysql -e "DROP USER IF EXISTS 'koha_library'@'localhost';" 2>/dev/null || true
-    rm -rf /etc/koha/sites/library
+
+    # SEGURANÇA: nunca apaga uma instalação existente sem confirmação explícita.
+    KOHA_INSTANCIA_EXISTE=false
+    if [ -d /etc/koha/sites/library ]; then
+        KOHA_INSTANCIA_EXISTE=true
+    elif mysql -Nse "SELECT 1 FROM information_schema.schemata WHERE schema_name='koha_library' LIMIT 1;" 2>/dev/null | grep -q '^1$'; then
+        KOHA_INSTANCIA_EXISTE=true
+    fi
+
+    if [ "$KOHA_INSTANCIA_EXISTE" = true ]; then
+        if ! whiptail --title "Instância já existe / Instance already exists" --yesno \
+            "[POR] Já existe uma instalação da instância 'library'.\n\n\nREINSTALAR APAGARÁ a configuração atual e o banco koha_library.\nEssa operação é destrutiva e não pode ser desfeita pelo script.\n\nDeseja prosseguir para a segunda confirmação?\n\n[EN] A 'library' instance already exists.\n\nREINSTALLING WILL DELETE the current configuration and the koha_library database.\nThis operation is destructive and cannot be undone by this script.\n\nContinue to the second confirmation?" 18 78; then
+            whiptail --title "Instalação cancelada / Installation cancelled" --msgbox \
+                "[POR] Nenhuma alteração destrutiva foi feita.\n\n[EN] No destructive changes were made." 8 62
+            return
+        fi
+
+        CONFIRMAR_REINSTALACAO=$(whiptail --title "CONFIRMAÇÃO FINAL / FINAL CONFIRMATION" \
+            --inputbox \
+            "[POR] Para apagar a instalação atual, digite exatamente:\n\nREINSTALAR\n\n[EN] To delete the current installation, type exactly:\n\nREINSTALL" 12 68 3>&1 1>&2 2>&3) || return
+
+        if [ "$CONFIRMAR_REINSTALACAO" != "REINSTALAR" ]; then
+            whiptail --title "Instalação cancelada / Installation cancelled" --msgbox \
+                "[POR] Confirmação incorreta. Nada foi apagado.\n\n[EN] Incorrect confirmation. Nothing was deleted." 8 62
+            return
+        fi
+
+        caixa_explicacao "Removendo instalação existente..." "Removing existing installation..."
+        koha-remove library 2>/dev/null || true
+        mysql -e "DROP DATABASE IF EXISTS koha_library;" 2>/dev/null || true
+        mysql -e "DROP USER IF EXISTS 'koha_library'@'localhost';" 2>/dev/null || true
+        rm -rf /etc/koha/sites/library
+    fi
 
     koha-create --create-db library
 
@@ -184,6 +406,15 @@ funcao_instalar_koha() {
     koha-zebra --enable library 2>/dev/null || true
     koha-zebra --start library 2>/dev/null || true
     systemctl enable --now koha-zebra-daemon@library 2>/dev/null || true
+
+    v_reset "pós-instalação Koha/Zebra"
+    validar_servico mariadb "MariaDB"
+    validar_servico apache2 "Apache"
+    validar_servico memcached "Memcached"
+    validar_servico koha-common "Koha common"
+    validar_mariadb
+    validar_koha_instancia
+    validar_zebra "Zebra"
 
     # ======================================================================
     # ARQUIVOS DE BACKUP E CREDENCIAIS / BACKUP FILES AND CREDENTIALS
@@ -290,15 +521,14 @@ EOF
     systemctl restart cron
 
     # Firewall UFW
-    echo "ufw disable" | at now + 10 minutes >/dev/null 2>&1
+    # Sem desligamento automático: as regras são adicionadas ANTES de ativar o UFW.
     ufw allow 22/tcp >/dev/null 2>&1
     ufw allow 80/tcp >/dev/null 2>&1
     ufw allow 443/tcp >/dev/null 2>&1
     ufw allow 8080/tcp >/dev/null 2>&1
     ufw allow 587/tcp >/dev/null 2>&1
     ufw allow 53682/tcp >/dev/null 2>&1
-    echo "y" | ufw enable >/dev/null 2>&1
-    for job in $(atq 2>/dev/null | cut -f1); do atrm "$job" 2>/dev/null || true; done
+    ufw --force enable >/dev/null 2>&1
 
     IP_REAL=$(hostname -I | awk '{print $1}')
     [ -z "$IP_REAL" ] && IP_REAL="ipdoservidor"
@@ -426,11 +656,27 @@ EOF
         STATUS_NUVEM="\e[1;31mIgnorado ou Falhou.\e[0m (Para tentar novamente, use a Opção 7 do painel)"
     fi
 
-    # BANNER VERDE FINAL (IMPRESSO LOGO ABAIXO DA SAIDA DO EXPECT, SEM LIMPAR A TELA)
-    echo -e "\n\n\e[1;32m======================================================================\e[0m"
-    echo -e "\e[1;32m  [POR] INSTALAÇÃO CONCLUÍDA COM SUCESSO!\e[0m"
-    echo -e "\e[1;32m  [EN]  INSTALLATION COMPLETED SUCCESSFULLY!\e[0m"
-    echo -e "\e[1;32m======================================================================\e[0m"
+    clear
+    if validar_sistema_completo "instalação concluída"; then
+        VALIDACAO_FINAL_OK=true
+    else
+        VALIDACAO_FINAL_OK=false
+    fi
+
+    if [ "$VALIDACAO_FINAL_OK" = true ]; then
+        COR_FINAL="\e[1;32m"
+        MSG_FINAL_PT="INSTALAÇÃO CONCLUÍDA E VALIDADA COM SUCESSO!"
+        MSG_FINAL_EN="INSTALLATION COMPLETED AND VALIDATED SUCCESSFULLY!"
+    else
+        COR_FINAL="\e[1;33m"
+        MSG_FINAL_PT="INSTALAÇÃO CONCLUÍDA, MAS A VALIDAÇÃO ENCONTROU PROBLEMAS."
+        MSG_FINAL_EN="INSTALLATION COMPLETED, BUT VALIDATION FOUND PROBLEMS."
+    fi
+
+    echo -e "\n\n${COR_FINAL}======================================================================\e[0m"
+    echo -e "${COR_FINAL}  [POR] $MSG_FINAL_PT\e[0m"
+    echo -e "${COR_FINAL}  [EN]  $MSG_FINAL_EN\e[0m"
+    echo -e "${COR_FINAL}======================================================================\e[0m"
     echo -e ""
     echo -e "\e[1;36m  🌐 ACESSOS / WEB ACCESS URLS:\e[0m"
     echo -e "  - Staff (Adm/Intranet):  \e[4;37mhttp://${IP_REAL}:8080\e[0m"
@@ -439,6 +685,10 @@ EOF
     echo -e "\e[1;36m  🔑 PRIMEIRO ACESSO / INITIAL CREDENTIALS:\e[0m"
     echo -e "  - Usuário / Username: \e[1;33m$DB_USER\e[0m"
     echo -e "  - Senha / Password:   \e[1;33m$DB_PASS\e[0m"
+    echo -e ""
+    echo -e "\e[1;36m  ✅ VALIDAÇÃO / VALIDATION:\e[0m"
+    echo -e "  - OK: $V_OK | Avisos: $V_WARN | Erros: $V_FAIL"
+    echo -e "  - Relatório: $VALIDACAO_LOG"
     echo -e ""
     echo -e "\e[1;36m  ⚙️  PAINEL DE CONTROLE / CONTROL DASHBOARD:\e[0m"
     echo -e "  Abra o painel a qualquer momento digitando: \e[1;35msudo options.sh\e[0m"
@@ -464,6 +714,9 @@ funcao_ver_credenciais() {
     DB_PASS=$(grep -oP '(?<=<pass>)[^<]+' "$ARQUIVO_CONF" | head -n 1)
     DB_USER="koha_library"
     IP_REAL=$(hostname -I | awk '{print $1}')
+
+    validar_arquivo "$ARQUIVO_CONF" "Koha: configuração" || true
+    validar_arquivo "/root/credenciais_koha.txt" "Credenciais salvas" || true
 
     whiptail --title "Credenciais / Credentials" --msgbox "[POR] DADOS DE ACESSO AO KOHA:\n- Staff (Adm): http://${IP_REAL}:8080\n- OPAC (Público): http://${IP_REAL}:80\n- Usuário: $DB_USER\n- Senha:   $DB_PASS\n\n[EN] KOHA ACCESS CREDENTIALS:\n- Staff URL: http://${IP_REAL}:8080\n- OPAC URL:  http://${IP_REAL}:80\n- Username:  $DB_USER\n- Password:  $DB_PASS\n\nFile / Arquivo: /root/credenciais_koha.txt" 17 72
 }
@@ -533,6 +786,7 @@ scp C:\koha_library.sql $REAL_USER@$IP_REAL:~
     fi
 
     koha-plack --restart library
+    validar_sistema_completo "restauração do banco" || true
     whiptail --title "Sucesso / Success" --msgbox "[POR] Acervo 'koha_library.sql' restaurado e indexado com sucesso!\nO servidor identificou e ativou automaticamente o motor: $MOTOR_REAL.\n\n[EN] Database 'koha_library.sql' restored and indexed successfully!\nThe server automatically detected and enabled the engine: $MOTOR_REAL." 10 74
 }
 
@@ -645,6 +899,9 @@ funcao_instalar_idiomas() {
     if koha-translate --install "$IDIOMA_SELECIONADO"; then
         systemctl restart memcached apache2 koha-common
         koha-plack --restart library
+        validar_servico apache2 "Apache"
+        validar_servico memcached "Memcached"
+        validar_servico koha-common "Koha common"
         whiptail --title "Sucesso / Success" --msgbox "[POR] Pacote '$IDIOMA_SELECIONADO' instalado com sucesso!\nPara ativá-lo, acesse o painel web do Koha em:\nAdministração > Preferências do Sistema > Idiomas (language).\n\n[EN] Package '$IDIOMA_SELECIONADO' installed successfully!\nTo activate it, log into the Koha web dashboard and navigate to:\nAdministration > System Preferences > Languages." 13 74
     else
         whiptail --title "Erro / Error" --msgbox "[POR] Falha ao baixar o idioma '$IDIOMA_SELECIONADO'. Verifique a conexão com a internet.\n\n[EN] Failed to download language '$IDIOMA_SELECIONADO'. Please check your internet connection." 9 70
@@ -677,6 +934,7 @@ funcao_alternar_motor_busca() {
             mysql -e "UPDATE koha_library.systempreferences SET value='Zebra' WHERE variable='SearchEngine';"
             koha-rebuild-zebra -f -v -b -a library
             koha-plack --restart library
+            validar_sistema_completo "troca para Zebra" || true
             whiptail --title "Sucesso / Success" --msgbox "[POR] Sistema operando com ZEBRA!\n[EN] System is now running on ZEBRA!" 8 60
         fi
     else
@@ -755,6 +1013,7 @@ JVMEOF
             fi
 
             koha-plack --restart library
+            validar_sistema_completo "ativação do Elasticsearch" || true
             whiptail --title "Sucesso / Success" --msgbox "[POR] Sistema operando com ELASTICSEARCH!\n[EN] System is now running on ELASTICSEARCH!" 8 60
         fi
     fi
@@ -764,30 +1023,101 @@ JVMEOF
 # 6. DIMENSIONAMENTO DE SERVIDOR / SERVER TUNING
 # ======================================================================
 funcao_dimensionar_servidor() {
+    RAM_GB=$(awk '/MemTotal:/ { printf "%.1f", $2 / 1024 / 1024 }' /proc/meminfo 2>/dev/null || echo "0")
+    RAM_GB_ROUNDED=$(awk '/MemTotal:/ { printf "%d", ($2 / 1024 / 1024) + 0.5 }' /proc/meminfo 2>/dev/null || echo "0")
+    ES_INSTALADO=false
+    ES_ATIVO=false
+    if dpkg -s koha-elasticsearch >/dev/null 2>&1 || dpkg -s elasticsearch >/dev/null 2>&1; then
+        ES_INSTALADO=true
+    fi
+    if systemctl is-active --quiet elasticsearch 2>/dev/null; then
+        ES_ATIVO=true
+    fi
+
+    # Perfis conservadores. O Elasticsearch permanece intacto; quando ativo,
+    # não usamos mais um perfil agressivo que entregue RAM demais à MariaDB/Plack.
+    if [ "$RAM_GB_ROUNDED" -lt 4 ]; then
+        PERFIL_RECOMENDADO=1
+    elif [ "$RAM_GB_ROUNDED" -lt 8 ]; then
+        PERFIL_RECOMENDADO=2
+    elif [ "$RAM_GB_ROUNDED" -lt 16 ]; then
+        PERFIL_RECOMENDADO=3
+    else
+        PERFIL_RECOMENDADO=4
+    fi
+
+    if [ "$ES_ATIVO" = true ]; then
+        TEXTO_ES="Elasticsearch: ATIVO / ACTIVE (mantido)"
+    elif [ "$ES_INSTALADO" = true ]; then
+        TEXTO_ES="Elasticsearch: instalado, mas inativo / installed, inactive"
+    else
+        TEXTO_ES="Elasticsearch: não instalado / not installed"
+    fi
+
     PERFIL=$(whiptail --title "Tuning / Sizing" \
-    --menu "[POR] Selecione o perfil de hardware / [EN] Select hardware profile:" 16 80 4 \
-    "1" "Low (~2GB RAM)  - 2 Plack Workers, 64MB Cache, 256MB DB" \
-    "2" "Mid (~4GB RAM)  - 4 Plack Workers, 128MB Cache, 1GB DB" \
-    "3" "High (8GB+ RAM) - 8 Plack Workers, 256MB Cache, 2GB DB" \
-    "4" "Cancelar / Cancel" 3>&1 1>&2 2>&3)
-    if [ $? -ne 0 ] || [ "$PERFIL" -eq 4 ]; then return; fi
-    case $PERFIL in
-        1) WK="2"; MEM="64"; DB="256M" ;;
-        2) WK="4"; MEM="128"; DB="1G" ;;
-        3) WK="8"; MEM="256"; DB="2G" ;;
+    --menu "[POR] RAM detectada: ${RAM_GB} GB\n${TEXTO_ES}\n\nPerfil recomendado automaticamente: ${PERFIL_RECOMENDADO}\n\n[EN] Detected RAM: ${RAM_GB} GB\n${TEXTO_ES}\n\nAutomatically recommended profile: ${PERFIL_RECOMENDADO}" 20 82 5 \
+    "1" "Até 4GB  - 2 Plack Workers, 64MB Cache, 512MB DB" \
+    "2" "4–8GB   - 3 Plack Workers, 128MB Cache, 768MB DB" \
+    "3" "8–16GB  - 4 Plack Workers, 128MB Cache, 1GB DB" \
+    "4" "16GB+    - 6 Plack Workers, 256MB Cache, 2GB DB" \
+    "5" "Cancelar / Cancel" 3>&1 1>&2 2>&3)
+
+    if [ $? -ne 0 ] || [ "$PERFIL" = "5" ]; then return; fi
+
+    case "$PERFIL" in
+        1) WK="2"; MEM="64"; DB="512M" ;;
+        2) WK="3"; MEM="128"; DB="768M" ;;
+        3) WK="4"; MEM="128"; DB="1G" ;;
+        4) WK="6"; MEM="256"; DB="2G" ;;
+        *) return ;;
     esac
+
+    if [ "$ES_ATIVO" = true ]; then
+        whiptail --title "Elasticsearch ativo / Elasticsearch active" --yesno \
+            "[POR] O Elasticsearch está ativo e será mantido.\n\nPerfil escolhido: $PERFIL\nPlack: $WK workers\nMemcached: ${MEM}MB\nMariaDB InnoDB: $DB\n\nAplicar estes valores e reiniciar os serviços?\n\n[EN] Elasticsearch is active and will be kept.\n\nSelected profile: $PERFIL\nPlack: $WK workers\nMemcached: ${MEM}MB\nMariaDB InnoDB: $DB\n\nApply these values and restart the services?" 16 76 || return
+    fi
+
     clear
-    sed -i "s/^#*\s*PLACK_WORKERS=.*/PLACK_WORKERS=$WK/" /etc/default/koha-common || echo "PLACK_WORKERS=$WK" >> /etc/default/koha-common
-    sed -i "s/^#*\s*PLACK_MAX_REQUESTS=.*/PLACK_MAX_REQUESTS=100/" /etc/default/koha-common || echo "PLACK_MAX_REQUESTS=100" >> /etc/default/koha-common
-    sed -i "s/^-m .*/-m $MEM/" /etc/memcached.conf
+
+    # PLACK_WORKERS / PLACK_MAX_REQUESTS: atualiza linha existente ou cria se ausente.
+    if grep -qE '^[[:space:]]*#?[[:space:]]*PLACK_WORKERS=' /etc/default/koha-common 2>/dev/null; then
+        sed -i -E "s|^[[:space:]]*#?[[:space:]]*PLACK_WORKERS=.*|PLACK_WORKERS=$WK|" /etc/default/koha-common
+    else
+        echo "PLACK_WORKERS=$WK" >> /etc/default/koha-common
+    fi
+
+    if grep -qE '^[[:space:]]*#?[[:space:]]*PLACK_MAX_REQUESTS=' /etc/default/koha-common 2>/dev/null; then
+        sed -i -E "s|^[[:space:]]*#?[[:space:]]*PLACK_MAX_REQUESTS=.*|PLACK_MAX_REQUESTS=100|" /etc/default/koha-common
+    else
+        echo "PLACK_MAX_REQUESTS=100" >> /etc/default/koha-common
+    fi
+
+    # Memcached: atualiza -m existente ou adiciona a diretiva.
+    if grep -qE '^[[:space:]]*-m[[:space:]]+' /etc/memcached.conf 2>/dev/null; then
+        sed -i -E "s|^[[:space:]]*-m[[:space:]]+.*|-m $MEM|" /etc/memcached.conf
+    else
+        echo "-m $MEM" >> /etc/memcached.conf
+    fi
+
+    # Arquivo de tuning separado para não misturar com a configuração principal.
     mkdir -p /etc/mysql/mariadb.conf.d/
-    echo -e "[mysqld]\ninnodb_buffer_pool_size = $DB" > /etc/mysql/mariadb.conf.d/99-koha-tuning.cnf
+    cat > /etc/mysql/mariadb.conf.d/99-koha-tuning.cnf << EOF
+[mysqld]
+innodb_buffer_pool_size = $DB
+EOF
+
     systemctl restart memcached mariadb koha-common
     koha-plack --restart library
-    whiptail --title "Sucesso / Success" --msgbox "[POR] Servidor ajustado e reiniciado com sucesso!\n[EN] Server tuned and services restarted successfully!" 8 65
+
+    if validar_sistema_completo "tuning"; then
+        whiptail --title "Sucesso / Success" --msgbox \
+            "[POR] Servidor ajustado com perfil $PERFIL.\n\nRAM detectada: ${RAM_GB}GB\nPlack: $WK workers\nMemcached: ${MEM}MB\nMariaDB InnoDB: $DB\nElasticsearch: $TEXTO_ES\n\nServiços reiniciados com sucesso.\n\n[EN] Server tuned with profile $PERFIL.\n\nDetected RAM: ${RAM_GB}GB\nPlack: $WK workers\nMemcached: ${MEM}MB\nMariaDB InnoDB: $DB\nElasticsearch: $TEXTO_ES\n\nServices restarted successfully." 16 76
+    else
+        whiptail --title "Erro / Error" --msgbox \
+            "[POR] O tuning foi gravado, mas MariaDB ou Memcached não ficou ativo.\nVerifique: systemctl status mariadb memcached\n\n[EN] Tuning was written, but MariaDB or Memcached is not active.\nCheck: systemctl status mariadb memcached" 12 76
+    fi
 }
 
-# ======================================================================
 # 7. CONFIGURAR NUVEM (RCLONE - EXPECT AUTOMAÇÃO)
 # ======================================================================
 funcao_configurar_rclone() {
@@ -841,6 +1171,10 @@ EOF
     if rclone mkdir "gdrive:Backup_SQL_Koha" 2>/dev/null; then
         sed -i "s|[a-zA-Z0-9_-]\+:Backup_SQL_Koha|gdrive:Backup_SQL_Koha|g" /root/backup_sql.sh 2>/dev/null || true
         sed -i "s|RCLONE_REMOTE=\".*\"|RCLONE_REMOTE=\"gdrive\"|g" /root/backup_marc.sh 2>/dev/null || true
+        v_reset "validação Rclone"
+        validar_comando rclone "Rclone"
+        validar_arquivo "/root/.config/rclone/rclone.conf" "Rclone: configuração"
+        rclone lsd gdrive: >/dev/null 2>&1 && v_ok "Rclone: remoto gdrive acessível." || v_warn "Rclone: remoto gdrive não respondeu."
         whiptail --title "Sucesso / Success" --msgbox "[POR] Google Drive ativado com sucesso!\nOs backups diários usarão essa pasta automaticamente.\n\n[EN] Google Drive linked successfully!" 10 76
     else
         whiptail --title "Erro / Error" --msgbox "[POR] Não foi possível vincular a nuvem.\n\n[EN] Could not link cloud." 9 70
@@ -854,6 +1188,9 @@ funcao_gerenciar_crons() {
     whiptail --title "Tarefas / Tasks (Cron)" --msgbox "[POR] Você será levado ao arquivo central de configurações (Cronjobs).\nEle contém instruções em ambos os idiomas sobre horários de backup e avisos.\nPara salvar e sair: aperte CTRL+O, ENTER, e CTRL+X.\n\n[EN] You will be redirected to the central crontab configuration file.\nIt contains bilingual instructions on adjusting backup schedules.\nTo save and exit: press CTRL+O, ENTER, and CTRL+X." 14 75
     nano /etc/cron.d/koha_tasks
     systemctl restart cron
+    chmod 644 /etc/cron.d/koha_tasks 2>/dev/null || true
+    v_reset "validação de cron"
+    validar_cron
     whiptail --title "Sucesso / Success" --msgbox "[POR] Tarefas e horários atualizados!\n[EN] Tasks and schedules updated successfully!" 8 60
 }
 
@@ -861,50 +1198,84 @@ funcao_gerenciar_crons() {
 # 9. CONFIGURAR E-MAILS (SMTP) / EMAIL NOTICES SETUP
 # ======================================================================
 funcao_configurar_emails() {
-    whiptail --title "E-mails (SMTP)" --msgbox "[POR] Instalando dependências e abrindo tutorial SMTP.\n[EN] Installing dependencies and opening SMTP setup guide." 8 70
+    whiptail --title "E-mails (SMTP)" --msgbox "[POR] O Koha possui configuração própria de servidores SMTP.\nO instalador não precisa iniciar um servidor de e-mail local.\n\nA rotina abaixo instala apenas o suporte SASL e grava os cronjobs de avisos sem duplicá-los.\n\n[EN] Koha has its own SMTP server configuration.\nThe installer does not need to start a local mail server.\n\nThe routine below installs only SASL support and writes the notice cronjobs without duplicates." 15 78
     clear
-    apt-get install -y postfix libsasl2-modules
-    cat << EOF >> /etc/cron.d/koha_tasks
 
-# 6. [EN] EMAIL CRONJOB: Overdue notices (Every Monday at 08:00)
-#    [POR] CRONJOB DE E-MAIL: Avisos de atraso (Roda segundas-feiras às 08:00)
-00 08 * * 1 root koha-shell library -c "/usr/share/koha/bin/cronjobs/overdue_notices.pl -v -t -e" >/dev/null 2>&1
+    DEBIAN_FRONTEND=noninteractive apt-get install -y libsasl2-modules
 
-# 7. [EN] EMAIL CRONJOB: Process message queue (Every Monday at 08:05)
-#    [POR] CRONJOB DE E-MAIL: Processar fila de envio (Roda segundas-feiras às 08:05)
-05 08 * * 1 root koha-shell library -c "/usr/share/koha/bin/cronjobs/process_message_queue.pl -v" >/dev/null 2>&1
+    CRON_FILE="/etc/cron.d/koha_tasks"
+    touch "$CRON_FILE"
+
+    # Remove somente o bloco de e-mail criado por esta função; backups e os demais
+    # cronjobs do usuário permanecem intactos.
+    sed -i '/^# BEGIN KOHA EMAIL NOTICES$/,/^# END KOHA EMAIL NOTICES$/d' "$CRON_FILE"
+
+    cat << 'EOF' >> "$CRON_FILE"
+
+# BEGIN KOHA EMAIL NOTICES
+# 6. [EN] EMAIL CRONJOB: Overdue notices (Daily at 08:00)
+#    [POR] CRONJOB DE E-MAIL: Avisos de atraso (Diariamente às 08:00)
+#    --triggered (-t) usa os gatilhos configurados no Koha.
+00 08 * * * root koha-shell library -c "/usr/share/koha/bin/cronjobs/overdue_notices.pl -v -t" >/dev/null 2>&1
+
+# 7. [EN] EMAIL CRONJOB: Process message queue (Daily at 08:05)
+#    [POR] CRONJOB DE E-MAIL: Processar fila de envio (Diariamente às 08:05)
+05 08 * * * root koha-shell library -c "/usr/share/koha/bin/cronjobs/process_message_queue.pl -v" >/dev/null 2>&1
+# END KOHA EMAIL NOTICES
 EOF
+
+    chmod 644 "$CRON_FILE"
     systemctl restart cron
+
     TEXTO_TUTORIAL="
 ======================================================================
- [POR] PASSO A PASSO: CONFIGURAÇÃO DE E-MAIL (GMAIL) NO KOHA
- [EN]  STEP-BY-STEP: GMAIL SMTP CONFIGURATION IN KOHA
+ [POR] CONFIGURAÇÃO DE E-MAIL (SMTP) NO KOHA
+ [EN]  SMTP EMAIL CONFIGURATION IN KOHA
 ======================================================================
-1. KOHA SMTP PREFERENCES / PREFERÊNCIAS SMTP:
-   Administration > SMTP Servers / Servidores SMTP:
-   - Host / Anfitrião: smtp.gmail.com
-   - Port / Porta:     587
-   - SSL / TLS:        STARTTLS
-   - Auth / Autenticar: Yes / Sim
-   - Username:         [Library email / Email da biblioteca]
 
-2. GOOGLE APP PASSWORD / SENHA DE APP DO GOOGLE:
-   Access myaccount.google.com > Security > 2-Step Verification > App Passwords.
-   Generate a 16-character password and paste it into Koha.
+1. NO KOHA / IN KOHA
+   Mais > Administração > Parâmetros adicionais > Servidores SMTP
+   / More > Administration > Additional parameters > SMTP servers
 
-3. GLOBAL PREFERENCES / PREFERÊNCIAS GLOBAIS:
-   - EnhancedMessagingPreferences: Allow / Permitir
-   - EmailAddressForSuggestions:   [Library email]
-   - KohaAdminEmailAddress:        [Library email]
+   Exemplo Gmail:
+   - Host: smtp.gmail.com
+   - Porta: 587
+   - Segurança: STARTTLS
+   - Autenticação: Sim
+   - Usuário: e-mail da biblioteca
 
-CRON SCHEDULE: Notice generation at 08:00 and queue processing at 08:05.
-(HORÁRIOS NO CRON: Avisos às 08:00 e envio às 08:05 nas segundas-feiras).
+2. SENHA DE APP / APP PASSWORD
+   Para Gmail, use uma senha de app quando a conta exigir isso.
+
+3. PREFERÊNCIAS IMPORTANTES / IMPORTANT PREFERENCES
+   - EnhancedMessagingPreferences: Permitir / Allow
+   - KohaAdminEmailAddress: e-mail da biblioteca
+   - EmailAddressForSuggestions: e-mail da biblioteca
+
+4. AVISOS DE ATRASO / OVERDUE NOTICES
+   Configure os gatilhos em: Ferramentas > Avisos de atraso/status de aviso
+   / Tools > Overdue notice/status triggers
+
+   O cron diário usa --triggered (-t), portanto o Koha cria o aviso
+   quando o empréstimo atinge exatamente o gatilho configurado.
+
+5. FILA DE MENSAGENS / MESSAGE QUEUE
+   Às 08:00 o Koha prepara os avisos. Às 08:05 a fila é processada.
+
+6. TESTE DE SMTP / SMTP TEST
+   Nas versões atuais do Koha, a tela de servidores SMTP possui a opção
+   "Enviar e-mail de teste / Send test email" para testar a configuração.
+
+7. OBSERVAÇÃO / NOTE
+   O script não coloca usuário, senha ou token de SMTP em arquivo.
+   A credencial deve ser cadastrada diretamente no Koha.
 ======================================================================
 "
-    whiptail --title "Tutorial SMTP" --msgbox "$TEXTO_TUTORIAL" 22 75
+    v_reset "validação SMTP/avisos"
+    validar_cron
+    whiptail --title "Tutorial SMTP" --msgbox "$TEXTO_TUTORIAL" 23 78
 }
 
-# ======================================================================
 # 10. ACESSO EXTERNO (CLOUDFLARE) / EXTERNAL ACCESS (CLOUDFLARE)
 # ======================================================================
 funcao_configurar_cloudflare() {
@@ -948,6 +1319,9 @@ Feche esta janela para colar o Token!
     cloudflared service install "$CF_TOKEN"
     systemctl enable --now cloudflared
 
+    v_reset "validação Cloudflare Tunnel"
+    validar_comando cloudflared "Cloudflared" || true
+    validar_servico cloudflared "Cloudflare Tunnel" || true
     whiptail --title "Sucesso / Success" --msgbox "[POR] Túnel ativado com sucesso!\nConfigure as rotas públicas (Public Hostnames) no painel web para as portas 80 (OPAC) e 8080 (Staff).\n\n[EN] Tunnel successfully enabled!\nConfigure Public Hostnames on the Cloudflare web dashboard targeting port 80 (OPAC) and port 8080 (Staff)." 11 74
 }
 
@@ -964,7 +1338,11 @@ funcao_atualizar_sistema() {
     koha-upgrade-schema library || true
     systemctl restart memcached apache2 koha-common mariadb
     koha-plack --restart library
-    whiptail --title "Sucesso / Success" --msgbox "[POR] Sistema e banco de dados atualizados!\n[EN] System and database updated successfully!" 8 60
+    if validar_sistema_completo "atualização do sistema"; then
+        whiptail --title "Atualização validada / Update validated" --msgbox "[POR] Atualização concluída e validação sem erros críticos.\n\n[EN] Update completed and validation found no critical errors." 10 72
+    else
+        whiptail --title "Atualização com problemas / Update with issues" --msgbox "[POR] A atualização foi executada, mas a validação encontrou $V_FAIL erro(s) e $V_WARN aviso(s).\n\nLog: $VALIDACAO_LOG\n\n[EN] Update ran, but validation found $V_FAIL error(s) and $V_WARN warning(s).\n\nLog: $VALIDACAO_LOG" 13 74
+    fi
 }
 
 # ======================================================================
@@ -973,7 +1351,7 @@ funcao_atualizar_sistema() {
 while true; do
     OPCAO=""
     OPCAO=$(whiptail --title "Koha Easy Install - Control Dashboard" \
-    --menu "[POR] Escolha uma opção / [EN] Choose an option:" 23 88 13 \
+    --menu "[POR] Escolha uma opção / [EN] Choose an option:" 24 92 14 \
     "1"  "Instalar Servidor Koha / Install Koha Server (Zebra Default)" \
     "2"  "Ver Credenciais de Acesso / View Stored Credentials" \
     "3"  "Restaurar Acervo (koha_library.sql) / Restore Database" \
@@ -985,8 +1363,9 @@ while true; do
     "9"  "Configurar E-mails e Avisos / Setup SMTP Email Notices" \
     "10" "Acesso Externo Seguro / Setup Cloudflare Tunnel" \
     "11" "Atualizar Sistema e Schemas / Update System & Schemas" \
-    "12" "Status dos Serviços / Detailed Services Status" \
-    "13" "Sair / Exit" 3>&1 1>&2 2>&3) || { clear; exit 0; }
+    "12" "VALIDAR SISTEMA COMPLETO / FULL SYSTEM VALIDATION" \
+    "13" "Status Detalhado dos Serviços / Detailed Services Status" \
+    "14" "Sair / Exit" 3>&1 1>&2 2>&3) || { clear; exit 0; }
 
     [ -z "$OPCAO" ] && { clear; exit 0; }
 
@@ -1003,14 +1382,28 @@ while true; do
         10) funcao_configurar_cloudflare ;;
         11) funcao_atualizar_sistema ;;
         12)
+            clear
+            if validar_sistema_completo "validação manual"; then
+                whiptail --title "Validação OK / Validation OK" --msgbox "[POR] Validação concluída sem erros críticos.\n\nOK: $V_OK\nAvisos: $V_WARN\nErros: $V_FAIL\n\nLog: $VALIDACAO_LOG" 12 74
+            else
+                whiptail --title "Validação encontrou problemas / Validation found issues" --msgbox "[POR] A validação encontrou $V_FAIL erro(s) e $V_WARN aviso(s).\n\nOK: $V_OK\nErros: $V_FAIL\nAvisos: $V_WARN\n\nLog: $VALIDACAO_LOG" 13 74
+            fi
+            mostrar_validacao
+            ;;
+        13)
             S_APA=$(systemctl is-active apache2 2>/dev/null || echo "inativo/inactive")
             S_MAR=$(systemctl is-active mariadb 2>/dev/null || echo "inativo/inactive")
             S_MEM=$(systemctl is-active memcached 2>/dev/null || echo "inativo/inactive")
             S_KOH=$(systemctl is-active koha-common 2>/dev/null || echo "inativo/inactive")
+            S_PLK=$(koha-plack --status library 2>/dev/null | tr '\n' ' ' || echo "não disponível")
+            S_ZEB=$(systemctl is-active koha-zebra-daemon@library 2>/dev/null || echo "inativo/inactive")
+            S_ES=$(systemctl is-active elasticsearch 2>/dev/null || echo "não instalado/inactive")
             S_CLD=$(systemctl is-active cloudflared 2>/dev/null || echo "não instalado/uninstalled")
-            whiptail --title "Status dos Serviços / Services Status" --msgbox "Apache:     $S_APA\nMariaDB:    $S_MAR\nMemcached:  $S_MEM\nKoha ILS:   $S_KOH\nCloudflare: $S_CLD" 11 50
+            S_CRO=$(systemctl is-active cron 2>/dev/null || echo "inativo/inactive")
+            MOTOR=$(obter_motor_busca)
+            whiptail --title "Status Detalhado / Detailed Status" --msgbox "Apache:       $S_APA\nMariaDB:      $S_MAR\nMemcached:    $S_MEM\nKoha common:  $S_KOH\nPlack:        $S_PLK\nZebra:        $S_ZEB\nElasticsearch:$S_ES\nCloudflare:   $S_CLD\nCron:         $S_CRO\nMotor Koha:   ${MOTOR:-não detectado}" 16 78
             ;;
-        13) clear; exit 0 ;;
+        14) clear; exit 0 ;;
     esac
     OPCAO=""
 done
