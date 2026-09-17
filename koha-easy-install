@@ -42,17 +42,18 @@ caixa_explicacao() {
 }
 
 # ======================================================================
-# FUNÇÃO: AGUARDAR E LIBERAR TRAVAS DO APT / WAIT FOR APT LOCKS
+# FUNÇÃO: AGUARDAR E LIBERAR TRAVAS DO APT / WAIT FOR APT LOCKS (BLINDADO)
 # ======================================================================
 aguardar_travas_apt() {
-    caixa_explicacao "Verificando e aguardando liberacao de travas do APT/DPKG..." "Checking and waiting for APT/DPKG lock release..."
+    caixa_explicacao "Verificando travas do APT/DPKG e bloqueando atualizacoes ocultas..." "Checking APT/DPKG locks and blocking hidden background updates..."
     
-    systemctl stop unattended-upgrades apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
+    # Para os serviços E os timers que podem religar os serviços do nada
+    systemctl stop apt-daily.timer apt-daily-upgrade.timer unattended-upgrades apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
 
     while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || \
           fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || \
           fuser /var/lib/dpkg/lock >/dev/null 2>&1; do
-        echo "[INFO] Processos em segundo plano (unattended-upgrades) estao ativos. Aguardando 3 segundos..."
+        echo "[INFO] Processos em segundo plano estao ativos. Aguardando 3 segundos..."
         sleep 3
     done
 
@@ -126,6 +127,9 @@ funcao_instalar_koha() {
       swapon /swapfile
       echo '/swapfile none swap sw 0 0' >> /etc/fstab
     fi
+
+    # CHAMADA EXTRA DE SEGURANÇA: Garante que os timers não religaram nada durante a criação da SWAP
+    aguardar_travas_apt
 
     caixa_explicacao "Instalando dependências essenciais..." "Installing essential dependencies..."
     apt-get update && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
@@ -354,8 +358,8 @@ EOF
     cp /etc/issue /etc/issue.net
     cp /etc/issue /etc/motd
 
-    # Reativa as atualizações automáticas de segurança do Ubuntu
-    systemctl start unattended-upgrades 2>/dev/null || true
+    # Reativa as atualizações automáticas de segurança do Ubuntu, INCLUINDO os timers
+    systemctl start apt-daily.timer apt-daily-upgrade.timer unattended-upgrades 2>/dev/null || true
 
     # ======================================================================
     # CONFIGURAÇÃO AUTOMÁTICA DA NUVEM E TELA FINAL DE SUCESSO
