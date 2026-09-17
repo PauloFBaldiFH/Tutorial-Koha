@@ -16,7 +16,7 @@ if [ "$EUID" -ne 0 ]; then
   echo -e "| [POR] Privilégios de administrador (root) necessários. Digite sua senha:                 |"
   echo -e "| [EN]  Root privileges required. Please enter your password:                              |"
   echo -e "+-----------------------------------------------------------------------------------------+\n"
-
+  
   if [ -f "$0" ]; then
     exec sudo bash "$0" "$@"
   else
@@ -46,7 +46,7 @@ caixa_explicacao() {
 # ======================================================================
 aguardar_travas_apt() {
     caixa_explicacao "Verificando travas do APT/DPKG e bloqueando atualizacoes ocultas..." "Checking APT/DPKG locks and blocking hidden background updates..."
-
+    
     systemctl stop apt-daily.timer apt-daily-upgrade.timer unattended-upgrades apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
 
     while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || \
@@ -92,55 +92,6 @@ if acao == "inserir":
 with open(path, "w") as f:
     f.write(text)
 PYEOF
-}
-
-# ======================================================================
-# FUNÇÃO AUXILIAR: Configurar e testar o rclone (usada na instalação
-# E na Opção 7) - NUNCA tenta automatizar o passo de autorizacao OAuth
-# na forca bruta, porque esse fluxo muda de tempos em tempos conforme
-# o Google altera as regras (ja foi motivo de quebra no passado). Em vez
-# disso, deixa o proprio assistente interativo do rclone (rclone config)
-# decidir e mostrar o caminho certo para a versao instalada - ele ja
-# detecta sozinho que e um servidor sem navegador.
-# ======================================================================
-# HELPER FUNCTION: Configure and test rclone (used both during install
-# AND from Option 7) - NEVER tries to force-automate the OAuth
-# authorization step, since that flow changes from time to time as
-# Google updates its rules (it has broken before). Instead, it lets
-# rclone's own interactive wizard (rclone config) decide and show the
-# right path for whichever version is installed - it already detects on
-# its own that this is a headless server.
-configurar_e_testar_rclone() {
-    mkdir -p /root/.config/rclone
-    rclone config
-
-    REMOTES=($(rclone listremotes 2>/dev/null | tr -d ':'))
-
-    if [ ${#REMOTES[@]} -eq 0 ]; then
-        echo -e "\e[1;31m[POR] Nenhuma nuvem foi configurada.\e[0m"
-        echo -e "\e[1;31m[EN]  No cloud remote was configured.\e[0m"
-        return 1
-    elif [ ${#REMOTES[@]} -eq 1 ]; then
-        REMOTE_ESCOLHIDO="${REMOTES[0]}"
-    else
-        echo "Remotes encontrados / Remotes found: ${REMOTES[*]}"
-        read -rp "Qual usar para os backups do Koha? / Which one for Koha backups? " REMOTE_ESCOLHIDO
-        if [[ ! " ${REMOTES[*]} " =~ " ${REMOTE_ESCOLHIDO} " ]]; then
-            echo -e "\e[1;31m[POR] Nome invalido.\e[0m [EN] Invalid remote name."
-            return 1
-        fi
-    fi
-
-    echo "Testando conexao com '${REMOTE_ESCOLHIDO}'... / Testing connection to '${REMOTE_ESCOLHIDO}'..."
-
-    if rclone mkdir "${REMOTE_ESCOLHIDO}:Backup_SQL_Koha" 2>/dev/null; then
-        sed -i "s|[a-zA-Z0-9_-]\+:Backup_SQL_Koha|${REMOTE_ESCOLHIDO}:Backup_SQL_Koha|g" /root/backup_sql.sh 2>/dev/null || true
-        sed -i "s|RCLONE_REMOTE=\".*\"|RCLONE_REMOTE=\"${REMOTE_ESCOLHIDO}\"|g" /root/backup_marc.sh 2>/dev/null || true
-        REMOTE_CONFIGURADO="$REMOTE_ESCOLHIDO"
-        return 0
-    else
-        return 1
-    fi
 }
 
 # ======================================================================
@@ -411,61 +362,32 @@ EOF
     # ======================================================================
     # CONFIGURAÇÃO AUTOMÁTICA DA NUVEM E TELA FINAL DE SUCESSO
     # ======================================================================
-    # [POR] CORRECAO: a versao anterior tentava forcar a autorizacao do
-    # Google Drive com "rclone config create ... config_is_local false",
-    # que e um comando fragil - o fluxo de autorizacao remota do rclone ja
-    # mudou de formato mais de uma vez conforme o Google altera as regras
-    # de OAuth, e essa tentativa "engessada" pode falhar silenciosamente ou
-    # travar dependendo da versao do rclone instalada. A correcao usa o
-    # assistente PADRAO e interativo do rclone (rclone config), que ja
-    # detecta sozinho que e um servidor sem navegador e mostra o caminho
-    # certo (link para abrir em qualquer navegador, ou comando "rclone
-    # authorize" para rodar no computador do usuario) - e o mesmo mecanismo
-    # ja usado com sucesso na Opcao 7 do painel.
-    # [EN] FIX: the previous version tried to force Google Drive
-    # authorization with "rclone config create ... config_is_local false",
-    # which is a fragile command - rclone's remote authorization flow has
-    # already changed shape more than once as Google updates its OAuth
-    # rules, and that "hardcoded" attempt can silently fail or hang
-    # depending on the installed rclone version. The fix uses rclone's own
-    # standard interactive wizard (rclone config), which already detects on
-    # its own that this is a headless server and shows the right path (a
-    # link to open in any browser, or an "rclone authorize" command to run
-    # on the user's own computer) - the same mechanism already working
-    # successfully in Option 7 of the panel.
     clear
     echo -e "\e[1;36m======================================================================\e[0m"
     echo -e "\e[1;36m  ☁️  VINCULAÇÃO DO GOOGLE DRIVE / GOOGLE DRIVE LINKING\e[0m"
     echo -e "\e[1;36m======================================================================\e[0m"
-    echo -e "  [POR] A seguir, o assistente do rclone vai abrir. Ele detecta"
-    echo -e "        sozinho que este servidor nao tem navegador e mostra o"
-    echo -e "        caminho certo na tela (um link para abrir em qualquer"
-    echo -e "        navegador, ou um comando 'rclone authorize' para rodar"
-    echo -e "        no seu computador) - so siga exatamente o que aparecer."
+    echo -e "  [POR] 1. Copie o link longo gerado abaixo e abra no seu navegador."
+    echo -e "        2. Faça login na conta do Google e permita o acesso."
+    echo -e "        3. Copie o código de verificação e cole de volta aqui."
     echo -e ""
-    echo -e "        - Quando perguntar o nome (name), digite: gdrive"
-    echo -e "        - Quando perguntar o tipo (Storage), escolha o numero"
-    echo -e "          correspondente a 'Google Drive'."
-    echo -e "        - Nas demais perguntas, ENTER aceita o padrao."
-    echo -e "        - Em 'Use auto config?' responda 'n' (nao)."
-    echo -e ""
-    echo -e "  [EN]  Rclone's setup wizard will open next. It automatically"
-    echo -e "        detects this server has no browser and shows the right"
-    echo -e "        path on screen (a link to open in any browser, or an"
-    echo -e "        'rclone authorize' command to run on your computer) -"
-    echo -e "        just follow exactly what it shows."
-    echo -e ""
-    echo -e "        - When asked for the name, type: gdrive"
-    echo -e "        - When asked for Storage type, pick the number for"
-    echo -e "          'Google Drive'."
-    echo -e "        - For the rest, ENTER accepts the default."
-    echo -e "        - At 'Use auto config?' answer 'n' (no)."
+    echo -e "  [EN]  1. Copy the long link below and open it in your browser."
+    echo -e "        2. Log into your Google account and allow access."
+    echo -e "        3. Copy the verification code and paste it back here."
     echo -e "\e[1;36m----------------------------------------------------------------------\e[0m"
-    read -rp "Pressione ENTER para continuar / Press ENTER to continue..."
+    
+    mkdir -p /root/.config/rclone
+    
+    # Cria o remote silenciosamente (config_is_local false força o link na tela direto)
+    rclone config create gdrive drive scope drive config_is_local false || true
 
-    REMOTE_CONFIGURADO=""
-    if configurar_e_testar_rclone; then
-        STATUS_NUVEM="\e[1;32m${REMOTE_CONFIGURADO} ativado! (Backups automáticos configurados)\e[0m"
+    echo -e "\e[1;36m----------------------------------------------------------------------\e[0m"
+    echo "Verificando conexao com a nuvem... / Checking cloud connection..."
+
+    # Testa se a nuvem foi configurada corretamente e atrela aos backups
+    if rclone mkdir "gdrive:Backup_SQL_Koha" 2>/dev/null; then
+        sed -i "s|[a-zA-Z0-9_-]\+:Backup_SQL_Koha|gdrive:Backup_SQL_Koha|g" /root/backup_sql.sh 2>/dev/null || true
+        sed -i "s|RCLONE_REMOTE=\".*\"|RCLONE_REMOTE=\"gdrive\"|g" /root/backup_marc.sh 2>/dev/null || true
+        STATUS_NUVEM="\e[1;32mGoogle Drive ativado! (Backups automáticos configurados)\e[0m"
     else
         STATUS_NUVEM="\e[1;31mIgnorado ou Falhou.\e[0m (Para tentar novamente, use a Opção 7 do painel)"
     fi
@@ -835,35 +757,26 @@ funcao_dimensionar_servidor() {
 # 7. CONFIGURAR NUVEM (RCLONE - GDRIVE OU OUTROS) / CLOUD BACKUP
 # ======================================================================
 funcao_configurar_rclone() {
-    TEXTO_AVISO="
-======================================================================
- [POR] DICAS PARA CONFIGURAR O BACKUP EM NUVEM
- [EN]  CLOUD BACKUP SETUP TIPS
-======================================================================
-1. NOME DA CONEXÃO / REMOTE NAME:
-   Recomendamos usar 'gdrive' (ou outro nome de sua escolha).
-   O sistema detectará o nome automaticamente.
-
-2. GOOGLE DRIVE (PASSO A PASSO TÍPICO):
-   - Client ID & Client Secret: Aperte ENTER (deixar em branco).
-   - Scope: Escolha a Opção 1 (Full access).
-   - Service Account: Aperte ENTER (em branco).
-
-3. MÁQUINA SEM INTERFACE (AVISO CRUCIAL):
-   Quando perguntar: 'Use auto config?':
-   - Se estiver via terminal/SSH: digite 'n'. O Rclone dará um link
-     (ou um comando 'rclone authorize' para rodar no seu computador)
-     para você abrir, autorizar e colar o código de volta.
-   - Se estiver com navegador web na máquina: aperte ENTER (y).
-======================================================================
-"
-    whiptail --title "Nuvem / Cloud Setup Guide" --msgbox "$TEXTO_AVISO" 22 78
     clear
+    echo -e "\e[1;36m======================================================================\e[0m"
+    echo -e "\e[1;36m  ☁️  VINCULAÇÃO DO GOOGLE DRIVE / GOOGLE DRIVE LINKING\e[0m"
+    echo -e "\e[1;36m======================================================================\e[0m"
+    echo -e "  [POR] 1. Copie o link longo gerado abaixo e abra no seu navegador."
+    echo -e "        2. Faça login na conta do Google e permita o acesso."
+    echo -e "        3. Copie o código de verificação e cole de volta aqui."
+    echo -e "\e[1;36m----------------------------------------------------------------------\e[0m"
 
-    if configurar_e_testar_rclone; then
-        whiptail --title "Sucesso / Success" --msgbox "[POR] Nuvem vinculada e testada com sucesso!\nDestino ativo: ${REMOTE_CONFIGURADO}:\nOs backups diários (SQL) e semanais (MARC) usarão essa pasta automaticamente.\n\n[EN] Cloud linked and tested successfully!\nActive remote: ${REMOTE_CONFIGURADO}:\nDaily (SQL) and weekly (MARC) backups will use this folder automatically." 13 76
+    mkdir -p /root/.config/rclone
+    
+    # Executa a configuração silenciosa (mesma logica do final da instalacao)
+    rclone config create gdrive drive scope drive config_is_local false || true
+
+    if rclone mkdir "gdrive:Backup_SQL_Koha" 2>/dev/null; then
+        sed -i "s|[a-zA-Z0-9_-]\+:Backup_SQL_Koha|gdrive:Backup_SQL_Koha|g" /root/backup_sql.sh 2>/dev/null || true
+        sed -i "s|RCLONE_REMOTE=\".*\"|RCLONE_REMOTE=\"gdrive\"|g" /root/backup_marc.sh 2>/dev/null || true
+        whiptail --title "Sucesso / Success" --msgbox "[POR] Google Drive ativado com sucesso!\nOs backups diários usarão essa pasta automaticamente.\n\n[EN] Google Drive linked successfully!" 10 76
     else
-        whiptail --title "Erro / Error" --msgbox "[POR] Não foi possível vincular ou testar a nuvem. Rode a Opção 7 novamente para tentar de novo.\n\n[EN] Could not link or test the cloud. Run Option 7 again to retry." 9 70
+        whiptail --title "Erro / Error" --msgbox "[POR] Não foi possível vincular. O código expirou ou foi digitado incorretamente.\n\n[EN] Could not link. Token expired or was typed incorrectly." 9 70
     fi
 }
 
@@ -977,7 +890,7 @@ Feche esta janela para colar o Token!
 funcao_atualizar_sistema() {
     whiptail --title "Atualização / Update" --msgbox "[POR] Baixando atualizações do Ubuntu e do Koha.\n[EN] Downloading Ubuntu and Koha system updates." 8 65
     clear
-
+    
     aguardar_travas_apt
 
     apt-get update -y && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
