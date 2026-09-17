@@ -329,7 +329,7 @@ EOF
     cp /etc/issue /etc/issue.net
     cp /etc/issue /etc/motd
 
-    whiptail --title "Sucesso / Success" --msgbox "[POR] Instalação concluída com sucesso!\n\nStaff: http://${IP_REAL}:8080\nOPAC:  http://${IP_REAL}:80\nUsuário: $DB_USER | Senha: $DB_PASS\nPainel: sudo options.sh\n\nBACKUP EM NUVEM (GOOGLE DRIVE):\nPara sincronizar backups com o Google Drive, execute a Opção 7 (Rclone) deste painel.\nDocumentação oficial: https://rclone.org/drive/\n--------------------------------------------------\n[EN] Installation completed successfully!\n\nStaff URL: http://${IP_REAL}:8080\nOPAC URL:  http://${IP_REAL}:80\nUser: $DB_USER | Password: $DB_PASS\nDashboard: sudo options.sh\n\nCLOUD BACKUP (GOOGLE DRIVE):\nTo sync backups to Google Drive, select Option 7 (Rclone) from this menu.\nOfficial documentation: https://rclone.org/drive/" 22 78
+    whiptail --title "Sucesso / Success" --msgbox "[POR] Instalação concluída com sucesso!\n\nStaff: http://${IP_REAL}:8080\nOPAC:  http://${IP_REAL}:80\nUsuário: $DB_USER | Senha: $DB_PASS\nPainel: sudo options.sh\n--------------------------------------------------\n[EN] Installation completed successfully!\n\nStaff URL: http://${IP_REAL}:8080\nOPAC URL:  http://${IP_REAL}:80\nUser: $DB_USER | Password: $DB_PASS\nDashboard: sudo options.sh" 15 75
 }
 
 # ======================================================================
@@ -350,7 +350,7 @@ funcao_ver_credenciais() {
 }
 
 # ======================================================================
-# 3. RESTAURAR BANCO DE DADOS / RESTORE DATABASE (CORRIGIDO)
+# 3. RESTAURAR BANCO DE DADOS / RESTORE DATABASE
 # ======================================================================
 funcao_restaurar_banco() {
     LOCAL_ARQUIVO="$REAL_HOME/koha_library.sql"
@@ -412,17 +412,12 @@ OPTION 2: COMMAND LINE (WINDOWS POWERSHELL / TERMINAL)
     koha-upgrade-schema library
 
     caixa_explicacao "Sincronizando Motor de Busca..." "Synchronizing Search Engine..."
-    # -----------------------------------------------------------------------
-    # VALIDAÇÃO DE VERDADE DO SERVIDOR:
-    # Ignora o valor do banco de dados e verifica a infraestrutura real instalada.
-    # -----------------------------------------------------------------------
     if dpkg -s koha-elasticsearch &>/dev/null && grep -q "<elasticsearch>" /etc/koha/sites/library/koha-conf.xml; then
         MOTOR_REAL="Elasticsearch"
     else
         MOTOR_REAL="Zebra"
     fi
 
-    # Força o banco recém-restaurado a obedecer à realidade do servidor
     mysql -e "UPDATE koha_library.systempreferences SET value='$MOTOR_REAL' WHERE variable='SearchEngine';"
 
     if [ "$MOTOR_REAL" == "Elasticsearch" ]; then
@@ -431,7 +426,6 @@ OPTION 2: COMMAND LINE (WINDOWS POWERSHELL / TERMINAL)
         curl -s -X DELETE 'localhost:9200/koha_library_authorities' >/dev/null 2>&1 || true
         koha-elasticsearch --rebuild -d library
     else
-        # Garante que os serviços do Zebra subam caso o backup anterior estivesse com Elasticsearch
         systemctl enable --now koha-zebra-daemon@library 2>/dev/null || true
         koha-zebra --start library 2>/dev/null || true
         koha-rebuild-zebra -f -v -b -a library
@@ -557,7 +551,7 @@ funcao_instalar_idiomas() {
 }
 
 # ======================================================================
-# 5. ALTERNAR MOTOR DE BUSCA / TOGGLE SEARCH ENGINE
+# 5. ALTERNAR MOTOR DE BUSCA / TOGGLE SEARCH ENGINE (BLINDADO)
 # ======================================================================
 funcao_alternar_motor_busca() {
     MOTOR_ATUAL=$(mysql -N -e "SELECT value FROM koha_library.systempreferences WHERE variable='SearchEngine';" 2>/dev/null || echo "Zebra")
@@ -566,7 +560,8 @@ funcao_alternar_motor_busca() {
         if whiptail --title "Motor de Busca / Search Engine" --yesno "[POR] Motor atual: ELASTICSEARCH.\nDeseja voltar para o ZEBRA (Economiza ~1.5GB de RAM)?\n\n[EN] Current engine: ELASTICSEARCH.\nSwitch back to ZEBRA (Saves ~1.5GB RAM)?" 11 72; then
             clear
             caixa_explicacao "Desativando Elasticsearch..." "Disabling Elasticsearch..."
-            systemctl stop elasticsearch && systemctl disable elasticsearch
+            systemctl stop elasticsearch 2>/dev/null || true
+            systemctl disable elasticsearch 2>/dev/null || true
 
             caixa_explicacao "Removendo bloco <elasticsearch> do koha-conf.xml..." "Removing <elasticsearch> block from koha-conf.xml..."
             if ! xml_set_elasticsearch remover; then
@@ -587,25 +582,54 @@ funcao_alternar_motor_busca() {
         if whiptail --title "Motor de Busca / Search Engine" --yesno "[POR] Motor atual: ZEBRA.\nDeseja ativar o ELASTICSEARCH (Busca avançada)?\n\n[EN] Current engine: ZEBRA.\nEnable ELASTICSEARCH (Advanced search)?" 11 72; then
             clear
 
+            # Limpeza preventiva de disco para evitar "No space left on device"
+            caixa_explicacao "Liberando espaço em disco preventivamente..." "Freeing disk space preventively..."
+            apt-get clean
+            journalctl --vacuum-time=3d >/dev/null 2>&1 || true
+
             if ! dpkg -s koha-elasticsearch &>/dev/null; then
                 caixa_explicacao "Instalando pacotes do Elasticsearch..." "Installing Elasticsearch packages..."
                 apt-get update
                 if ! DEBIAN_FRONTEND=noninteractive apt-get install -y elasticsearch koha-elasticsearch; then
-                    whiptail --title "Erro / Error" --msgbox "[POR] Falha na instalação do Elasticsearch.\n[EN] Failed to install Elasticsearch." 8 60
+                    whiptail --title "Erro / Error" --msgbox "[POR] Falha na instalação dos pacotes. Verifique se há espaço suficiente no disco.\n\n[EN] Failed to install packages. Check available disk space." 9 70
                     return
                 fi
+            fi
 
-                caixa_explicacao "Ajustando memória JVM do Elasticsearch..." "Tuning Elasticsearch JVM memory..."
-                mkdir -p /etc/elasticsearch/jvm.options.d
-                cat << 'JVMEOF' > /etc/elasticsearch/jvm.options.d/koha.options
+            caixa_explicacao "Ajustando configuração e memória do Elasticsearch..." "Tuning Elasticsearch configuration and memory..."
+            mkdir -p /etc/elasticsearch/jvm.options.d
+            cat << 'JVMEOF' > /etc/elasticsearch/jvm.options.d/koha.options
 -Xms1g
 -Xmx1g
 JVMEOF
-                /usr/share/elasticsearch/bin/elasticsearch-plugin install --batch analysis-icu 2>/dev/null || true
-            fi
 
-            caixa_explicacao "Ativando serviço do Elasticsearch..." "Enabling Elasticsearch service..."
-            systemctl enable --now elasticsearch
+            # Configura single-node e host local de forma explícita
+            grep -q "^discovery.type: single-node" /etc/elasticsearch/elasticsearch.yml 2>/dev/null || echo "discovery.type: single-node" >> /etc/elasticsearch/elasticsearch.yml
+            grep -q "^network.host: 127.0.0.1" /etc/elasticsearch/elasticsearch.yml 2>/dev/null || echo "network.host: 127.0.0.1" >> /etc/elasticsearch/elasticsearch.yml
+
+            /usr/share/elasticsearch/bin/elasticsearch-plugin install --batch analysis-icu 2>/dev/null || true
+
+            caixa_explicacao "Iniciando e aguardando serviço do Elasticsearch..." "Starting and waiting for Elasticsearch service..."
+            systemctl daemon-reload
+            systemctl enable elasticsearch
+            systemctl restart elasticsearch
+
+            # Aguarda até 45 segundos para o Elasticsearch inicializar na porta 9200
+            ES_OK=false
+            for i in {1..45}; do
+                if curl -s http://127.0.0.1:9200 >/dev/null 2>&1; then
+                    ES_OK=true
+                    break
+                fi
+                sleep 1
+            done
+
+            if [ "$ES_OK" = false ]; then
+                whiptail --title "Erro / Error" --msgbox "[POR] O serviço Elasticsearch não conseguiu inicializar na porta 9200.\nVerifique o espaço em disco com 'df -h' e os logs com:\njournalctl -u elasticsearch -n 50\n\n[EN] Elasticsearch failed to start on port 9200.\nCheck disk space with 'df -h' and logs with:\njournalctl -u elasticsearch -n 50" 14 74
+                systemctl stop elasticsearch 2>/dev/null || true
+                systemctl disable elasticsearch 2>/dev/null || true
+                return
+            fi
 
             caixa_explicacao "Inserindo bloco <elasticsearch> no koha-conf.xml..." "Inserting <elasticsearch> block into koha-conf.xml..."
             if ! xml_set_elasticsearch inserir; then
