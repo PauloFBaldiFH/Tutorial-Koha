@@ -95,6 +95,45 @@ PYEOF
 }
 
 # ======================================================================
+# FUNÇÃO AUXILIAR: Configurar e testar o rclone interativo
+# HELPER FUNCTION: Configure and test rclone interactively
+# ======================================================================
+configurar_e_testar_rclone() {
+    mkdir -p /root/.config/rclone
+    
+    # Chama o assistente padrão e iterativo do rclone (igual ao seu script de exemplo)
+    rclone config
+
+    REMOTES=($(rclone listremotes 2>/dev/null | tr -d ':'))
+
+    if [ ${#REMOTES[@]} -eq 0 ]; then
+        echo -e "\e[1;31m[POR] Nenhuma nuvem foi configurada.\e[0m"
+        echo -e "\e[1;31m[EN]  No cloud remote was configured.\e[0m"
+        return 1
+    elif [ ${#REMOTES[@]} -eq 1 ]; then
+        REMOTE_ESCOLHIDO="${REMOTES[0]}"
+    else
+        echo "Remotes encontrados / Remotes found: ${REMOTES[*]}"
+        read -rp "Qual usar para os backups do Koha? / Which one for Koha backups? " REMOTE_ESCOLHIDO
+        if [[ ! " ${REMOTES[*]} " =~ " ${REMOTE_ESCOLHIDO} " ]]; then
+            echo -e "\e[1;31m[POR] Nome invalido.\e[0m [EN] Invalid remote name."
+            return 1
+        fi
+    fi
+
+    echo "Testando conexao com '${REMOTE_ESCOLHIDO}'... / Testing connection to '${REMOTE_ESCOLHIDO}'..."
+
+    if rclone mkdir "${REMOTE_ESCOLHIDO}:Backup_SQL_Koha" 2>/dev/null; then
+        sed -i "s|[a-zA-Z0-9_-]\+:Backup_SQL_Koha|${REMOTE_ESCOLHIDO}:Backup_SQL_Koha|g" /root/backup_sql.sh 2>/dev/null || true
+        sed -i "s|RCLONE_REMOTE=\".*\"|RCLONE_REMOTE=\"${REMOTE_ESCOLHIDO}\"|g" /root/backup_marc.sh 2>/dev/null || true
+        REMOTE_CONFIGURADO="$REMOTE_ESCOLHIDO"
+        return 0
+    else
+        return 1
+    fi
+}
+
+# ======================================================================
 # 1. INSTALAÇÃO BASE / BASE INSTALLATION
 # ======================================================================
 funcao_instalar_koha() {
@@ -360,39 +399,29 @@ EOF
     systemctl start apt-daily.timer apt-daily-upgrade.timer unattended-upgrades 2>/dev/null || true
 
     # ======================================================================
-    # CONFIGURAÇÃO AUTOMÁTICA DA NUVEM E TELA FINAL DE SUCESSO
+    # CONFIGURAÇÃO INTERATIVA DA NUVEM (RCLONE DEFAULT)
     # ======================================================================
     clear
     echo -e "\e[1;36m======================================================================\e[0m"
     echo -e "\e[1;36m  ☁️  VINCULAÇÃO DO GOOGLE DRIVE / GOOGLE DRIVE LINKING\e[0m"
     echo -e "\e[1;36m======================================================================\e[0m"
-    echo -e "  [POR] 1. Copie o link longo gerado abaixo e abra no seu navegador."
-    echo -e "        2. Faça login na conta do Google e permita o acesso."
-    echo -e "        3. Copie o código de verificação e cole de volta aqui."
-    echo -e ""
-    echo -e "  [EN]  1. Copy the long link below and open it in your browser."
-    echo -e "        2. Log into your Google account and allow access."
-    echo -e "        3. Copy the verification code and paste it back here."
+    echo -e "  [POR] O assistente padrao do rclone sera iniciado agora."
+    echo -e "        - Digite 'n' para adicionar um novo controle remoto."
+    echo -e "        - Quando pedir nome, digite: gdrive"
+    echo -e "        - Quando pedir Storage, digite o numero de Google Drive"
+    echo -e "        - Nas outras opcoes apenas pressione ENTER (padrao)."
+    echo -e "        - Em 'Use auto config?' digite 'n' e siga o link gerado."
+    echo -e "        - No final digite 'q' para sair e concluir a instalacao."
     echo -e "\e[1;36m----------------------------------------------------------------------\e[0m"
     
-    mkdir -p /root/.config/rclone
-    
-    # Cria o remote silenciosamente (config_is_local false força o link na tela direto)
-    rclone config create gdrive drive scope drive config_is_local false || true
-
-    echo -e "\e[1;36m----------------------------------------------------------------------\e[0m"
-    echo "Verificando conexao com a nuvem... / Checking cloud connection..."
-
-    # Testa se a nuvem foi configurada corretamente e atrela aos backups
-    if rclone mkdir "gdrive:Backup_SQL_Koha" 2>/dev/null; then
-        sed -i "s|[a-zA-Z0-9_-]\+:Backup_SQL_Koha|gdrive:Backup_SQL_Koha|g" /root/backup_sql.sh 2>/dev/null || true
-        sed -i "s|RCLONE_REMOTE=\".*\"|RCLONE_REMOTE=\"gdrive\"|g" /root/backup_marc.sh 2>/dev/null || true
-        STATUS_NUVEM="\e[1;32mGoogle Drive ativado! (Backups automáticos configurados)\e[0m"
+    REMOTE_CONFIGURADO=""
+    if configurar_e_testar_rclone; then
+        STATUS_NUVEM="\e[1;32m${REMOTE_CONFIGURADO} ativado! (Backups automáticos configurados)\e[0m"
     else
         STATUS_NUVEM="\e[1;31mIgnorado ou Falhou.\e[0m (Para tentar novamente, use a Opção 7 do painel)"
     fi
 
-    # BANNER VERDE FINAL (IMPRESSO LOGO ABAIXO DO TEXTO DO RCLONE SEM LIMPAR A TELA)
+    # BANNER VERDE FINAL
     echo -e "\n\n\e[1;32m======================================================================\e[0m"
     echo -e "\e[1;32m  [POR] INSTALAÇÃO CONCLUÍDA COM SUCESSO!\e[0m"
     echo -e "\e[1;32m  [EN]  INSTALLATION COMPLETED SUCCESSFULLY!\e[0m"
@@ -761,19 +790,15 @@ funcao_configurar_rclone() {
     echo -e "\e[1;36m======================================================================\e[0m"
     echo -e "\e[1;36m  ☁️  VINCULAÇÃO DO GOOGLE DRIVE / GOOGLE DRIVE LINKING\e[0m"
     echo -e "\e[1;36m======================================================================\e[0m"
-    echo -e "  [POR] 1. Copie o link longo gerado abaixo e abra no seu navegador."
-    echo -e "        2. Faça login na conta do Google e permita o acesso."
-    echo -e "        3. Copie o código de verificação e cole de volta aqui."
+    echo -e "  [POR] O assistente padrão do rclone será iniciado agora."
+    echo -e "        - Digite 'n' para adicionar um novo controle remoto."
+    echo -e "        - Quando pedir o nome, digite o nome de sua escolha."
+    echo -e "        - Quando pedir o Storage, escolha o serviço correto."
+    echo -e "        - Siga as instruções do assistente até concluir com sucesso."
     echo -e "\e[1;36m----------------------------------------------------------------------\e[0m"
-
-    mkdir -p /root/.config/rclone
     
-    # Executa a configuração silenciosa (mesma logica do final da instalacao)
-    rclone config create gdrive drive scope drive config_is_local false || true
-
-    if rclone mkdir "gdrive:Backup_SQL_Koha" 2>/dev/null; then
-        sed -i "s|[a-zA-Z0-9_-]\+:Backup_SQL_Koha|gdrive:Backup_SQL_Koha|g" /root/backup_sql.sh 2>/dev/null || true
-        sed -i "s|RCLONE_REMOTE=\".*\"|RCLONE_REMOTE=\"gdrive\"|g" /root/backup_marc.sh 2>/dev/null || true
+    REMOTE_CONFIGURADO=""
+    if configurar_e_testar_rclone; then
         whiptail --title "Sucesso / Success" --msgbox "[POR] Google Drive ativado com sucesso!\nOs backups diários usarão essa pasta automaticamente.\n\n[EN] Google Drive linked successfully!" 10 76
     else
         whiptail --title "Erro / Error" --msgbox "[POR] Não foi possível vincular. O código expirou ou foi digitado incorretamente.\n\n[EN] Could not link. Token expired or was typed incorrectly." 9 70
