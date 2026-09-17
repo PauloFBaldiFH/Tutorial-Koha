@@ -187,7 +187,7 @@ funcao_instalar_koha() {
 EOF
     chmod 600 /root/credenciais_koha.txt
 
-    # Script 1: Backup Diário SQL
+    # Script 1: Backup Diário SQL (Padrão: gdrive)
     cat << EOF > /root/backup_sql.sh
 #!/bin/bash
 set -o pipefail
@@ -196,19 +196,19 @@ DIR_BACKUP="/var/backups/koha_sql"
 mkdir -p "\$DIR_BACKUP"
 MYSQL_PWD='$DB_PASS' mysqldump -u"$DB_USER" "koha_library" | gzip > "\$DIR_BACKUP/koha_library_\$DATA.sql.gz"
 if [ -f /root/.config/rclone/rclone.conf ]; then
-  /usr/bin/rclone --config /root/.config/rclone/rclone.conf move "\$DIR_BACKUP/koha_library_\$DATA.sql.gz" koha_cloud:Backup_SQL_Koha 2>/dev/null || true
+  /usr/bin/rclone --config /root/.config/rclone/rclone.conf move "\$DIR_BACKUP/koha_library_\$DATA.sql.gz" gdrive:Backup_SQL_Koha 2>/dev/null || true
 fi
 find "\$DIR_BACKUP" -name "*.sql.gz" -mtime +7 -delete
 EOF
 
-    # Script 2: Backup Semanal MARC21
+    # Script 2: Backup Semanal MARC21 (Padrão: gdrive)
     cat << 'EOF' > /root/backup_marc.sh
 #!/bin/bash
 set -uo pipefail
 INSTANCE="library"
 EXPORT_SCRIPT="/usr/share/koha/bin/export_records.pl"
 BACKUP_DIR="/var/backups/koha_marc"
-RCLONE_REMOTE="koha_cloud"
+RCLONE_REMOTE="gdrive"
 RCLONE_FOLDER="Backup_MARC_Koha"
 KEEP_LOCAL_DAYS=7
 
@@ -329,7 +329,7 @@ EOF
     cp /etc/issue /etc/issue.net
     cp /etc/issue /etc/motd
 
-    whiptail --title "Sucesso / Success" --msgbox "[POR] Instalação concluída com sucesso!\n\nStaff: http://${IP_REAL}:8080\nOPAC:  http://${IP_REAL}:80\nUsuário: $DB_USER | Senha: $DB_PASS\nPainel: sudo options.sh\n--------------------------------------------------\n[EN] Installation completed successfully!\n\nStaff URL: http://${IP_REAL}:8080\nOPAC URL:  http://${IP_REAL}:80\nUser: $DB_USER | Password: $DB_PASS\nDashboard: sudo options.sh" 15 75
+    whiptail --title "Sucesso / Success" --msgbox "[POR] Instalação concluída com sucesso!\n\nStaff: http://${IP_REAL}:8080\nOPAC:  http://${IP_REAL}:80\nUsuário: $DB_USER | Senha: $DB_PASS\nPainel: sudo options.sh\n\nNUVEM (GOOGLE DRIVE / OUTROS):\nPara configurar backups automáticos em nuvem, use a Opção 7 do painel.\nDocumentação oficial do Google Drive no Rclone: https://rclone.org/drive/\n--------------------------------------------------\n[EN] Installation completed successfully!\n\nStaff URL: http://${IP_REAL}:8080\nOPAC URL:  http://${IP_REAL}:80\nUser: $DB_USER | Password: $DB_PASS\nDashboard: sudo options.sh\n\nCLOUD (GOOGLE DRIVE / OTHERS):\nTo configure automated cloud backups, select Option 7 from the dashboard.\nOfficial Google Drive documentation in Rclone: https://rclone.org/drive/" 20 78
 }
 
 # ======================================================================
@@ -582,7 +582,6 @@ funcao_alternar_motor_busca() {
         if whiptail --title "Motor de Busca / Search Engine" --yesno "[POR] Motor atual: ZEBRA.\nDeseja ativar o ELASTICSEARCH (Busca avançada)?\n\n[EN] Current engine: ZEBRA.\nEnable ELASTICSEARCH (Advanced search)?" 11 72; then
             clear
 
-            # Limpeza preventiva de disco para evitar "No space left on device"
             caixa_explicacao "Liberando espaço em disco preventivamente..." "Freeing disk space preventively..."
             apt-get clean
             journalctl --vacuum-time=3d >/dev/null 2>&1 || true
@@ -603,7 +602,6 @@ funcao_alternar_motor_busca() {
 -Xmx1g
 JVMEOF
 
-            # Configura single-node e host local de forma explícita
             grep -q "^discovery.type: single-node" /etc/elasticsearch/elasticsearch.yml 2>/dev/null || echo "discovery.type: single-node" >> /etc/elasticsearch/elasticsearch.yml
             grep -q "^network.host: 127.0.0.1" /etc/elasticsearch/elasticsearch.yml 2>/dev/null || echo "network.host: 127.0.0.1" >> /etc/elasticsearch/elasticsearch.yml
 
@@ -614,7 +612,6 @@ JVMEOF
             systemctl enable elasticsearch
             systemctl restart elasticsearch
 
-            # Aguarda até 45 segundos para o Elasticsearch inicializar na porta 9200
             ES_OK=false
             for i in {1..45}; do
                 if curl -s http://127.0.0.1:9200 >/dev/null 2>&1; then
@@ -690,14 +687,75 @@ funcao_dimensionar_servidor() {
 }
 
 # ======================================================================
-# 7. CONFIGURAR NUVEM (RCLONE) / CLOUD BACKUP (RCLONE)
+# 7. CONFIGURAR NUVEM (RCLONE - GDRIVE OU OUTROS) / CLOUD BACKUP
 # ======================================================================
 funcao_configurar_rclone() {
-    whiptail --title "Backup em Nuvem / Cloud Backup" --msgbox "[POR] Siga o assistente interativo para vincular Google Drive, OneDrive ou Dropbox.\n\nAVISO CRUCIAL: Quando o assistente perguntar 'name', digite exatamente: koha_cloud\nTutorial Google Drive: https://rclone.org/drive/\n\n[EN] Follow the wizard to link Google Drive, OneDrive, or Dropbox.\n\nCRITICAL NOTE: When asked for the remote 'name', type exactly: koha_cloud\nGoogle Drive Guide: https://rclone.org/drive/" 16 78
+    TEXTO_AVISO="
+======================================================================
+ [POR] GUIA DE VINCULAÇÃO DE BACKUP EM NUVEM (RCLONE)
+ [EN]  CLOUD BACKUP SETUP GUIDE (RCLONE)
+======================================================================
+
+1. NOME DA CONEXÃO (REMOTE NAME):
+   Recomendamos usar: gdrive (padrão do sistema).
+   Porém, você pode usar qualquer outro nome ou serviço (OneDrive, Dropbox).
+   O sistema detectará o nome automaticamente ao final!
+
+2. GOOGLE DRIVE (PASSO A PASSO TÍPICO):
+   - Escolha o número correspondente a 'Google Drive'.
+   - Client ID & Client Secret: Aperte ENTER para deixar em branco.
+   - Scope: Opção 1 (Full access to all files).
+   - Service Account: Aperte ENTER (deixar em branco).
+   - Edit advanced config: Aperte ENTER (No).
+
+3. MÁQUINA SEM INTERFACE / HEADLESS (AVISO CRUCIAL):
+   Quando perguntar: 'Use auto config?':
+   - Se estiver usando o terminal via SSH / VM sem navegador: digite 'n'.
+     O Rclone fornecerá uma URL para você abrir no navegador do seu computador,
+     autorizar a conta e colar o código retornado aqui.
+   - Se sua máquina tiver navegador web: aperte ENTER (y).
+
+4. DOCUMENTAÇÃO OFICIAL:
+   https://rclone.org/drive/
+
+Feche esta tela para iniciar a configuração interativa!
+======================================================================
+"
+    whiptail --title "Nuvem / Cloud Setup Guide" --scrolltext "$TEXTO_AVISO" 26 78
     clear
     mkdir -p /root/.config/rclone
     rclone config
-    whiptail --title "Sucesso / Success" --msgbox "[POR] Nuvem vinculada! Backups SQL diários e MARC semanais serão sincronizados.\n\n[EN] Cloud linked! Daily SQL and weekly MARC backups will be synchronized." 10 70
+
+    # Identifica os remotes disponíveis
+    REMOTES=($(rclone listremotes 2>/dev/null | tr -d ':'))
+
+    if [ ${#REMOTES[@]} -eq 0 ]; then
+        whiptail --title "Aviso / Warning" --msgbox "[POR] Nenhuma nuvem foi configurada no Rclone.\n[EN] No cloud remote was configured in Rclone." 8 60
+        return
+    elif [ ${#REMOTES[@]} -eq 1 ]; then
+        REMOTE_ESCOLHIDO="${REMOTES[0]}"
+    else
+        OPCOES_MENU=()
+        for r in "${REMOTES[@]}"; do
+            OPCOES_MENU+=("$r" "Armazenamento em nuvem")
+        done
+        REMOTE_ESCOLHIDO=$(whiptail --title "Selecionar Nuvem / Select Cloud" \
+            --menu "[POR] Selecione a nuvem que receberá os backups:\n[EN] Select which cloud remote will receive backups:" 16 65 6 \
+            "${OPCOES_MENU[@]}" 3>&1 1>&2 2>&3) || return
+    fi
+
+    clear
+    caixa_explicacao "Testando conexão com a nuvem '${REMOTE_ESCOLHIDO}'..." "Testing connection to cloud '${REMOTE_ESCOLHIDO}'..."
+
+    if rclone mkdir "${REMOTE_ESCOLHIDO}:Backup_SQL_Koha" 2>/dev/null; then
+        # Atualiza os scripts de backup com o nome efetivamente criado
+        sed -i "s|[a-zA-Z0-9_-]\+:Backup_SQL_Koha|${REMOTE_ESCOLHIDO}:Backup_SQL_Koha|g" /root/backup_sql.sh 2>/dev/null || true
+        sed -i "s|RCLONE_REMOTE=\".*\"|RCLONE_REMOTE=\"${REMOTE_ESCOLHIDO}\"|g" /root/backup_marc.sh 2>/dev/null || true
+
+        whiptail --title "Sucesso / Success" --msgbox "[POR] Nuvem vinculada e testada com sucesso!\nDestino ativo: ${REMOTE_ESCOLHIDO}:\nOs backups diários (SQL) e semanais (MARC) usarão essa pasta automaticamente.\n\n[EN] Cloud linked and tested successfully!\nActive remote: ${REMOTE_ESCOLHIDO}:\nDaily (SQL) and weekly (MARC) backups will use this folder automatically." 13 76
+    else
+        whiptail --title "Erro de Conexão / Connection Error" --msgbox "[POR] Falha ao comunicar com '${REMOTE_ESCOLHIDO}'.\nVerifique se o token de autorização expirou ou se houve erro de digitação.\n\n[EN] Failed to communicate with '${REMOTE_ESCOLHIDO}'.\nPlease verify if the authorization token expired or if an error occurred." 11 74
+    fi
 }
 
 # ======================================================================
