@@ -42,6 +42,74 @@ caixa_explicacao() {
 }
 
 # ======================================================================
+# EXPLORADOR DE ARQUIVOS NATIVO / NATIVE FILE EXPLORER (TUI)
+# ======================================================================
+selecionar_arquivo() {
+    local atual="${1:-$REAL_HOME}"
+    while true; do
+        local itens=()
+        if [ "$atual" != "/" ]; then
+            itens+=(".." "[Diretório Acima / Up]")
+        fi
+        
+        while IFS= read -r d; do
+            [ -z "$d" ] && continue
+            itens+=("$d" "[Pasta / Folder]")
+        done <<< "$(find "$atual" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort)"
+        
+        while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            itens+=("$f" "Backup Database")
+        done <<< "$(find "$atual" -mindepth 1 -maxdepth 1 -type f \( -name "*.sql" -o -name "*.sql.gz" \) -printf '%f\n' 2>/dev/null | sort)"
+
+        if [ ${#itens[@]} -eq 0 ]; then
+            itens+=(".." "[Diretório Vazio - Voltar / Empty - Go back]")
+        fi
+
+        escolha=$(whiptail --title "Explorador de Arquivos / File Explorer" --menu "Navegando em / Browsing:\n$atual\n\nSelecione o arquivo de backup (.sql ou .sql.gz):\nSelect the backup file:" 22 80 12 "${itens[@]}" 3>&1 1>&2 2>&3)
+
+        if [ $? -ne 0 ]; then return 1; fi
+
+        if [ "$escolha" = ".." ]; then
+            atual=$(dirname "$atual")
+        elif [ -d "$atual/$escolha" ]; then
+            atual="$atual/$escolha"
+        elif [ -f "$atual/$escolha" ]; then
+            echo "$atual/$escolha"
+            return 0
+        fi
+    done
+}
+
+selecionar_diretorio() {
+    local atual="${1:-$REAL_HOME}"
+    while true; do
+        local dirs=( ">>> SALVAR NESTA PASTA <<<" "Save in: $atual" )
+        if [ "$atual" != "/" ]; then
+            dirs+=( ".." "[Diretório Acima / Up]" )
+        fi
+        
+        while IFS= read -r d; do
+            [ -z "$d" ] && continue
+            dirs+=("$d" "[Pasta / Folder]")
+        done <<< "$(find "$atual" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort)"
+
+        escolha=$(whiptail --title "Seletor de Diretório / Directory Picker" --menu "Navegando em / Browsing:\n$atual\n\nEntre numa pasta ou escolha salvar aqui:" 22 80 12 "${dirs[@]}" 3>&1 1>&2 2>&3)
+
+        if [ $? -ne 0 ]; then return 1; fi
+
+        if [ "$escolha" = ">>> SALVAR NESTA PASTA <<<" ]; then
+            echo "$atual"
+            return 0
+        elif [ "$escolha" = ".." ]; then
+            atual=$(dirname "$atual")
+        elif [ -d "$atual/$escolha" ]; then
+            atual="$atual/$escolha"
+        fi
+    done
+}
+
+# ======================================================================
 # FUNÇÃO: AGUARDAR E LIBERAR TRAVAS DO APT / WAIT FOR APT LOCKS (BLINDADO)
 # ======================================================================
 aguardar_travas_apt() {
@@ -61,7 +129,6 @@ aguardar_travas_apt() {
 
 # ======================================================================
 # FUNÇÃO AUXILIAR: Inserir/Remover Elasticsearch no XML com segurança
-# HELPER FUNCTION: Safely insert/remove Elasticsearch block in XML
 # ======================================================================
 xml_set_elasticsearch() {
     local ACAO="$1"
@@ -94,17 +161,13 @@ with open(path, "w") as f:
 PYEOF
 }
 
-
 # ======================================================================
 # SISTEMA CENTRAL DE VALIDAÇÃO / CENTRAL VALIDATION SYSTEM
 # ======================================================================
 VALIDACAO_DIR="/var/log/koha-easy-install"
 mkdir -p "$VALIDACAO_DIR" 2>/dev/null || true
 VALIDACAO_LOG="$VALIDACAO_DIR/validacao-$(date '+%Y%m%d-%H%M%S').log"
-V_OK=0
-V_WARN=0
-V_FAIL=0
-V_CONTEXT=""
+V_OK=0; V_WARN=0; V_FAIL=0; V_CONTEXT=""
 
 v_reset() {
     V_OK=0; V_WARN=0; V_FAIL=0; V_CONTEXT="$1"
@@ -290,9 +353,7 @@ funcao_instalar_koha() {
     whiptail --title "Instalação / Installation" --msgbox "[POR] Iniciando o Koha Easy Install (Modo Leve - Zebra por padrão).\n\n[EN] Starting Koha Easy Install (Lightweight Mode - Zebra default)." 10 75
     clear
 
-    if ! validar_pre_instalacao; then
-        return
-    fi
+    if ! validar_pre_instalacao; then return; fi
 
     aguardar_travas_apt
 
@@ -325,7 +386,6 @@ funcao_instalar_koha() {
     caixa_explicacao "Instalando dependências essenciais..." "Installing essential dependencies..."
     apt-get update && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
     
-    # O pacote 'expect' foi adicionado aqui para garantir a automacao perfeita do Rclone
     DEBIAN_FRONTEND=noninteractive apt-get install -y nano curl wget gpg ufw software-properties-common default-jre-headless \
                   libapache2-mod-security2 fail2ban libsasl2-modules glabels \
                   rclone avahi-daemon memcached python3 expect libxml2-utils
@@ -356,7 +416,6 @@ funcao_instalar_koha() {
 
     caixa_explicacao "Criando instância 'library' do Koha..." "Creating 'library' Koha instance..."
 
-    # SEGURANÇA: nunca apaga uma instalação existente sem confirmação explícita.
     KOHA_INSTANCIA_EXISTE=false
     if [ -d /etc/koha/sites/library ]; then
         KOHA_INSTANCIA_EXISTE=true
@@ -366,19 +425,16 @@ funcao_instalar_koha() {
 
     if [ "$KOHA_INSTANCIA_EXISTE" = true ]; then
         if ! whiptail --title "Instância já existe / Instance already exists" --yesno \
-            "[POR] Já existe uma instalação da instância 'library'.\n\n\nREINSTALAR APAGARÁ a configuração atual e o banco koha_library.\nEssa operação é destrutiva e não pode ser desfeita pelo script.\n\nDeseja prosseguir para a segunda confirmação?\n\n[EN] A 'library' instance already exists.\n\nREINSTALLING WILL DELETE the current configuration and the koha_library database.\nThis operation is destructive and cannot be undone by this script.\n\nContinue to the second confirmation?" 18 78; then
-            whiptail --title "Instalação cancelada / Installation cancelled" --msgbox \
-                "[POR] Nenhuma alteração destrutiva foi feita.\n\n[EN] No destructive changes were made." 8 62
+            "[POR] Já existe uma instalação da instância 'library'.\n\nREINSTALAR APAGARÁ a configuração atual e o banco koha_library.\nEssa operação é destrutiva e não pode ser desfeita pelo script.\n\nDeseja prosseguir para a segunda confirmação?\n\n[EN] A 'library' instance already exists.\n\nREINSTALLING WILL DELETE the current configuration and the koha_library database.\nThis operation is destructive and cannot be undone by this script.\n\nContinue to the second confirmation?" 18 78; then
+            whiptail --title "Instalação cancelada / Installation cancelled" --msgbox "[POR] Nenhuma alteração destrutiva foi feita.\n\n[EN] No destructive changes were made." 8 62
             return
         fi
 
-        CONFIRMAR_REINSTALACAO=$(whiptail --title "CONFIRMAÇÃO FINAL / FINAL CONFIRMATION" \
-            --inputbox \
+        CONFIRMAR_REINSTALACAO=$(whiptail --title "CONFIRMAÇÃO FINAL / FINAL CONFIRMATION" --inputbox \
             "[POR] Para apagar a instalação atual, digite exatamente:\n\nREINSTALAR\n\n[EN] To delete the current installation, type exactly:\n\nREINSTALL" 12 68 3>&1 1>&2 2>&3) || return
 
         if [ "$CONFIRMAR_REINSTALACAO" != "REINSTALAR" ]; then
-            whiptail --title "Instalação cancelada / Installation cancelled" --msgbox \
-                "[POR] Confirmação incorreta. Nada foi apagado.\n\n[EN] Incorrect confirmation. Nothing was deleted." 8 62
+            whiptail --title "Instalação cancelada / Installation cancelled" --msgbox "[POR] Confirmação incorreta. Nada foi apagado.\n\n[EN] Incorrect confirmation. Nothing was deleted." 8 62
             return
         fi
 
@@ -442,7 +498,6 @@ funcao_instalar_koha() {
 EOF
     chmod 600 /root/credenciais_koha.txt
 
-    # Script 1: Backup Diário SQL (Padrão: gdrive)
     cat << EOF > /root/backup_sql.sh
 #!/bin/bash
 set -o pipefail
@@ -456,7 +511,6 @@ fi
 find "\$DIR_BACKUP" -name "*.sql.gz" -mtime +7 -delete
 EOF
 
-    # Script 2: Backup Semanal MARC21 (Padrão: gdrive)
     cat << 'EOF' > /root/backup_marc.sh
 #!/bin/bash
 set -uo pipefail
@@ -487,9 +541,6 @@ EOF
     chmod +x /root/backup_sql.sh /root/backup_marc.sh
     chmod 600 /root/backup_sql.sh
 
-    # ======================================================================
-    # ARQUIVO CENTRAL DE CRONS / CENTRAL CRONTAB FILE
-    # ======================================================================
     cat << EOF > /etc/cron.d/koha_tasks
 # ======================================================================
 # KOHA EASY INSTALL - GERENCIADOR DE TAREFAS / TASK MANAGER (CRON)
@@ -498,30 +549,23 @@ EOF
 # [EN]  Format:  Minute(0-59) | Hour(0-23) | Day of Month(1-31) | Month(1-12) | Day of Week(0-6, 0=Sun)
 
 # 1. [EN] Vacuum journalctl logs every 14 days (Runs daily at 00:30)
-#    [POR] Limpeza de logs antigos do sistema (Roda diariamente às 00:30)
 30 0 * * * root /usr/bin/journalctl --vacuum-time=14d >/dev/null 2>&1
 
 # 2. [EN] Database repair & check (Runs on the 5th day of every month at 01:00)
-#    [POR] Checagem e reparo do banco de dados (Roda dia 5 de cada mes as 01:00)
 0 1 5 * * root /usr/bin/mysqlcheck --check --auto-repair --databases koha_library >/dev/null 2>&1
 
 # 3. [EN] Automatic restart of Plack web engine (Runs daily at 05:00)
-#    [POR] Reinicio automatico do motor web Plack (Roda diariamente as 05:00)
 0 5 * * * root /usr/sbin/koha-plack --restart library >/dev/null 2>&1
 
 # 4. [EN] DAILY SQL DATABASE BACKUP (Runs daily at 17:40)
-#    [POR] BACKUP DIARIO DO BANCO DE DADOS SQL (Roda diariamente as 17:40)
 40 17 * * * root /bin/bash /root/backup_sql.sh >/dev/null 2>&1
 
 # 5. [EN] WEEKLY MARC21 & AUTHORITIES BACKUP (Runs every Sunday at 03:00)
-#    [POR] BACKUP SEMANAL DO ACERVO MARC E AUTORIDADES (Roda aos domingos as 03:00)
 0 3 * * 0 root /bin/bash /root/backup_marc.sh >/dev/null 2>&1
 EOF
     chmod 644 /etc/cron.d/koha_tasks
     systemctl restart cron
 
-    # Firewall UFW
-    # Sem desligamento automático: as regras são adicionadas ANTES de ativar o UFW.
     ufw allow 22/tcp >/dev/null 2>&1
     ufw allow 80/tcp >/dev/null 2>&1
     ufw allow 443/tcp >/dev/null 2>&1
@@ -533,9 +577,6 @@ EOF
     IP_REAL=$(hostname -I | awk '{print $1}')
     [ -z "$IP_REAL" ] && IP_REAL="ipdoservidor"
 
-    # ======================================================================
-    # PERSISTÊNCIA DO DASHBOARD / DASHBOARD SYSTEM INSTALLATION
-    # ======================================================================
     if [ -f "$0" ]; then
         cp "$0" /usr/local/bin/options.sh 2>/dev/null || true
         chmod +x /usr/local/bin/options.sh 2>/dev/null || true
@@ -544,9 +585,6 @@ EOF
         chmod +x /usr/local/bin/options.sh 2>/dev/null || true
     fi
 
-    # ======================================================================
-    # ARTE ASCII DO SISTEMA (/ETC/ISSUE)
-    # ======================================================================
     cat << EOF > /etc/issue
 Ubuntu \n \l
 
@@ -588,12 +626,21 @@ EOF
     cp /etc/issue /etc/issue.net
     cp /etc/issue /etc/motd
 
-    # Reativa as atualizações automáticas de segurança do Ubuntu, INCLUINDO os timers
     systemctl start apt-daily.timer apt-daily-upgrade.timer unattended-upgrades 2>/dev/null || true
 
-    # ======================================================================
+    # ----------------------------------------------------------------------
+    # LIMPEZA PREVENTIVA PÓS-INSTALAÇÃO / POST-INSTALL CLEANUP
+    # ----------------------------------------------------------------------
+    caixa_explicacao "Limpando arquivos temporários e pacotes órfãos..." "Cleaning temporary files and orphan packages..."
+    apt-get clean -y
+    apt-get autoclean -y
+    DEBIAN_FRONTEND=noninteractive apt-get autoremove --purge -y
+    rm -rf /tmp/koha /tmp/koha-easy-install* 2>/dev/null || true
+    journalctl --vacuum-time=7d >/dev/null 2>&1 || true
+
+    # ----------------------------------------------------------------------
     # CONFIGURAÇÃO AUTOMÁTICA DA NUVEM (VIA EXPECT)
-    # ======================================================================
+    # ----------------------------------------------------------------------
     clear
     echo -e "\e[1;36m======================================================================\e[0m"
     echo -e "\e[1;36m  ☁️  VINCULAÇÃO DO GOOGLE DRIVE / GOOGLE DRIVE LINKING\e[0m"
@@ -610,7 +657,6 @@ EOF
     mkdir -p /root/.config/rclone
     rclone config delete gdrive 2>/dev/null || true
 
-    # O script Expect simula perfeitamente todas as teclas que voce digitava na mao
     expect << 'EOF'
 set timeout -1
 spawn rclone config
@@ -633,9 +679,6 @@ send "n\r"
 expect "y/n>"
 send "y\r"
 
-# Aqui a tela para e espera voce clicar no link e autorizar no Google.
-# Assim que o Rclone receber o aviso do navegador, o script abaixo continua sozinho.
-
 expect "y/n>"
 send "n\r"
 expect "y/e/d>"
@@ -647,13 +690,12 @@ EOF
     echo -e "\e[1;36m----------------------------------------------------------------------\e[0m"
     echo "Verificando conexao com a nuvem... / Checking cloud connection..."
 
-    # Testa se a nuvem foi configurada corretamente e atrela aos backups
     if rclone mkdir "gdrive:Backup_SQL_Koha" 2>/dev/null; then
         sed -i "s|[a-zA-Z0-9_-]\+:Backup_SQL_Koha|gdrive:Backup_SQL_Koha|g" /root/backup_sql.sh 2>/dev/null || true
         sed -i "s|RCLONE_REMOTE=\".*\"|RCLONE_REMOTE=\"gdrive\"|g" /root/backup_marc.sh 2>/dev/null || true
         STATUS_NUVEM="\e[1;32mGoogle Drive ativado! (Backups automáticos configurados)\e[0m"
     else
-        STATUS_NUVEM="\e[1;31mIgnorado ou Falhou.\e[0m (Para tentar novamente, use a Opção 7 do painel)"
+        STATUS_NUVEM="\e[1;31mIgnorado ou Falhou.\e[0m (Para tentar novamente, use a Opção 8 do painel)"
     fi
 
     clear
@@ -722,35 +764,13 @@ funcao_ver_credenciais() {
 }
 
 # ======================================================================
-# 3. RESTAURAR BANCO DE DADOS / RESTORE DATABASE
+# 3. RESTAURAR BANCO DE DADOS (EXPLORADOR NATIVO TUI)
 # ======================================================================
 funcao_restaurar_banco() {
-    LOCAL_ARQUIVO="$REAL_HOME/koha_library.sql"
-    IP_REAL=$(hostname -I | awk '{print $1}')
-    [ -z "$IP_REAL" ] && IP_REAL="ip_do_servidor"
+    LOCAL_ARQUIVO=$(selecionar_arquivo "/var/backups/koha_sql")
+    if [ -z "$LOCAL_ARQUIVO" ]; then return; fi
 
-    if [ ! -f "$LOCAL_ARQUIVO" ]; then
-        TEXTO_SCP="
-======================================================================
- [POR] COMO ENVIAR O ARQUIVO DE BACKUP (koha_library.sql)
- [EN]  HOW TO SEND THE BACKUP FILE (koha_library.sql)
-======================================================================
-O arquivo deve ser nomeado estritamente como 'koha_library.sql'
-e colocado na pasta do usuário: $REAL_HOME/
-
-OPÇÃO 1: WINSCP (VISUAL E MAIS FÁCIL)
-Conecte no IP: $IP_REAL e arraste o arquivo para $REAL_HOME/
-
-OPÇÃO 2: LINHA DE COMANDO (Windows CMD / PowerShell)
-Coloque o arquivo no Drive C: e execute:
-scp C:\koha_library.sql $REAL_USER@$IP_REAL:~
-======================================================================
-"
-        whiptail --title "Como Enviar o Backup / Backup Guide" --msgbox "$TEXTO_SCP" 22 78
-        return
-    fi
-
-    if ! whiptail --title "Confirmar Restauração / Confirm Restore" --yesno "[POR] Arquivo encontrado em:\n$LOCAL_ARQUIVO\n\nATENÇÃO: O acervo atual será totalmente substituído pelo backup.\nDeseja continuar?\n\n[EN] Backup file found at:\n$LOCAL_ARQUIVO\n\nWARNING: Current catalog will be replaced by the backup.\nDo you want to proceed?" 14 74; then
+    if ! whiptail --title "Confirmar Restauração / Confirm Restore" --yesno "[POR] Arquivo selecionado:\n$LOCAL_ARQUIVO\n\nATENÇÃO: O acervo atual será totalmente substituído pelo backup.\nDeseja continuar?\n\n[EN] Selected file:\n$LOCAL_ARQUIVO\n\nWARNING: Current catalog will be replaced by the backup.\nDo you want to proceed?" 14 74; then
         return
     fi
 
@@ -758,8 +778,12 @@ scp C:\koha_library.sql $REAL_USER@$IP_REAL:~
     caixa_explicacao "Recriando banco de dados koha_library..." "Recreating koha_library database..."
     mysql -e "DROP DATABASE IF EXISTS koha_library; CREATE DATABASE koha_library;"
 
-    caixa_explicacao "Importando acervo (koha_library.sql)..." "Importing catalog (koha_library.sql)..."
-    mysql koha_library < "$LOCAL_ARQUIVO"
+    caixa_explicacao "Importando acervo ($LOCAL_ARQUIVO)..." "Importing catalog ($LOCAL_ARQUIVO)..."
+    if [[ "$LOCAL_ARQUIVO" == *.gz ]]; then
+        zcat "$LOCAL_ARQUIVO" | mysql koha_library
+    else
+        mysql koha_library < "$LOCAL_ARQUIVO"
+    fi
 
     caixa_explicacao "Atualizando schemas e reiniciando daemons..." "Upgrading schemas and restarting daemons..."
     systemctl restart memcached
@@ -787,11 +811,39 @@ scp C:\koha_library.sql $REAL_USER@$IP_REAL:~
 
     koha-plack --restart library
     validar_sistema_completo "restauração do banco" || true
-    whiptail --title "Sucesso / Success" --msgbox "[POR] Acervo 'koha_library.sql' restaurado e indexado com sucesso!\nO servidor identificou e ativou automaticamente o motor: $MOTOR_REAL.\n\n[EN] Database 'koha_library.sql' restored and indexed successfully!\nThe server automatically detected and enabled the engine: $MOTOR_REAL." 10 74
+    whiptail --title "Sucesso / Success" --msgbox "[POR] Acervo restaurado e indexado com sucesso!\nO servidor identificou e ativou automaticamente o motor: $MOTOR_REAL.\n\n[EN] Database restored and indexed successfully!\nThe server automatically detected and enabled the engine: $MOTOR_REAL." 10 74
 }
 
 # ======================================================================
-# 4. INSTALAR IDIOMAS DO KOHA / INSTALL KOHA LANGUAGES
+# 4. GERAR BACKUP MANUAL DO BANCO (EXPLORADOR NATIVO TUI)
+# ======================================================================
+funcao_backup_manual() {
+    DIR_DESTINO=$(selecionar_diretorio "$REAL_HOME")
+    if [ -z "$DIR_DESTINO" ]; then return; fi
+
+    DATA_ATUAL=$(date +%Y-%m-%d_%Hh%M)
+    ARQUIVO_DESTINO="$DIR_DESTINO/koha_library_manual_$DATA_ATUAL.sql.gz"
+
+    ARQUIVO_CONF="/etc/koha/sites/library/koha-conf.xml"
+    if [ ! -f "$ARQUIVO_CONF" ]; then
+        whiptail --title "Erro / Error" --msgbox "[POR] O Koha ainda não foi instalado.\n[EN] Koha has not been installed yet." 8 60
+        return
+    fi
+    DB_PASS=$(grep -oP '(?<=<pass>)[^<]+' "$ARQUIVO_CONF" | head -n 1)
+    DB_USER="koha_library"
+
+    clear
+    caixa_explicacao "Gerando backup compactado em $ARQUIVO_DESTINO..." "Generating compressed backup..."
+
+    if MYSQL_PWD="$DB_PASS" mysqldump -u"$DB_USER" "koha_library" | gzip > "$ARQUIVO_DESTINO"; then
+        whiptail --title "Sucesso / Success" --msgbox "[POR] Backup manual gerado e salvo com sucesso em:\n$ARQUIVO_DESTINO\n\n[EN] Manual backup generated and saved to:\n$ARQUIVO_DESTINO" 10 74
+    else
+        whiptail --title "Erro / Error" --msgbox "[POR] Ocorreu uma falha ao tentar gerar o arquivo de backup.\n\n[EN] Failed to generate backup file." 8 65
+    fi
+}
+
+# ======================================================================
+# 5. INSTALAR IDIOMAS DO KOHA / INSTALL KOHA LANGUAGES
 # ======================================================================
 funcao_instalar_idiomas() {
     IDIOMA_SELECIONADO=$(whiptail --title "Idiomas do Koha / Koha Languages" \
@@ -909,7 +961,7 @@ funcao_instalar_idiomas() {
 }
 
 # ======================================================================
-# 5. ALTERNAR MOTOR DE BUSCA / TOGGLE SEARCH ENGINE (BLINDADO)
+# 6. ALTERNAR MOTOR DE BUSCA / TOGGLE SEARCH ENGINE (BLINDADO)
 # ======================================================================
 funcao_alternar_motor_busca() {
     MOTOR_ATUAL=$(mysql -N -e "SELECT value FROM koha_library.systempreferences WHERE variable='SearchEngine';" 2>/dev/null || echo "Zebra")
@@ -1020,7 +1072,7 @@ JVMEOF
 }
 
 # ======================================================================
-# 6. DIMENSIONAMENTO DE SERVIDOR / SERVER TUNING
+# 7. DIMENSIONAMENTO DE SERVIDOR / SERVER TUNING
 # ======================================================================
 funcao_dimensionar_servidor() {
     RAM_GB=$(awk '/MemTotal:/ { printf "%.1f", $2 / 1024 / 1024 }' /proc/meminfo 2>/dev/null || echo "0")
@@ -1034,8 +1086,6 @@ funcao_dimensionar_servidor() {
         ES_ATIVO=true
     fi
 
-    # Perfis conservadores. O Elasticsearch permanece intacto; quando ativo,
-    # não usamos mais um perfil agressivo que entregue RAM demais à MariaDB/Plack.
     if [ "$RAM_GB_ROUNDED" -lt 4 ]; then
         PERFIL_RECOMENDADO=1
     elif [ "$RAM_GB_ROUNDED" -lt 8 ]; then
@@ -1079,7 +1129,6 @@ funcao_dimensionar_servidor() {
 
     clear
 
-    # PLACK_WORKERS / PLACK_MAX_REQUESTS: atualiza linha existente ou cria se ausente.
     if grep -qE '^[[:space:]]*#?[[:space:]]*PLACK_WORKERS=' /etc/default/koha-common 2>/dev/null; then
         sed -i -E "s|^[[:space:]]*#?[[:space:]]*PLACK_WORKERS=.*|PLACK_WORKERS=$WK|" /etc/default/koha-common
     else
@@ -1092,14 +1141,12 @@ funcao_dimensionar_servidor() {
         echo "PLACK_MAX_REQUESTS=100" >> /etc/default/koha-common
     fi
 
-    # Memcached: atualiza -m existente ou adiciona a diretiva.
     if grep -qE '^[[:space:]]*-m[[:space:]]+' /etc/memcached.conf 2>/dev/null; then
         sed -i -E "s|^[[:space:]]*-m[[:space:]]+.*|-m $MEM|" /etc/memcached.conf
     else
         echo "-m $MEM" >> /etc/memcached.conf
     fi
 
-    # Arquivo de tuning separado para não misturar com a configuração principal.
     mkdir -p /etc/mysql/mariadb.conf.d/
     cat > /etc/mysql/mariadb.conf.d/99-koha-tuning.cnf << EOF
 [mysqld]
@@ -1118,7 +1165,7 @@ EOF
     fi
 }
 
-# 7. CONFIGURAR NUVEM (RCLONE - EXPECT AUTOMAÇÃO)
+# 8. CONFIGURAR NUVEM (RCLONE - EXPECT AUTOMAÇÃO)
 # ======================================================================
 funcao_configurar_rclone() {
     clear
@@ -1159,7 +1206,6 @@ send "n\r"
 expect "y/n>"
 send "y\r"
 
-# Pausa do script: aguarda o Google responder pelo link.
 expect "y/n>"
 send "n\r"
 expect "y/e/d>"
@@ -1182,7 +1228,7 @@ EOF
 }
 
 # ======================================================================
-# 8. GERENCIADOR DE CRONJOBS / CRONJOB TASK MANAGER
+# 9. GERENCIADOR DE CRONJOBS / CRONJOB TASK MANAGER
 # ======================================================================
 funcao_gerenciar_crons() {
     whiptail --title "Tarefas / Tasks (Cron)" --msgbox "[POR] Você será levado ao arquivo central de configurações (Cronjobs).\nEle contém instruções em ambos os idiomas sobre horários de backup e avisos.\nPara salvar e sair: aperte CTRL+O, ENTER, e CTRL+X.\n\n[EN] You will be redirected to the central crontab configuration file.\nIt contains bilingual instructions on adjusting backup schedules.\nTo save and exit: press CTRL+O, ENTER, and CTRL+X." 14 75
@@ -1195,7 +1241,7 @@ funcao_gerenciar_crons() {
 }
 
 # ======================================================================
-# 9. CONFIGURAR E-MAILS (SMTP) / EMAIL NOTICES SETUP
+# 10. CONFIGURAR E-MAILS (SMTP) / EMAIL NOTICES SETUP
 # ======================================================================
 funcao_configurar_emails() {
     whiptail --title "E-mails (SMTP)" --msgbox "[POR] O Koha possui configuração própria de servidores SMTP.\nO instalador não precisa iniciar um servidor de e-mail local.\n\nA rotina abaixo instala apenas o suporte SASL e grava os cronjobs de avisos sem duplicá-los.\n\n[EN] Koha has its own SMTP server configuration.\nThe installer does not need to start a local mail server.\n\nThe routine below installs only SASL support and writes the notice cronjobs without duplicates." 15 78
@@ -1206,8 +1252,6 @@ funcao_configurar_emails() {
     CRON_FILE="/etc/cron.d/koha_tasks"
     touch "$CRON_FILE"
 
-    # Remove somente o bloco de e-mail criado por esta função; backups e os demais
-    # cronjobs do usuário permanecem intactos.
     sed -i '/^# BEGIN KOHA EMAIL NOTICES$/,/^# END KOHA EMAIL NOTICES$/d' "$CRON_FILE"
 
     cat << 'EOF' >> "$CRON_FILE"
@@ -1264,7 +1308,7 @@ EOF
 
 6. TESTE DE SMTP / SMTP TEST
    Nas versões atuais do Koha, a tela de servidores SMTP possui a opção
-   "Enviar e-mail de teste / Send test email" para testar a configuração.
+   \"Enviar e-mail de teste / Send test email\" para testar a configuração.
 
 7. OBSERVAÇÃO / NOTE
    O script não coloca usuário, senha ou token de SMTP em arquivo.
@@ -1276,7 +1320,7 @@ EOF
     whiptail --title "Tutorial SMTP" --msgbox "$TEXTO_TUTORIAL" 23 78
 }
 
-# 10. ACESSO EXTERNO (CLOUDFLARE) / EXTERNAL ACCESS (CLOUDFLARE)
+# 11. ACESSO EXTERNO (CLOUDFLARE) / EXTERNAL ACCESS (CLOUDFLARE)
 # ======================================================================
 funcao_configurar_cloudflare() {
     TEXTO_TUTORIAL_CF="
@@ -1326,7 +1370,7 @@ Feche esta janela para colar o Token!
 }
 
 # ======================================================================
-# 11. ATUALIZAR SISTEMA / SYSTEM & DATABASE UPDATE
+# 12. ATUALIZAR SISTEMA / SYSTEM & DATABASE UPDATE
 # ======================================================================
 funcao_atualizar_sistema() {
     whiptail --title "Atualização / Update" --msgbox "[POR] Baixando atualizações do Ubuntu e do Koha.\n[EN] Downloading Ubuntu and Koha system updates." 8 65
@@ -1338,6 +1382,13 @@ funcao_atualizar_sistema() {
     koha-upgrade-schema library || true
     systemctl restart memcached apache2 koha-common mariadb
     koha-plack --restart library
+    
+    caixa_explicacao "Limpando arquivos temporários e pacotes órfãos pós-atualização..." "Cleaning temporary files and orphan packages post-update..."
+    apt-get clean -y
+    apt-get autoclean -y
+    DEBIAN_FRONTEND=noninteractive apt-get autoremove --purge -y
+    journalctl --vacuum-time=7d >/dev/null 2>&1 || true
+
     if validar_sistema_completo "atualização do sistema"; then
         whiptail --title "Atualização validada / Update validated" --msgbox "[POR] Atualização concluída e validação sem erros críticos.\n\n[EN] Update completed and validation found no critical errors." 10 72
     else
@@ -1351,21 +1402,22 @@ funcao_atualizar_sistema() {
 while true; do
     OPCAO=""
     OPCAO=$(whiptail --title "Koha Easy Install - Control Dashboard" \
-    --menu "[POR] Escolha uma opção / [EN] Choose an option:" 24 92 14 \
+    --menu "[POR] Escolha uma opção / [EN] Choose an option:" 24 94 15 \
     "1"  "Instalar Servidor Koha / Install Koha Server (Zebra Default)" \
     "2"  "Ver Credenciais de Acesso / View Stored Credentials" \
-    "3"  "Restaurar Acervo (koha_library.sql) / Restore Database" \
-    "4"  "Baixar Idiomas do Koha / Download Koha Languages" \
-    "5"  "Alternar Motor de Busca / Toggle Search (Zebra <-> Elasticsearch)" \
-    "6"  "Dimensionar Servidor / Server Sizing & Memory Tuning" \
-    "7"  "Configurar Backup em Nuvem / Setup Cloud Backup (Rclone)" \
-    "8"  "Gerenciar Tarefas Agendadas / Manage Crontab Schedules" \
-    "9"  "Configurar E-mails e Avisos / Setup SMTP Email Notices" \
-    "10" "Acesso Externo Seguro / Setup Cloudflare Tunnel" \
-    "11" "Atualizar Sistema e Schemas / Update System & Schemas" \
-    "12" "VALIDAR SISTEMA COMPLETO / FULL SYSTEM VALIDATION" \
-    "13" "Status Detalhado dos Serviços / Detailed Services Status" \
-    "14" "Sair / Exit" 3>&1 1>&2 2>&3) || { clear; exit 0; }
+    "3"  "Restaurar Acervo Local / Restore Database (File Explorer)" \
+    "4"  "Gerar Backup Manual / Manual Backup (Directory Picker)" \
+    "5"  "Baixar Idiomas do Koha / Download Koha Languages" \
+    "6"  "Alternar Motor de Busca / Toggle Search (Zebra <-> Elasticsearch)" \
+    "7"  "Dimensionar Servidor / Server Sizing & Memory Tuning" \
+    "8"  "Configurar Backup em Nuvem / Setup Cloud Backup (Rclone)" \
+    "9"  "Gerenciar Tarefas Agendadas / Manage Crontab Schedules" \
+    "10" "Configurar E-mails e Avisos / Setup SMTP Email Notices" \
+    "11" "Acesso Externo Seguro / Setup Cloudflare Tunnel" \
+    "12" "Atualizar Sistema e Schemas / Update System & Schemas" \
+    "13" "VALIDAR SISTEMA COMPLETO / FULL SYSTEM VALIDATION" \
+    "14" "Status Detalhado dos Serviços / Detailed Services Status" \
+    "15" "Sair / Exit" 3>&1 1>&2 2>&3) || { clear; exit 0; }
 
     [ -z "$OPCAO" ] && { clear; exit 0; }
 
@@ -1373,15 +1425,16 @@ while true; do
         1)  funcao_instalar_koha ;;
         2)  funcao_ver_credenciais ;;
         3)  funcao_restaurar_banco ;;
-        4)  funcao_instalar_idiomas ;;
-        5)  funcao_alternar_motor_busca ;;
-        6)  funcao_dimensionar_servidor ;;
-        7)  funcao_configurar_rclone ;;
-        8)  funcao_gerenciar_crons ;;
-        9)  funcao_configurar_emails ;;
-        10) funcao_configurar_cloudflare ;;
-        11) funcao_atualizar_sistema ;;
-        12)
+        4)  funcao_backup_manual ;;
+        5)  funcao_instalar_idiomas ;;
+        6)  funcao_alternar_motor_busca ;;
+        7)  funcao_dimensionar_servidor ;;
+        8)  funcao_configurar_rclone ;;
+        9)  funcao_gerenciar_crons ;;
+        10) funcao_configurar_emails ;;
+        11) funcao_configurar_cloudflare ;;
+        12) funcao_atualizar_sistema ;;
+        13)
             clear
             if validar_sistema_completo "validação manual"; then
                 whiptail --title "Validação OK / Validation OK" --msgbox "[POR] Validação concluída sem erros críticos.\n\nOK: $V_OK\nAvisos: $V_WARN\nErros: $V_FAIL\n\nLog: $VALIDACAO_LOG" 12 74
@@ -1390,7 +1443,7 @@ while true; do
             fi
             mostrar_validacao
             ;;
-        13)
+        14)
             S_APA=$(systemctl is-active apache2 2>/dev/null || echo "inativo/inactive")
             S_MAR=$(systemctl is-active mariadb 2>/dev/null || echo "inativo/inactive")
             S_MEM=$(systemctl is-active memcached 2>/dev/null || echo "inativo/inactive")
@@ -1403,7 +1456,7 @@ while true; do
             MOTOR=$(obter_motor_busca)
             whiptail --title "Status Detalhado / Detailed Status" --msgbox "Apache:       $S_APA\nMariaDB:      $S_MAR\nMemcached:    $S_MEM\nKoha common:  $S_KOH\nPlack:        $S_PLK\nZebra:        $S_ZEB\nElasticsearch:$S_ES\nCloudflare:   $S_CLD\nCron:         $S_CRO\nMotor Koha:   ${MOTOR:-não detectado}" 16 78
             ;;
-        14) clear; exit 0 ;;
+        15) clear; exit 0 ;;
     esac
     OPCAO=""
 done
