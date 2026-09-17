@@ -42,6 +42,24 @@ caixa_explicacao() {
 }
 
 # ======================================================================
+# FUNÇÃO: AGUARDAR E LIBERAR TRAVAS DO APT / WAIT FOR APT LOCKS
+# ======================================================================
+aguardar_travas_apt() {
+    caixa_explicacao "Verificando e aguardando liberacao de travas do APT/DPKG..." "Checking and waiting for APT/DPKG lock release..."
+    
+    systemctl stop unattended-upgrades apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
+
+    while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || \
+          fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || \
+          fuser /var/lib/dpkg/lock >/dev/null 2>&1; do
+        echo "[INFO] Processos em segundo plano (unattended-upgrades) estao ativos. Aguardando 3 segundos..."
+        sleep 3
+    done
+
+    dpkg --configure -a 2>/dev/null || true
+}
+
+# ======================================================================
 # FUNÇÃO AUXILIAR: Inserir/Remover Elasticsearch no XML com segurança
 # HELPER FUNCTION: Safely insert/remove Elasticsearch block in XML
 # ======================================================================
