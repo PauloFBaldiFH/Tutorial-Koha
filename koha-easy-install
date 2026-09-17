@@ -354,19 +354,39 @@ EOF
     cp /etc/issue /etc/issue.net
     cp /etc/issue /etc/motd
 
-# Reativa as atualizações automáticas de segurança do Ubuntu
+    # Reativa as atualizações automáticas de segurança do Ubuntu
     systemctl start unattended-upgrades 2>/dev/null || true
 
     # ======================================================================
-    # CONFIGURAÇÃO DE NUVEM EMBUTIDA NO FINAL DA INSTALAÇÃO
+    # CONFIGURAÇÃO AUTOMÁTICA DA NUVEM E TELA FINAL DE SUCESSO
     # ======================================================================
-    if whiptail --title "Backup em Nuvem / Cloud Backup" --yesno "[POR] Deseja configurar o Google Drive (Rclone) agora mesmo, antes de finalizar a instalacao?\n\n[EN] Do you want to configure Google Drive (Rclone) right now, before finishing the installation?" 10 75; then
-        funcao_configurar_rclone
+    clear
+    echo -e "\e[1;36m======================================================================\e[0m"
+    echo -e "\e[1;36m  ☁️  VINCULAÇÃO DO GOOGLE DRIVE / GOOGLE DRIVE LINKING\e[0m"
+    echo -e "\e[1;36m======================================================================\e[0m"
+    echo -e "  [POR] 1. Copie o link gerado abaixo e abra no seu navegador."
+    echo -e "        2. Faça login na conta do Google e permita o acesso."
+    echo -e "        3. Copie o código de acesso e cole de volta aqui."
+    echo -e ""
+    echo -e "  [EN]  1. Copy the link below and open it in your browser."
+    echo -e "        2. Log into your Google account and allow access."
+    echo -e "        3. Copy the verification code and paste it back here."
+    echo -e "\e[1;36m----------------------------------------------------------------------\e[0m"
+    
+    mkdir -p /root/.config/rclone
+    
+    # O Rclone gera o link diretamente e aguarda o código de verificação
+    rclone config create gdrive drive scope drive config_is_local false || true
+
+    # Testa se a nuvem foi configurada corretamente e atrela aos backups
+    if rclone mkdir "gdrive:Backup_SQL_Koha" 2>/dev/null; then
+        sed -i "s|[a-zA-Z0-9_-]\+:Backup_SQL_Koha|gdrive:Backup_SQL_Koha|g" /root/backup_sql.sh 2>/dev/null || true
+        sed -i "s|RCLONE_REMOTE=\".*\"|RCLONE_REMOTE=\"gdrive\"|g" /root/backup_marc.sh 2>/dev/null || true
+        STATUS_NUVEM="\e[1;32mGoogle Drive ativado! (Backups automáticos configurados)\e[0m"
+    else
+        STATUS_NUVEM="\e[1;31mIgnorado ou Falhou.\e[0m (Para configurar depois, use a Opção 7 do painel)"
     fi
 
-    # ======================================================================
-    # TELA FINAL DE SUCESSO IMPRESSA DIRETAMENTE NO TERMINAL
-    # ======================================================================
     clear
     echo -e "\e[1;32m======================================================================\e[0m"
     echo -e "\e[1;32m  [POR] INSTALAÇÃO CONCLUÍDA COM SUCESSO!\e[0m"
@@ -386,8 +406,7 @@ EOF
     echo -e "  Open the dashboard anytime by typing:       \e[1;35msudo options.sh\e[0m"
     echo -e ""
     echo -e "\e[1;36m  ☁️  NUVEM / CLOUD BACKUP:\e[0m"
-    echo -e "  Se não configurou o Google Drive agora, use a \e[1;37mOpção 7\e[0m do painel depois."
-    echo -e "  Docs: https://rclone.org/drive/"
+    echo -e "  Status: $STATUS_NUVEM"
     echo -e "\e[1;32m======================================================================\e[0m"
     echo -e "\e[1;37mPressione [ENTER] para sair do instalador... / Press [ENTER] to exit...\e[0m"
     read -r
