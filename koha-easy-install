@@ -128,7 +128,6 @@ funcao_instalar_koha() {
       echo '/swapfile none swap sw 0 0' >> /etc/fstab
     fi
 
-    # CHAMADA EXTRA DE SEGURANÇA: Garante que os timers não religaram nada durante a criação da SWAP
     aguardar_travas_apt
 
     caixa_explicacao "Instalando dependências essenciais..." "Installing essential dependencies..."
@@ -394,7 +393,7 @@ EOF
         STATUS_NUVEM="\e[1;31mIgnorado ou Falhou.\e[0m (Para tentar novamente, use a Opção 7 do painel)"
     fi
 
-    # BANNER VERDE FINAL (IMPRESSO LOGO ABAIXO DO TEXTO DO RCLONE)
+    # BANNER VERDE FINAL (IMPRESSO LOGO ABAIXO DO TEXTO DO RCLONE SEM LIMPAR A TELA)
     echo -e "\n\n\e[1;32m======================================================================\e[0m"
     echo -e "\e[1;32m  [POR] INSTALAÇÃO CONCLUÍDA COM SUCESSO!\e[0m"
     echo -e "\e[1;32m  [EN]  INSTALLATION COMPLETED SUCCESSFULLY!\e[0m"
