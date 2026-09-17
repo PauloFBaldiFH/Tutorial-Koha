@@ -278,8 +278,8 @@ EOF
     # PERSISTÊNCIA DO DASHBOARD / DASHBOARD SYSTEM INSTALLATION
     # ======================================================================
     if [ -f "$0" ]; then
-        cp "$0" /usr/local/bin/options.sh
-        chmod +x /usr/local/bin/options.sh
+        cp "$0" /usr/local/bin/options.sh 2>/dev/null || true
+        chmod +x /usr/local/bin/options.sh 2>/dev/null || true
     else
         curl -fsSL https://raw.githubusercontent.com/PauloFBaldiFH/Tutorial-Koha/main/koha-easy-install -o /usr/local/bin/options.sh 2>/dev/null || true
         chmod +x /usr/local/bin/options.sh 2>/dev/null || true
