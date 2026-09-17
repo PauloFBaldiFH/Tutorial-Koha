@@ -375,8 +375,11 @@ EOF
     
     mkdir -p /root/.config/rclone
     
-    # O Rclone gera o link diretamente e aguarda o código de verificação
+    # O Rclone gera o link diretamente e aguarda o código (SEM APAGAR A TELA DEPOIS)
     rclone config create gdrive drive scope drive config_is_local false || true
+
+    echo -e "\e[1;36m----------------------------------------------------------------------\e[0m"
+    echo "Verificando conexao com a nuvem... / Checking cloud connection..."
 
     # Testa se a nuvem foi configurada corretamente e atrela aos backups
     if rclone mkdir "gdrive:Backup_SQL_Koha" 2>/dev/null; then
@@ -384,11 +387,11 @@ EOF
         sed -i "s|RCLONE_REMOTE=\".*\"|RCLONE_REMOTE=\"gdrive\"|g" /root/backup_marc.sh 2>/dev/null || true
         STATUS_NUVEM="\e[1;32mGoogle Drive ativado! (Backups automáticos configurados)\e[0m"
     else
-        STATUS_NUVEM="\e[1;31mIgnorado ou Falhou.\e[0m (Para configurar depois, use a Opção 7 do painel)"
+        STATUS_NUVEM="\e[1;31mIgnorado ou Falhou.\e[0m (Para tentar novamente, use a Opção 7 do painel)"
     fi
 
-    clear
-    echo -e "\e[1;32m======================================================================\e[0m"
+    # BANNER VERDE FINAL (IMPRESSO LOGO ABAIXO DO TEXTO DO RCLONE)
+    echo -e "\n\n\e[1;32m======================================================================\e[0m"
     echo -e "\e[1;32m  [POR] INSTALAÇÃO CONCLUÍDA COM SUCESSO!\e[0m"
     echo -e "\e[1;32m  [EN]  INSTALLATION COMPLETED SUCCESSFULLY!\e[0m"
     echo -e "\e[1;32m======================================================================\e[0m"
