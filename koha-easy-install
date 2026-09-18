@@ -496,14 +496,12 @@ funcao_instalar_koha() {
     # -------------------------------------------------------------
     caixa_explicacao "Criando instância 'library' do Koha..." "Creating 'library' Koha instance..."
     
-    # 1. Cria a base no MariaDB e injeta a estrutura inicial base (evita erro bookshelf)
-    koha-create --request-db library
+    # 1. Cria a base no MariaDB, gera o usuário e injeta a estrutura inicial base
+    koha-create --create-db library
 
     # 2. Garante que o XML está higienizado com os parâmetros de Memcached corretos
     sed -i 's/__MEMCACHED_SERVERS__/127.0.0.1:11211/g' /etc/koha/sites/library/koha-conf.xml 2>/dev/null || true
     sed -i 's/__MEMCACHED_PREFIX__/koha_library:/g' /etc/koha/sites/library/koha-conf.xml 2>/dev/null || true
-
-    koha-create --populate-db library || true
 
     DB_PASS=$(grep -oP '(?<=<pass>)[^<]+' /etc/koha/sites/library/koha-conf.xml | head -n 1)
 
