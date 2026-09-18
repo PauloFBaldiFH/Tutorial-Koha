@@ -248,9 +248,15 @@ validar_mariadb(){
     local c
     if ! mysql -Nse 'SELECT 1;' >/dev/null 2>&1; then v_fail "MariaDB: conexão local falhou."; return 1; fi
     v_ok "MariaDB: conexão local funcionando."
+    
     c=$(mysql -Nse "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='koha_library';" 2>/dev/null || echo 0)
-    if [[ "$c" =~ ^[0-9]+$ ]] && [ "$c" -gt 50 ]; then v_ok "koha_library: $c tabelas detectadas."; return 0; fi
-    v_fail "koha_library: banco ausente/vazio/incompleto (tabelas: ${c:-0})."; return 1
+    if [[ "$c" =~ ^[0-9]+$ ]] && [ "$c" -gt 50 ]; then 
+        v_ok "koha_library: $c tabelas detectadas."
+        return 0
+    else
+        v_warn "koha_library: $c tabelas (Aguardando conclusão do Web Installer no navegador)."
+        return 0 # Não falha a instalação se estiver zerado, pois depende do Web Installer!
+    fi
 }
 obter_motor_busca(){ mysql -Nse "SELECT value FROM koha_library.systempreferences WHERE variable='SearchEngine' LIMIT 1;" 2>/dev/null || true; }
 validar_koha_instancia(){
@@ -268,13 +274,13 @@ validar_koha_instancia(){
     case "$e" in
         Zebra) v_info "Koha: SearchEngine=Zebra." ;;
         Elasticsearch) v_info "Koha: SearchEngine=Elasticsearch." ;;
-        "") v_fail "Koha: preferência SearchEngine não foi lida." ;;
+        "") v_warn "Koha: preferência SearchEngine ainda não definida (Aguardando Web Installer)." ;;
         *) v_warn "Koha: SearchEngine contém valor inesperado: $e" ;;
     esac
 }
 validar_zebra(){
     [ "$1" != "Zebra" ] && return 0
-    systemctl is-active --quiet koha-zebra-daemon@library && v_ok "Zebra: daemon ativo." || v_fail "Zebra: daemon inativo."
+    systemctl is-active --quiet koha-zebra-daemon@library && v_ok "Zebra: daemon ativo." || v_warn "Zebra: daemon inativo (Aguardando Web Installer)."
     command -v koha-rebuild-zebra >/dev/null 2>&1 && v_ok "Zebra: ferramenta de rebuild disponível." || v_fail "Zebra: koha-rebuild-zebra ausente."
 }
 validar_elasticsearch(){
@@ -492,14 +498,15 @@ funcao_instalar_koha() {
     fi
 
     # -------------------------------------------------------------
-    # CRIAÇÃO DA INSTÂNCIA E POVOAMENTO OFICIAL DAS TABELAS
+    # CRIAÇÃO DA INSTÂNCIA (SEM FORÇAR DADOS)
     # -------------------------------------------------------------
     caixa_explicacao "Criando instância 'library' do Koha..." "Creating 'library' Koha instance..."
     
-    # 1. Cria a base no MariaDB, gera o usuário e injeta a estrutura inicial base
+    # Prepara o banco vazio e o usuário do MariaDB. 
+    # AS TABELAS SÓ SERÃO CRIADAS QUANDO O USUÁRIO ACESSAR O WEB INSTALLER NO NAVEGADOR!
     koha-create --create-db library
 
-    # 2. Garante que o XML está higienizado com os parâmetros de Memcached corretos
+    # Higieniza o XML com as configurações corretas de Memcached
     sed -i 's/__MEMCACHED_SERVERS__/127.0.0.1:11211/g' /etc/koha/sites/library/koha-conf.xml 2>/dev/null || true
     sed -i 's/__MEMCACHED_PREFIX__/koha_library:/g' /etc/koha/sites/library/koha-conf.xml 2>/dev/null || true
 
@@ -512,30 +519,18 @@ funcao_instalar_koha() {
     koha-translate --install pt-BR || true
     koha-plack --enable library
     koha-plack --start library
-    
-    # Pausa rápida para o MariaDB respirar antes do upgrade de schema
-    sleep 3
-    koha-upgrade-schema library || true
 
-    # Garante o registro do motor de busca como Zebra no banco
-    mysql -e "INSERT INTO koha_library.systempreferences (variable, value, explanation, type) \
-              VALUES ('SearchEngine', 'Zebra', 'Search engine', 'Choice') \
-              ON DUPLICATE KEY UPDATE value='Zebra';" 2>/dev/null || true
-
-    caixa_explicacao "Ativando o motor de busca Zebra (padrão)..." "Enabling the Zebra search engine (default)..."
-    koha-zebra --enable library 2>/dev/null || true
-    koha-rebuild-zebra -f -v -b -a library 2>/dev/null || true
-    koha-zebra --start library 2>/dev/null || true
+    # Inicia o daemon do Zebra, mas ele não fará nada até as tabelas existirem
     systemctl enable --now koha-zebra-daemon@library 2>/dev/null || true
+    koha-zebra --start library 2>/dev/null || true
 
-    v_reset "pós-instalação Koha/Zebra"
+    v_reset "pós-instalação"
     validar_servico mariadb "MariaDB"
     validar_servico apache2 "Apache"
     validar_servico memcached "Memcached"
     validar_servico koha-common "Koha common"
     validar_mariadb
     validar_koha_instancia
-    validar_zebra "Zebra"
 
     # ======================================================================
     # ARQUIVOS DE BACKUP E CREDENCIAIS / BACKUP FILES AND CREDENTIALS
@@ -719,8 +714,8 @@ EOF
 
     if [ "$VALIDACAO_FINAL_OK" = true ]; then
         COR_FINAL="\e[1;32m"
-        MSG_FINAL_PT="INSTALAÇÃO CONCLUÍDA E VALIDADA COM SUCESSO!"
-        MSG_FINAL_EN="INSTALLATION COMPLETED AND VALIDATED SUCCESSFULLY!"
+        MSG_FINAL_PT="INSTALAÇÃO CONCLUÍDA! O AMBIENTE ESTÁ PRONTO."
+        MSG_FINAL_EN="INSTALLATION COMPLETED! ENVIRONMENT IS READY."
     else
         COR_FINAL="\e[1;33m"
         MSG_FINAL_PT="INSTALAÇÃO CONCLUÍDA, MAS A VALIDAÇÃO ENCONTROU PROBLEMAS."
@@ -731,6 +726,12 @@ EOF
     echo -e "${COR_FINAL}  [POR] $MSG_FINAL_PT\e[0m"
     echo -e "${COR_FINAL}  [EN]  $MSG_FINAL_EN\e[0m"
     echo -e "${COR_FINAL}======================================================================\e[0m"
+    echo -e ""
+    echo -e "\e[1;31m  >>> PASSO FINAL OBRIGATÓRIO / MANDATORY FINAL STEP <<<\e[0m"
+    echo -e "  [POR] O banco de dados está vazio. Para criar as tabelas,"
+    echo -e "  acesse a URL Staff abaixo no navegador e conclua o Web Installer!"
+    echo -e "  [EN] The database is empty. Access the Staff URL below in your"
+    echo -e "  browser and complete the Web Installer to generate the tables!"
     echo -e ""
     echo -e "\e[1;36m  🌐 ACESSOS / WEB ACCESS URLS:\e[0m"
     echo -e "  - Staff (Adm/Intranet):  \e[4;37mhttp://${IP_REAL}:8080\e[0m"
@@ -979,6 +980,11 @@ funcao_instalar_idiomas() {
 
     if [ $? -ne 0 ] || [ -z "$IDIOMA_SELECIONADO" ]; then return; fi
 
+    if ! mysql -Nse "SELECT 1 FROM information_schema.tables WHERE table_schema='koha_library' AND table_name='systempreferences';" 2>/dev/null | grep -q 1; then
+        whiptail --title "Aviso / Warning" --msgbox "[POR] Conclua o Web Installer no navegador antes de baixar pacotes.\n\n[EN] Complete the Web Installer in your browser first." 10 70
+        return
+    fi
+
     clear
     caixa_explicacao "Baixando e instalando idioma: $IDIOMA_SELECIONADO..." "Downloading and installing language: $IDIOMA_SELECIONADO..."
     if koha-translate --install "$IDIOMA_SELECIONADO"; then
@@ -997,6 +1003,11 @@ funcao_instalar_idiomas() {
 # 6. ALTERNAR MOTOR DE BUSCA / TOGGLE SEARCH ENGINE (BLINDADO)
 # ======================================================================
 funcao_alternar_motor_busca() {
+    if ! mysql -Nse "SELECT 1 FROM information_schema.tables WHERE table_schema='koha_library' AND table_name='systempreferences';" 2>/dev/null | grep -q 1; then
+        whiptail --title "Aviso / Warning" --msgbox "[POR] Conclua o Web Installer no navegador antes de trocar o motor de busca.\n\n[EN] Complete the Web Installer in your browser before toggling search engines." 10 70
+        return
+    fi
+
     MOTOR_ATUAL=$(mysql -N -e "SELECT value FROM koha_library.systempreferences WHERE variable='SearchEngine';" 2>/dev/null || echo "Zebra")
 
     if [ "$MOTOR_ATUAL" == "Elasticsearch" ]; then
@@ -1379,7 +1390,7 @@ ou precise de uma conta mestre de emergência.
     CAT=$(mysql -Nse "SELECT categorycode FROM koha_library.categories LIMIT 1;" 2>/dev/null || true)
 
     if [ -z "$BRANCH" ] || [ -z "$CAT" ]; then
-        whiptail --title "Erro / Error" --msgbox "[POR] O banco de dados não possui bibliotecas (branches) ou categorias criadas ainda.\nSe esta é uma instalação nova, faça o login inicial no OPAC usando o usuário padrão (koha_library) para concluir o Web Installer.\n\n[EN] Database has no branches or categories yet. Complete the Web Installer first." 14 78
+        whiptail --title "Erro / Error" --msgbox "[POR] O banco de dados não possui bibliotecas (branches) ou categorias criadas ainda.\nConclua o Web Installer no navegador antes de usar esta opção.\n\n[EN] Database has no branches or categories yet. Complete the Web Installer first." 14 78
         return
     fi
 
