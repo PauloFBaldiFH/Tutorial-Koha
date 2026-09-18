@@ -495,8 +495,10 @@ funcao_instalar_koha() {
     # -------------------------------------------------------------
     caixa_explicacao "Criando instância 'library' do Koha..." "Creating 'library' Koha instance..."
     
+    # 1. Cria a base no MariaDB e injeta a estrutura inicial base (evita erro bookshelf)
     koha-create --request-db library
 
+    # 2. Garante que o XML está higienizado com os parâmetros de Memcached corretos
     sed -i 's/__MEMCACHED_SERVERS__/127.0.0.1:11211/g' /etc/koha/sites/library/koha-conf.xml 2>/dev/null || true
     sed -i 's/__MEMCACHED_PREFIX__/koha_library:/g' /etc/koha/sites/library/koha-conf.xml 2>/dev/null || true
 
@@ -511,8 +513,12 @@ funcao_instalar_koha() {
     koha-translate --install pt-BR || true
     koha-plack --enable library
     koha-plack --start library
+    
+    # Pausa rápida para o MariaDB respirar antes do upgrade de schema
+    sleep 3
     koha-upgrade-schema library || true
 
+    # Garante o registro do motor de busca como Zebra no banco
     mysql -e "INSERT INTO koha_library.systempreferences (variable, value, explanation, type) \
               VALUES ('SearchEngine', 'Zebra', 'Search engine', 'Choice') \
               ON DUPLICATE KEY UPDATE value='Zebra';" 2>/dev/null || true
