@@ -417,7 +417,6 @@ funcao_instalar_koha() {
         sed -i 's/^MEMCACHED_PREFIX=.*/MEMCACHED_PREFIX="koha_"/' /etc/koha/koha-sites.conf || \
         echo 'MEMCACHED_PREFIX="koha_"' >> /etc/koha/koha-sites.conf
 
-    # Corrige o arquivo modelo (template) para nunca mais gerar XML com '__MEMCACHED_SERVERS__'
     if [ -f /etc/koha/koha-conf-site.xml.in ]; then
         sed -i 's/__MEMCACHED_SERVERS__/127.0.0.1:11211/g' /etc/koha/koha-conf-site.xml.in
         sed -i 's/__MEMCACHED_PREFIX__/koha_/g' /etc/koha/koha-conf-site.xml.in
@@ -465,14 +464,11 @@ funcao_instalar_koha() {
     caixa_explicacao "Criando instância 'library' do Koha..." "Creating 'library' Koha instance..."
     koha-create --create-db library
 
-    # Higienização de segurança no XML da instância gerada
     sed -i 's/__MEMCACHED_SERVERS__/127.0.0.1:11211/g' /etc/koha/sites/library/koha-conf.xml 2>/dev/null || true
     sed -i 's/__MEMCACHED_PREFIX__/koha_library:/g' /etc/koha/sites/library/koha-conf.xml 2>/dev/null || true
 
-    # Extrai a senha gerada pelo Koha para carregar o schema no MariaDB
     DB_PASS=$(grep -oP '(?<=<pass>)[^<]+' /etc/koha/sites/library/koha-conf.xml | head -n 1)
 
-    # Caso a contagem seja 0 tabelas, injeta a estrutura oficial do Koha diretamente
     TABELAS_ATUAIS=$(mysql -Nse "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='koha_library';" 2>/dev/null || echo 0)
     if [ "$TABELAS_ATUAIS" -le 10 ]; then
         caixa_explicacao "Populando banco de dados inicial (kohastructure.sql)..." "Populating initial database schema..."
@@ -487,6 +483,11 @@ funcao_instalar_koha() {
     koha-plack --enable library
     koha-plack --start library
     koha-upgrade-schema library || true
+
+    # Garante o registro do motor de busca como Zebra no banco
+    mysql -e "INSERT INTO koha_library.systempreferences (variable, value, explanation, type) \
+              VALUES ('SearchEngine', 'Zebra', 'Search engine', 'Choice') \
+              ON DUPLICATE KEY UPDATE value='Zebra';" 2>/dev/null || true
 
     caixa_explicacao "Ativando o motor de busca Zebra (padrão)..." "Enabling the Zebra search engine (default)..."
     koha-zebra --enable library 2>/dev/null || true
@@ -668,65 +669,7 @@ EOF
     rm -rf /tmp/koha /tmp/koha-easy-install* 2>/dev/null || true
     journalctl --vacuum-time=7d >/dev/null 2>&1 || true
 
-    # ----------------------------------------------------------------------
-    # CONFIGURAÇÃO AUTOMÁTICA DA NUVEM (VIA EXPECT)
-    # ----------------------------------------------------------------------
-    clear
-    echo -e "\e[1;36m======================================================================\e[0m"
-    echo -e "\e[1;36m  ☁️  VINCULAÇÃO DO GOOGLE DRIVE / GOOGLE DRIVE LINKING\e[0m"
-    echo -e "\e[1;36m======================================================================\e[0m"
-    echo -e "  [POR] O teclado fantasma vai preencher os dados pra voce."
-    echo -e "        Siga APENAS esta instrução final:"
-    echo -e ""
-    echo -e "        1. O sistema vai gerar um link abaixo (http://127.0.0.1:53682/...)"
-    echo -e "        2. Copie esse link, cole no seu navegador e faça o login."
-    echo -e "        3. Conceda as permissões. A tela vai prosseguir SOZINHA!"
-    echo -e "        (NÃO DIGITE MAIS NADA NO TERMINAL, APENAS ABRA O LINK)"
-    echo -e "\e[1;36m----------------------------------------------------------------------\e[0m"
-    
-    mkdir -p /root/.config/rclone
-    rclone config delete gdrive 2>/dev/null || true
-
-    expect << 'EOF'
-set timeout -1
-spawn rclone config
-expect -re "(e/n/d/r/c/s/q>|n/s/q>)"
-send "n\r"
-expect "name>"
-send "gdrive\r"
-expect "Storage>"
-send "drive\r"
-expect "client_id>"
-send "\r"
-expect "client_secret>"
-send "\r"
-expect "scope>"
-send "1\r"
-expect "service_account_file>"
-send "\r"
-expect "y/n>"
-send "n\r"
-expect "y/n>"
-send "y\r"
-
-expect "y/n>"
-send "n\r"
-expect "y/e/d>"
-send "y\r"
-expect -re "(e/n/d/r/c/s/q>|n/s/q>)"
-send "q\r"
-EOF
-
-    echo -e "\e[1;36m----------------------------------------------------------------------\e[0m"
-    echo "Verificando conexao com a nuvem... / Checking cloud connection..."
-
-    if rclone mkdir "gdrive:Backup_SQL_Koha" 2>/dev/null; then
-        sed -i "s|[a-zA-Z0-9_-]\+:Backup_SQL_Koha|gdrive:Backup_SQL_Koha|g" /root/backup_sql.sh 2>/dev/null || true
-        sed -i "s|RCLONE_REMOTE=\".*\"|RCLONE_REMOTE=\"gdrive\"|g" /root/backup_marc.sh 2>/dev/null || true
-        STATUS_NUVEM="\e[1;32mGoogle Drive ativado! (Backups automáticos configurados)\e[0m"
-    else
-        STATUS_NUVEM="\e[1;31mIgnorado ou Falhou.\e[0m (Para tentar novamente, use a Opção 8 do painel)"
-    fi
+    STATUS_NUVEM="\e[1;33mNão configurado. Use a Opção 8 do painel.\e[0m"
 
     clear
     if validar_sistema_completo "instalação concluída"; then
@@ -772,6 +715,7 @@ EOF
     echo -e "\e[1;37mPressione [ENTER] para sair do instalador... / Press [ENTER] to exit...\e[0m"
     read -r
 }
+
 # ======================================================================
 # 2. VISUALIZAR CREDENCIAIS / VIEW CREDENTIALS
 # ======================================================================
@@ -998,9 +942,11 @@ funcao_alternar_motor_busca() {
     if [ "$MOTOR_ATUAL" == "Elasticsearch" ]; then
         if whiptail --title "Motor de Busca / Search Engine" --yesno "[POR] Motor atual: ELASTICSEARCH.\nDeseja voltar para o ZEBRA (Economiza ~1.5GB de RAM)?\n\n[EN] Current engine: ELASTICSEARCH.\nSwitch back to ZEBRA (Saves ~1.5GB RAM)?" 11 72; then
             clear
-            caixa_explicacao "Desativando Elasticsearch..." "Disabling Elasticsearch..."
+            caixa_explicacao "Desativando Elasticsearch e koha-indexer..." "Disabling Elasticsearch and koha-indexer..."
             systemctl stop elasticsearch 2>/dev/null || true
             systemctl disable elasticsearch 2>/dev/null || true
+            systemctl stop koha-indexer 2>/dev/null || true
+            systemctl disable koha-indexer 2>/dev/null || true
 
             caixa_explicacao "Removendo bloco <elasticsearch> do koha-conf.xml..." "Removing <elasticsearch> block from koha-conf.xml..."
             if ! xml_set_elasticsearch remover; then
@@ -1019,7 +965,7 @@ funcao_alternar_motor_busca() {
             whiptail --title "Sucesso / Success" --msgbox "[POR] Sistema operando com ZEBRA!\n[EN] System is now running on ZEBRA!" 8 60
         fi
     else
-        if whiptail --title "Motor de Busca / Search Engine" --yesno "[POR] Motor atual: ZEBRA.\nDeseja ativar o ELASTICSEARCH (Busca avançada)?\n\n[EN] Current engine: ZEBRA.\nEnable ELASTICSEARCH (Advanced search)?" 11 72; then
+        if whiptail --title "Motor de Busca / Search Engine" --yesno "[POR] Motor atual: ZEBRA.\nDeseja ativar o ELASTICSEARCH (Busca avançada e Facetas dinâmicas)?\n\n[EN] Current engine: ZEBRA.\nEnable ELASTICSEARCH (Advanced search and dynamic facets)?" 11 72; then
             clear
 
             caixa_explicacao "Liberando espaço em disco preventivamente..." "Freeing disk space preventively..."
@@ -1088,14 +1034,18 @@ JVMEOF
             curl -s -X DELETE 'localhost:9200/koha_library_authorities' >/dev/null 2>&1 || true
             systemctl restart koha-common
 
-            caixa_explicacao "Reindexando acervo..." "Reindexing catalog..."
+            caixa_explicacao "Ativando Indexador em Tempo Real (koha-indexer)..." "Enabling Real-Time Indexer..."
+            systemctl enable --now koha-indexer 2>/dev/null || true
+            koha-indexer --start library 2>/dev/null || true
+
+            caixa_explicacao "Reindexando acervo para a nuvem do Elasticsearch..." "Reindexing catalog..."
             if ! koha-elasticsearch --rebuild -d library; then
                 whiptail --title "Aviso / Warning" --msgbox "[POR] Reindexação falhou. Rode depois: koha-elasticsearch --rebuild -d library\n[EN] Reindexing failed. Run later: koha-elasticsearch --rebuild -d library" 9 70
             fi
 
             koha-plack --restart library
             validar_sistema_completo "ativação do Elasticsearch" || true
-            whiptail --title "Sucesso / Success" --msgbox "[POR] Sistema operando com ELASTICSEARCH!\n[EN] System is now running on ELASTICSEARCH!" 8 60
+            whiptail --title "Sucesso / Success" --msgbox "[POR] Sistema operando com ELASTICSEARCH!\nDaemon koha-indexer está ativo garantindo sincronização em tempo real via RabbitMQ.\n\n[EN] System is now running on ELASTICSEARCH!\nkoha-indexer daemon is active ensuring real-time syncing via RabbitMQ." 10 75
         fi
     fi
 }
@@ -1194,109 +1144,53 @@ EOF
     fi
 }
 
-# 8. CONFIGURAR NUVEM (RCLONE - EXPECT AUTOMAÇÃO)
+# ======================================================================
+# 8. CONFIGURAR NUVEM (RCLONE - GUIA INTERATIVO)
 # ======================================================================
 funcao_configurar_rclone() {
     clear
-    echo -e "\e[1;36m======================================================================\e[0m"
-    echo -e "\e[1;36m  ☁️  VINCULAÇÃO DO GOOGLE DRIVE / GOOGLE DRIVE LINKING\e[0m"
-    echo -e "\e[1;36m======================================================================\e[0m"
-    echo -e "  [POR] O teclado fantasma vai preencher os dados pra voce."
-    echo -e "        Siga APENAS esta instrução final:"
-    echo -e ""
-    echo -e "        1. O sistema vai gerar um link abaixo (http://127.0.0.1:53682/...)"
-    echo -e "        2. Copie esse link, cole no seu navegador e faça o login."
-    echo -e "        3. Conceda as permissões. A tela vai prosseguir SOZINHA!"
-    echo -e "        (NÃO DIGITE MAIS NADA NO TERMINAL, APENAS ABRA O LINK)"
-    echo -e "\e[1;36m----------------------------------------------------------------------\e[0m"
+    TEXTO_NUVEM="
+======================================================================
+ [POR] CONFIGURAÇÃO DE BACKUP EM NUVEM (GOOGLE DRIVE)
+ [EN]  CLOUD BACKUP CONFIGURATION (GOOGLE DRIVE)
+======================================================================
+O sistema de backup em nuvem usa a ferramenta Rclone.
+Siga os passos com atenção para vincular sua conta do Google:
 
-    mkdir -p /root/.config/rclone
-    rclone config delete gdrive 2>/dev/null || true
-
-    expect << 'EOF'
-set timeout -1
-spawn rclone config
-expect -re "(e/n/d/r/c/s/q>|n/s/q>)"
-send "n\r"
-expect "name>"
-send "gdrive\r"
-expect "Storage>"
-send "drive\r"
-expect "client_id>"
-send "\r"
-expect "client_secret>"
-send "\r"
-expect "scope>"
-send "1\r"
-expect "service_account_file>"
-send "\r"
-expect "y/n>"
-send "n\r"
-expect "y/n>"
-send "y\r"
-
-expect "y/n>"
-send "n\r"
-expect "y/e/d>"
-send "y\r"
-expect -re "(e/n/d/r/c/s/q>|n/s/q>)"
-send "q\r"
-EOF
-
-    echo -e "\e[1;36m----------------------------------------------------------------------\e[0m"
-    echo "Verificando conexao com a nuvem... / Checking cloud connection..."
-
-    if rclone mkdir "gdrive:Backup_SQL_Koha" 2>/dev/null; then
-        sed -i "s|[a-zA-Z0-9_-]\+:Backup_SQL_Koha|gdrive:Backup_SQL_Koha|g" /root/backup_sql.sh 2>/dev/null || true
-        sed -i "s|RCLONE_REMOTE=\".*\"|RCLONE_REMOTE=\"gdrive\"|g" /root/backup_marc.sh 2>/dev/null || true
-        STATUS_NUVEM="\e[1;32mGoogle Drive ativado! (Backups automáticos configurados)\e[0m"
-    else
-        STATUS_NUVEM="\e[1;31mIgnorado ou Falhou.\e[0m (Para tentar novamente, use a Opção 8 do painel)"
-    fi
+1. Digite no terminal: rclone config
+2. Aperte 'n' (New remote) e dê um NOME para a conexão (ex: meudrive).
+   > ANOTE O NOME QUE VOCÊ DIGITOU!
+3. Em Storage, digite 'drive' (Google Drive).
+4. Deixe client_id e client_secret em branco (aperte ENTER).
+5. Em Scope, digite '1' (Full access).
+6. Deixe as contas de serviço em branco (ENTER).
+7. Em 'Edit advanced config', digite 'n' (No).
+8. Em 'Use auto config', digite 'y' (Yes).
+9. O terminal vai gerar um LINK ou abrir seu navegador. 
+   Faça login na conta do Google e dê as permissões.
+10. Depois de aprovado no navegador, volte aqui.
+11. Em 'Configure this as a Shared Drive', digite 'n'.
+12. Aperte 'y' para salvar e 'q' para sair.
+======================================================================
+"
+    whiptail --title "Guia Rclone" --msgbox "$TEXTO_NUVEM" 25 85
+    
+    whiptail --title "Iniciar" --yesno "[POR] Você leu as instruções?\nAo clicar em SIM, você irá para o terminal digitar 'rclone config'.\nQuando terminar e voltar para o painel, cadastraremos o nome da conexão.\n\nDeseja abrir o rclone agora?" 12 70 || return
 
     clear
-    if validar_sistema_completo "instalação concluída"; then
-        VALIDACAO_FINAL_OK=true
-    else
-        VALIDACAO_FINAL_OK=false
-    fi
+    rclone config
 
-    if [ "$VALIDACAO_FINAL_OK" = true ]; then
-        COR_FINAL="\e[1;32m"
-        MSG_FINAL_PT="INSTALAÇÃO CONCLUÍDA E VALIDADA COM SUCESSO!"
-        MSG_FINAL_EN="INSTALLATION COMPLETED AND VALIDATED SUCCESSFULLY!"
-    else
-        COR_FINAL="\e[1;33m"
-        MSG_FINAL_PT="INSTALAÇÃO CONCLUÍDA, MAS A VALIDAÇÃO ENCONTROU PROBLEMAS."
-        MSG_FINAL_EN="INSTALLATION COMPLETED, BUT VALIDATION FOUND PROBLEMS."
-    fi
+    NOME_CONEXAO=$(whiptail --title "Nome da Conexão / Remote Name" --inputbox "[POR] Rclone finalizado!\nDigite o NOME EXATO que você deu para a conexão no passo 2\n(Por exemplo: gdrive, meudrive, biblioteca):\n\n[EN] Enter the EXACT NAME you chose for your connection:" 14 70 3>&1 1>&2 2>&3)
 
-    echo -e "\n\n${COR_FINAL}======================================================================\e[0m"
-    echo -e "${COR_FINAL}  [POR] $MSG_FINAL_PT\e[0m"
-    echo -e "${COR_FINAL}  [EN]  $MSG_FINAL_EN\e[0m"
-    echo -e "${COR_FINAL}======================================================================\e[0m"
-    echo -e ""
-    echo -e "\e[1;36m  🌐 ACESSOS / WEB ACCESS URLS:\e[0m"
-    echo -e "  - Staff (Adm/Intranet):  \e[4;37mhttp://${IP_REAL}:8080\e[0m"
-    echo -e "  - OPAC (Public Catalog): \e[4;37mhttp://${IP_REAL}:80\e[0m"
-    echo -e ""
-    echo -e "\e[1;36m  🔑 PRIMEIRO ACESSO / INITIAL CREDENTIALS:\e[0m"
-    echo -e "  - Usuário / Username: \e[1;33m$DB_USER\e[0m"
-    echo -e "  - Senha / Password:   \e[1;33m$DB_PASS\e[0m"
-    echo -e ""
-    echo -e "\e[1;36m  ✅ VALIDAÇÃO / VALIDATION:\e[0m"
-    echo -e "  - OK: $V_OK | Avisos: $V_WARN | Erros: $V_FAIL"
-    echo -e "  - Relatório: $VALIDACAO_LOG"
-    echo -e ""
-    echo -e "\e[1;36m  ⚙️  PAINEL DE CONTROLE / CONTROL DASHBOARD:\e[0m"
-    echo -e "  Abra o painel a qualquer momento digitando: \e[1;35msudo options.sh\e[0m"
-    echo -e "  Open the dashboard anytime by typing:       \e[1;35msudo options.sh\e[0m"
-    echo -e ""
-    echo -e "\e[1;36m  ☁️  NUVEM / CLOUD BACKUP:\e[0m"
-    echo -e "  Status: $STATUS_NUVEM"
-    echo -e "\e[1;32m======================================================================\e[0m"
-    echo -e "\e[1;37mPressione [ENTER] para sair do instalador... / Press [ENTER] to exit...\e[0m"
-    read -r
+    if [ -n "$NOME_CONEXAO" ]; then
+        if rclone mkdir "$NOME_CONEXAO:Backup_SQL_Koha" 2>/dev/null; then
+            sed -i "s|[a-zA-Z0-9_-]\+:Backup_SQL_Koha|$NOME_CONEXAO:Backup_SQL_Koha|g" /root/backup_sql.sh 2>/dev/null || true
+            sed -i "s|RCLONE_REMOTE=\".*\"|RCLONE_REMOTE=\"$NOME_CONEXAO\"|g" /root/backup_marc.sh 2>/dev/null || true
+            whiptail --title "Sucesso" --msgbox "[POR] Google Drive vinculado com sucesso ao nome: $NOME_CONEXAO!\n[EN] Google Drive successfully linked to name: $NOME_CONEXAO!" 8 68
+        else
+            whiptail --title "Erro" --msgbox "[POR] Falha ao testar a conexão '$NOME_CONEXAO'. O nome está correto?\n[EN] Failed to test connection '$NOME_CONEXAO'." 8 68
+        fi
+    fi
 }
 
 # ======================================================================
@@ -1525,8 +1419,9 @@ while true; do
             S_ES=$(systemctl is-active elasticsearch 2>/dev/null || echo "não instalado/inactive")
             S_CLD=$(systemctl is-active cloudflared 2>/dev/null || echo "não instalado/uninstalled")
             S_CRO=$(systemctl is-active cron 2>/dev/null || echo "inativo/inactive")
+            S_IDX=$(systemctl is-active koha-indexer 2>/dev/null || echo "inativo/inactive")
             MOTOR=$(obter_motor_busca)
-            whiptail --title "Status Detalhado / Detailed Status" --msgbox "Apache:       $S_APA\nMariaDB:      $S_MAR\nMemcached:    $S_MEM\nKoha common:  $S_KOH\nPlack:        $S_PLK\nZebra:        $S_ZEB\nElasticsearch:$S_ES\nCloudflare:   $S_CLD\nCron:         $S_CRO\nMotor Koha:   ${MOTOR:-não detectado}" 16 78
+            whiptail --title "Status Detalhado / Detailed Status" --msgbox "Apache:       $S_APA\nMariaDB:      $S_MAR\nMemcached:    $S_MEM\nKoha common:  $S_KOH\nPlack:        $S_PLK\nZebra:        $S_ZEB\nElasticsearch:$S_ES\nkoha-indexer: $S_IDX\nCloudflare:   $S_CLD\nCron:         $S_CRO\nMotor Koha:   ${MOTOR:-não detectado}" 17 78
             ;;
         15) clear; exit 0 ;;
     esac
