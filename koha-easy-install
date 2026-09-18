@@ -407,12 +407,11 @@ funcao_instalar_koha() {
     caixa_explicacao "Configurando Apache e portas de rede..." "Configuring Apache and network ports..."
     
     # -------------------------------------------------------------
-    # CORREÇÃO: Forçando os parâmetros GLOBAIS antes do koha-create
+    # FORÇAR OS PARÂMETROS GLOBAIS DE PORTA E MEMCACHED ANTES
     # -------------------------------------------------------------
     sed -i 's/^INTRAPORT=.*/INTRAPORT="8080"/' /etc/koha/koha-sites.conf
     sed -i 's/^OPACPORT=.*/OPACPORT="80"/' /etc/koha/koha-sites.conf
     
-    # Adiciona ou corrige o Memcached global
     if grep -q "^MEMCACHED_SERVERS=" /etc/koha/koha-sites.conf; then
         sed -i 's/^MEMCACHED_SERVERS=.*/MEMCACHED_SERVERS="127.0.0.1:11211"/' /etc/koha/koha-sites.conf
     else
@@ -430,12 +429,8 @@ funcao_instalar_koha() {
     systemctl restart apache2 memcached koha-common
 
     # -------------------------------------------------------------
-    # Instala o idioma PRIMEIRO, para o koha-create encontrar os scripts sql
+    # REMOVE INSTALAÇÃO ANTERIOR (SE EXISTIR E CONFIRMADO)
     # -------------------------------------------------------------
-    koha-translate --install pt-BR || true
-
-    caixa_explicacao "Criando instância 'library' do Koha..." "Creating 'library' Koha instance..."
-
     KOHA_INSTANCIA_EXISTE=false
     if [ -d /etc/koha/sites/library ]; then
         KOHA_INSTANCIA_EXISTE=true
@@ -466,11 +461,17 @@ funcao_instalar_koha() {
     fi
 
     # -------------------------------------------------------------
-    # Agora sim, criamos o banco com os parâmetros do Memcached já resolvidos
+    # INSTALA O IDIOMA ANTES DA CRIAÇÃO DO BANCO PARA POVOAR CORRETAMENTE
     # -------------------------------------------------------------
-    koha-create --create-db library --request-db || true
+    caixa_explicacao "Instalando pacote de idioma pt-BR..." "Installing pt-BR language pack..."
+    koha-translate --install pt-BR || true
 
-    # Garantia dupla de substituição no XML específico (evita a quebra anterior)
+    # -------------------------------------------------------------
+    # CRIA O BANCO DE DADOS (SEM O --request-db)
+    # -------------------------------------------------------------
+    caixa_explicacao "Criando instância 'library' do Koha..." "Creating 'library' Koha instance..."
+    koha-create --create-db library || true
+
     sed -i 's/__MEMCACHED_SERVERS__/127.0.0.1:11211/g' /etc/koha/sites/library/koha-conf.xml 2>/dev/null || true
     sed -i 's/__MEMCACHED_PREFIX__/koha_library:/g' /etc/koha/sites/library/koha-conf.xml 2>/dev/null || true
 
@@ -478,7 +479,6 @@ funcao_instalar_koha() {
     a2ensite library
     systemctl restart apache2 memcached koha-common
 
-    # Inicia o Plack e força o upgrade do schema (povoa o banco se estiver vazio)
     koha-plack --enable library
     koha-plack --start library
     koha-upgrade-schema library || true
@@ -1239,17 +1239,60 @@ expect -re "(e/n/d/r/c/s/q>|n/s/q>)"
 send "q\r"
 EOF
 
+    echo -e "\e[1;36m----------------------------------------------------------------------\e[0m"
+    echo "Verificando conexao com a nuvem... / Checking cloud connection..."
+
     if rclone mkdir "gdrive:Backup_SQL_Koha" 2>/dev/null; then
         sed -i "s|[a-zA-Z0-9_-]\+:Backup_SQL_Koha|gdrive:Backup_SQL_Koha|g" /root/backup_sql.sh 2>/dev/null || true
         sed -i "s|RCLONE_REMOTE=\".*\"|RCLONE_REMOTE=\"gdrive\"|g" /root/backup_marc.sh 2>/dev/null || true
-        v_reset "validação Rclone"
-        validar_comando rclone "Rclone"
-        validar_arquivo "/root/.config/rclone/rclone.conf" "Rclone: configuração"
-        rclone lsd gdrive: >/dev/null 2>&1 && v_ok "Rclone: remoto gdrive acessível." || v_warn "Rclone: remoto gdrive não respondeu."
-        whiptail --title "Sucesso / Success" --msgbox "[POR] Google Drive ativado com sucesso!\nOs backups diários usarão essa pasta automaticamente.\n\n[EN] Google Drive linked successfully!" 10 76
+        STATUS_NUVEM="\e[1;32mGoogle Drive ativado! (Backups automáticos configurados)\e[0m"
     else
-        whiptail --title "Erro / Error" --msgbox "[POR] Não foi possível vincular a nuvem.\n\n[EN] Could not link cloud." 9 70
+        STATUS_NUVEM="\e[1;31mIgnorado ou Falhou.\e[0m (Para tentar novamente, use a Opção 8 do painel)"
     fi
+
+    clear
+    if validar_sistema_completo "instalação concluída"; then
+        VALIDACAO_FINAL_OK=true
+    else
+        VALIDACAO_FINAL_OK=false
+    fi
+
+    if [ "$VALIDACAO_FINAL_OK" = true ]; then
+        COR_FINAL="\e[1;32m"
+        MSG_FINAL_PT="INSTALAÇÃO CONCLUÍDA E VALIDADA COM SUCESSO!"
+        MSG_FINAL_EN="INSTALLATION COMPLETED AND VALIDATED SUCCESSFULLY!"
+    else
+        COR_FINAL="\e[1;33m"
+        MSG_FINAL_PT="INSTALAÇÃO CONCLUÍDA, MAS A VALIDAÇÃO ENCONTROU PROBLEMAS."
+        MSG_FINAL_EN="INSTALLATION COMPLETED, BUT VALIDATION FOUND PROBLEMS."
+    fi
+
+    echo -e "\n\n${COR_FINAL}======================================================================\e[0m"
+    echo -e "${COR_FINAL}  [POR] $MSG_FINAL_PT\e[0m"
+    echo -e "${COR_FINAL}  [EN]  $MSG_FINAL_EN\e[0m"
+    echo -e "${COR_FINAL}======================================================================\e[0m"
+    echo -e ""
+    echo -e "\e[1;36m  🌐 ACESSOS / WEB ACCESS URLS:\e[0m"
+    echo -e "  - Staff (Adm/Intranet):  \e[4;37mhttp://${IP_REAL}:8080\e[0m"
+    echo -e "  - OPAC (Public Catalog): \e[4;37mhttp://${IP_REAL}:80\e[0m"
+    echo -e ""
+    echo -e "\e[1;36m  🔑 PRIMEIRO ACESSO / INITIAL CREDENTIALS:\e[0m"
+    echo -e "  - Usuário / Username: \e[1;33m$DB_USER\e[0m"
+    echo -e "  - Senha / Password:   \e[1;33m$DB_PASS\e[0m"
+    echo -e ""
+    echo -e "\e[1;36m  ✅ VALIDAÇÃO / VALIDATION:\e[0m"
+    echo -e "  - OK: $V_OK | Avisos: $V_WARN | Erros: $V_FAIL"
+    echo -e "  - Relatório: $VALIDACAO_LOG"
+    echo -e ""
+    echo -e "\e[1;36m  ⚙️  PAINEL DE CONTROLE / CONTROL DASHBOARD:\e[0m"
+    echo -e "  Abra o painel a qualquer momento digitando: \e[1;35msudo options.sh\e[0m"
+    echo -e "  Open the dashboard anytime by typing:       \e[1;35msudo options.sh\e[0m"
+    echo -e ""
+    echo -e "\e[1;36m  ☁️  NUVEM / CLOUD BACKUP:\e[0m"
+    echo -e "  Status: $STATUS_NUVEM"
+    echo -e "\e[1;32m======================================================================\e[0m"
+    echo -e "\e[1;37mPressione [ENTER] para sair do instalador... / Press [ENTER] to exit...\e[0m"
+    read -r
 }
 
 # ======================================================================
