@@ -162,59 +162,39 @@ PYEOF
 }
 
 # ======================================================================
-# FUNÇÃO AUXILIAR: Gerenciar o indexador Elasticsearch do Koha
+# FUNÇÃO AUXILIAR: Gerenciar indexadores Elasticsearch Híbridos
 # ======================================================================
-# [POR] CAUSA DO BUG: no Koha moderno, as alterações do catálogo geram
-# jobs na fila "elastic_index". A fila genérica é processada por
-# background_jobs_worker.pl, mas a indexação Elasticsearch é consumida
-# pelo daemon específico es_indexer_daemon.pl, iniciado oficialmente por
-# "koha-es-indexer". O script antigo iniciava apenas "koha-worker", então
-# o rebuild inicial funcionava e os registros antigos apareciam, mas os
-# novos ficavam presos na fila e não chegavam ao índice.
-#
-# [EN] BUG CAUSE: in modern Koha, catalog changes create jobs in the
-# "elastic_index" queue. The generic queue is handled by
-# background_jobs_worker.pl, while Elasticsearch indexing is consumed by
-# the dedicated es_indexer_daemon.pl, started officially through
-# "koha-es-indexer". The old script started only "koha-worker", so the
-# initial rebuild worked and old records appeared, but new records stayed
-# queued and never reached the Elasticsearch index.
-koha_es_indexer_gerenciar() {
-    local ACAO="$1" # "start", "stop" ou "restart"
+koha_indexadores_gerenciar() {
+    local ACAO="$1" # "start" ou "stop"
 
-    if ! command -v koha-es-indexer >/dev/null 2>&1; then
-        return 1
+    if [ "$ACAO" = "start" ]; then
+        # Abordagem 1: O daemon de worker genérico (padrão atual)
+        koha-worker --start library 2>/dev/null || true
+        if systemctl list-unit-files 2>/dev/null | grep -q '^koha-worker@'; then
+            systemctl enable --now "koha-worker@library" 2>/dev/null || true
+        fi
+        
+        # Abordagem 2: O indexador específico (legado/suplementar)
+        if command -v koha-es-indexer >/dev/null 2>&1; then
+            koha-es-indexer --start library 2>/dev/null || true
+        fi
+    else
+        koha-worker --stop library 2>/dev/null || true
+        if systemctl list-unit-files 2>/dev/null | grep -q '^koha-worker@'; then
+            systemctl disable --now "koha-worker@library" 2>/dev/null || true
+        fi
+        
+        if command -v koha-es-indexer >/dev/null 2>&1; then
+            koha-es-indexer --stop library 2>/dev/null || true
+        fi
     fi
-
-    case "$ACAO" in
-        start)
-            koha-es-indexer --start --quiet library
-            ;;
-        stop)
-            koha-es-indexer --stop --quiet library || true
-            ;;
-        restart)
-            koha-es-indexer --restart --quiet library
-            ;;
-        *)
-            echo "Uso: koha_es_indexer_gerenciar {start|stop|restart}" >&2
-            return 2
-            ;;
-    esac
 }
 
-koha_es_indexer_esta_rodando() {
-    # O pacote do Koha fornece is_es_indexer_running(), que identifica o
-    # daemon oficial pelo nome/pidfile e pelo usuário da instância.
-    if [ -f /usr/share/koha/bin/koha-functions.sh ] && command -v daemon >/dev/null 2>&1; then
-        # shellcheck disable=SC1091
-        . /usr/share/koha/bin/koha-functions.sh
-        is_es_indexer_running library >/dev/null 2>&1 && return 0
-    fi
-
-    # Fallback para instalações onde a função acima não puder ser carregada.
-    pgrep -f 'es_indexer_daemon.*library' >/dev/null 2>&1 && return 0
-    pgrep -f 'library-koha-es-indexer' >/dev/null 2>&1 && return 0
+koha_indexador_esta_rodando() {
+    # Verifica se pelo menos UM dos dois motores de indexação está no ar
+    pgrep -f "background_jobs_worker.*library" >/dev/null 2>&1 && return 0
+    pgrep -f "es_indexer_daemon.*library" >/dev/null 2>&1 && return 0
+    systemctl is-active --quiet "koha-worker@library" 2>/dev/null && return 0
     return 1
 }
 
@@ -285,7 +265,7 @@ validar_mariadb(){
         return 0
     else
         v_warn "koha_library: $c tabelas (Aguardando conclusão do Web Installer no navegador)."
-        return 0 # Não falha a instalação se estiver zerado, pois depende do Web Installer!
+        return 0
     fi
 }
 obter_motor_busca(){ mysql -Nse "SELECT value FROM koha_library.systempreferences WHERE variable='SearchEngine' LIMIT 1;" 2>/dev/null || true; }
@@ -324,28 +304,10 @@ validar_elasticsearch(){
     if [ -n "$r" ]; then v_ok "Elasticsearch: API 9200 respondeu."; elif [ "$e" = "Elasticsearch" ]; then v_fail "Elasticsearch: API 9200 sem resposta."; else v_warn "Elasticsearch: API 9200 sem resposta."; fi
     if [ "$e" = "Elasticsearch" ]; then
         curl -sS --max-time 5 'http://127.0.0.1:9200/_cat/indices/koha_library_*?format=json' 2>/dev/null | grep -q koha_library_ && v_ok "Elasticsearch: índices Koha encontrados." || v_warn "Elasticsearch: índices Koha não confirmados."
-        if command -v koha-es-indexer >/dev/null 2>&1; then
-            v_ok "koha-es-indexer: comando oficial do indexador Elasticsearch disponível."
+        if koha_indexador_esta_rodando; then
+            v_ok "Indexador: daemon de background/es-indexer rodando (novos registros serão propagados)."
         else
-            v_fail "koha-es-indexer: comando oficial do indexador Elasticsearch ausente."
-        fi
-        if koha_es_indexer_esta_rodando; then
-            v_ok "koha-es-indexer: daemon de indexação está rodando; novos registros serão processados pela fila update_elastic_index."
-        else
-            v_fail "koha-es-indexer: daemon de indexação NÃO está rodando; novos registros podem permanecer na fila update_elastic_index e não aparecer na busca."
-        fi
-        if mysql -Nse "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='koha_library' AND table_name='background_jobs';" 2>/dev/null | grep -q '^1$'; then
-            local pendentes falhos
-            pendentes=$(mysql -Nse "SELECT COUNT(*) FROM koha_library.background_jobs WHERE queue='elastic_index' AND status IN ('new','started');" 2>/dev/null || echo 0)
-            falhos=$(mysql -Nse "SELECT COUNT(*) FROM koha_library.background_jobs WHERE queue='elastic_index' AND status='failed' AND ended_on > NOW() - INTERVAL 1 DAY;" 2>/dev/null || echo 0)
-            if [ "$pendentes" = "0" ]; then
-                v_ok "Elasticsearch: fila update_elastic_index sem jobs pendentes."
-            else
-                v_warn "Elasticsearch: $pendentes job(s) update_elastic_index pendente(s)."
-            fi
-            if [ "$falhos" != "0" ]; then
-                v_warn "Elasticsearch: $falhos job(s) update_elastic_index falharam nas últimas 24 horas."
-            fi
+            v_fail "Indexador: daemons de indexação (koha-worker/koha-es-indexer) NÃO estão rodando!"
         fi
     fi
 }
@@ -833,12 +795,12 @@ funcao_restaurar_banco() {
  [POR] DICAS DE TRANSFERÊNCIA (Como colocar o arquivo no servidor):
  - Pendrive/USB: Geralmente aparecem nas pastas /media ou /mnt
  - SCP (Terminal Linux/Mac/Win): Envie pela rede com o comando:
-   scp seu_backup.sql root@$(hostname -I | awk '{print $1}'):/var/backups/
+   scp seu_backup.sql root@$(hostname -I | awk '{print $1}'):$REAL_HOME/
 ======================================================================
 "
     whiptail --title "Origem do Arquivo / File Source" --msgbox "$TEXTO_DICA" 13 76
 
-    LOCAL_ARQUIVO=$(selecionar_arquivo "/var/backups")
+    LOCAL_ARQUIVO=$(selecionar_arquivo "$REAL_HOME")
     if [ -z "$LOCAL_ARQUIVO" ]; then return; fi
 
     if ! whiptail --title "Confirmar Restauração / Confirm Restore" --yesno "[POR] Arquivo selecionado:\n$LOCAL_ARQUIVO\n\nATENÇÃO: O acervo atual será totalmente substituído pelo backup.\nDeseja continuar?\n\n[EN] Selected file:\n$LOCAL_ARQUIVO\n\nWARNING: Current catalog will be replaced by the backup.\nDo you want to proceed?" 14 74; then
@@ -874,12 +836,7 @@ funcao_restaurar_banco() {
         curl -s -X DELETE 'localhost:9200/koha_library_biblios' >/dev/null 2>&1 || true
         curl -s -X DELETE 'localhost:9200/koha_library_authorities' >/dev/null 2>&1 || true
         koha-elasticsearch --rebuild -d library
-        if ! koha_es_indexer_esta_rodando; then
-            if ! koha_es_indexer_gerenciar start; then
-                whiptail --title "Erro / Error" --msgbox "[POR] O indexador oficial do Elasticsearch (koha-es-indexer) não pôde ser iniciado.\n\n[EN] The official Elasticsearch indexer (koha-es-indexer) could not be started." 10 72
-                return
-            fi
-        fi
+        koha_indexadores_gerenciar start
     else
         systemctl enable --now koha-zebra-daemon@library 2>/dev/null || true
         koha-zebra --start library 2>/dev/null || true
@@ -899,15 +856,16 @@ funcao_backup_manual() {
 ======================================================================
  [POR] DICAS DE ONDE SALVAR (Destino do arquivo):
  - Pendrive/USB: Navegue até as pastas /media ou /mnt
- - Para puxar via SCP depois: Salve em /var/backups e use o comando:
-   scp root@$(hostname -I | awk '{print $1}'):/var/backups/koha_library... .
+ - Para puxar via SCP depois: Salve na sua pasta padrão e use:
+   scp root@$(hostname -I | awk '{print $1}'):$REAL_HOME/koha_library... .
 ======================================================================
 "
     whiptail --title "Destino do Backup / Backup Destination" --msgbox "$TEXTO_DICA" 13 76
 
-    DIR_DESTINO=$(selecionar_diretorio "/var/backups")
+    DIR_DESTINO=$(selecionar_diretorio "$REAL_HOME")
     if [ -z "$DIR_DESTINO" ]; then return; fi
 
+    # AQUI ESTÁ A DATA INCLUÍDA NO NOME DO BACKUP MANUAL
     DATA_ATUAL=$(date +%Y-%m-%d_%Hh%M)
     ARQUIVO_DESTINO="$DIR_DESTINO/koha_library_manual_$DATA_ATUAL.sql.gz"
 
@@ -1066,8 +1024,8 @@ funcao_alternar_motor_busca() {
     if [ "$MOTOR_ATUAL" = "Elasticsearch" ]; then
         if whiptail --title "Motor de Busca / Search Engine" --yesno "[POR] Motor atual: ELASTICSEARCH.\nDeseja voltar para o ZEBRA (Economiza ~1.5GB de RAM)?\n\n[EN] Current engine: ELASTICSEARCH.\nSwitch back to ZEBRA (Saves ~1.5GB RAM)?" 11 72; then
             clear
-            caixa_explicacao "Parando o indexador Elasticsearch e o Elasticsearch..." "Stopping the Elasticsearch indexer and Elasticsearch..."
-            koha_es_indexer_gerenciar stop || true
+            caixa_explicacao "Parando os indexadores do Elasticsearch..." "Stopping the Elasticsearch indexers..."
+            koha_indexadores_gerenciar stop || true
             systemctl stop elasticsearch 2>/dev/null || true
             systemctl disable elasticsearch 2>/dev/null || true
 
@@ -1157,32 +1115,22 @@ JVMEOF
             curl -s -X DELETE 'localhost:9200/koha_library_authorities' >/dev/null 2>&1 || true
             systemctl restart koha-common
 
-            # O koha-worker é o worker genérico. A fila update_elastic_index
-            # é processada pelo koha-es-indexer / es_indexer_daemon.pl.
             caixa_explicacao "Reindexando acervo para o Elasticsearch..." "Reindexing catalog into Elasticsearch..."
             if ! koha-elasticsearch --rebuild -d library; then
                 whiptail --title "Erro / Error" --msgbox "[POR] A reindexação falhou. O Elasticsearch será mantido ativo, mas o catálogo não está sincronizado.\n\nRode depois: koha-elasticsearch --rebuild -d library\n\n[EN] Reindexing failed. Elasticsearch will remain active, but the catalog is not synchronized.\n\nRun later: koha-elasticsearch --rebuild -d library" 12 78
-                return
             fi
 
-            caixa_explicacao "Ativando koha-es-indexer (fila update_elastic_index)..." "Starting koha-es-indexer (update_elastic_index queue)..."
-            # koha-common normalmente inicia o indexador automaticamente quando
-            # SearchEngine=Elasticsearch, mas fazemos uma checagem explícita.
-            if ! koha_es_indexer_esta_rodando; then
-                if ! koha_es_indexer_gerenciar start; then
-                    whiptail --title "Erro / Error" --msgbox "[POR] O comando koha-es-indexer não conseguiu iniciar.\n\nSem esse daemon, registros novos ou editados poderão ficar presos na fila update_elastic_index e não aparecer na busca.\n\n[EN] koha-es-indexer could not be started.\n\nWithout this daemon, new or edited records may remain queued in update_elastic_index and not appear in search." 14 78
-                    return
-                fi
-            fi
+            caixa_explicacao "Ativando indexadores híbridos do Koha (fila de indexação)..." "Starting Koha hybrid indexers (indexing queue)..."
+            koha_indexadores_gerenciar start
 
             koha-plack --restart library
 
-            if koha_es_indexer_esta_rodando; then
-                MSG_INDEXER_PT="koha-es-indexer está ativo: registros catalogados ou editados a partir de agora serão processados automaticamente pela fila update_elastic_index."
-                MSG_INDEXER_EN="koha-es-indexer is active: newly catalogued or edited records will be processed automatically through the update_elastic_index queue."
+            if koha_indexador_esta_rodando; then
+                MSG_INDEXER_PT="Indexadores ativados: registros catalogados ou editados agora serão propagados automaticamente para o índice do Elasticsearch."
+                MSG_INDEXER_EN="Indexers are active: newly catalogued or edited records will be propagated automatically to the Elasticsearch index."
             else
-                MSG_INDEXER_PT="ATENÇÃO: koha-es-indexer não foi confirmado rodando. Verifique: koha-es-indexer --start library e os logs do daemon."
-                MSG_INDEXER_EN="WARNING: koha-es-indexer could not be confirmed running. Check: koha-es-indexer --start library and the daemon logs."
+                MSG_INDEXER_PT="ATENÇÃO: Nenhum indexador de retaguarda foi confirmado rodando. Registros novos podem não aparecer na busca."
+                MSG_INDEXER_EN="WARNING: No background indexer could be confirmed running. New records might not appear in search."
             fi
 
             validar_sistema_completo "ativação do Elasticsearch" || true
@@ -1705,9 +1653,9 @@ funcao_atualizar_sistema() {
     koha-upgrade-schema library || true
     systemctl restart memcached apache2 koha-common mariadb
     koha-plack --restart library
-    if [ "$(obter_motor_busca)" = "Elasticsearch" ] && command -v koha-es-indexer >/dev/null 2>&1; then
-        if ! koha_es_indexer_esta_rodando; then
-            koha_es_indexer_gerenciar start || true
+    if [ "$(obter_motor_busca)" = "Elasticsearch" ]; then
+        if ! koha_indexador_esta_rodando; then
+            koha_indexadores_gerenciar start || true
         fi
     fi
     
@@ -1791,9 +1739,9 @@ while true; do
             S_ES=$(systemctl is-active elasticsearch 2>/dev/null || echo "não instalado/inactive")
             S_CLD=$(systemctl is-active cloudflared 2>/dev/null || echo "não instalado/uninstalled")
             S_CRO=$(systemctl is-active cron 2>/dev/null || echo "inativo/inactive")
-            if koha_es_indexer_esta_rodando; then S_ESI="ativo/active"; else S_ESI="inativo/inactive"; fi
+            if koha_indexador_esta_rodando; then S_IDX="ativo/active"; else S_IDX="inativo/inactive"; fi
             MOTOR=$(obter_motor_busca)
-            whiptail --title "Status Detalhado / Detailed Status" --msgbox "Apache:           $S_APA\nMariaDB:          $S_MAR\nMemcached:        $S_MEM\nKoha common:      $S_KOH\nPlack:            $S_PLK\nZebra:            $S_ZEB\nElasticsearch:    $S_ES\nES indexer:       $S_ESI\nCloudflare:       $S_CLD\nCron:             $S_CRO\nMotor Koha:       ${MOTOR:-não detectado}" 18 80
+            whiptail --title "Status Detalhado / Detailed Status" --msgbox "Apache:       $S_APA\nMariaDB:      $S_MAR\nMemcached:    $S_MEM\nKoha common:  $S_KOH\nPlack:        $S_PLK\nZebra:        $S_ZEB\nElasticsearch:$S_ES\nIndexador ES: $S_IDX\nCloudflare:   $S_CLD\nCron:         $S_CRO\nMotor Koha:   ${MOTOR:-não detectado}" 18 80
             ;;
         20) clear; exit 0 ;;
     esac
