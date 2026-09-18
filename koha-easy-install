@@ -304,14 +304,15 @@ validar_cron(){
     grep -q 'koha-plack --restart library' "$f" 2>/dev/null && v_ok "Cron: reinício diário do Plack presente." || v_warn "Cron: reinício do Plack não encontrado."
     grep -q 'overdue_notices.pl' "$f" 2>/dev/null && v_ok "Cron: avisos de atraso presentes." || v_warn "Cron: avisos de atraso não configurados."
     grep -q 'process_message_queue.pl' "$f" 2>/dev/null && v_ok "Cron: fila de mensagens presente." || v_warn "Cron: fila de mensagens não configurada."
+    grep -q 'cleanup_database.pl' "$f" 2>/dev/null && v_ok "Cron: limpeza de banco de dados presente." || v_warn "Cron: limpeza de banco de dados não configurada."
     systemctl is-active --quiet cron && v_ok "Cron: serviço ativo." || v_fail "Cron: serviço inativo."
 }
 validar_ufw(){
     command -v ufw >/dev/null 2>&1 || { v_fail "UFW: comando ausente."; return 1; }
     ufw status 2>/dev/null | grep -q '^Status: active' && v_ok "UFW: firewall ativo." || v_fail "UFW: firewall inativo."
     local p
-    for p in 22 80 443 8080 587 53682; do
-        ufw status 2>/dev/null | grep -Eq "${p}/tcp|${p}" && v_ok "UFW: regra TCP $p encontrada." || v_warn "UFW: regra TCP $p não confirmada."
+    for p in 22 80 443 8080 587 2100 6001 53682; do
+        ufw status 2>/dev/null | grep -Eq "${p}/tcp|${p}" && v_ok "UFW: regra TCP $p encontrada." || v_warn "UFW: regra TCP $p não confirmada (Serviço opcional)."
     done
 }
 validar_rede_e_sistema(){
@@ -628,6 +629,10 @@ EOF
 
 # 5. [EN] WEEKLY MARC21 & AUTHORITIES BACKUP (Runs every Sunday at 03:00)
 0 3 * * 0 root /bin/bash /root/backup_marc.sh >/dev/null 2>&1
+
+# 6. [EN] DAILY DATABASE CLEANUP (Runs daily at 01:30)
+#    [POR] LIMPEZA DE BANCO DE DADOS (Diariamente às 01:30)
+30 1 * * * root koha-shell library -c "/usr/share/koha/bin/cronjobs/cleanup_database.pl --sessions --zebraqueue 10" >/dev/null 2>&1
 EOF
     chmod 644 /etc/cron.d/koha_tasks
     systemctl restart cron
@@ -1287,12 +1292,12 @@ funcao_configurar_emails() {
     cat << 'EOF' >> "$CRON_FILE"
 
 # BEGIN KOHA EMAIL NOTICES
-# 6. [EN] EMAIL CRONJOB: Overdue notices (Daily at 08:00)
+# 7. [EN] EMAIL CRONJOB: Overdue notices (Daily at 08:00)
 #    [POR] CRONJOB DE E-MAIL: Avisos de atraso (Diariamente às 08:00)
 #    --triggered (-t) usa os gatilhos configurados no Koha.
 00 08 * * * root koha-shell library -c "/usr/share/koha/bin/cronjobs/overdue_notices.pl -v -t" >/dev/null 2>&1
 
-# 7. [EN] EMAIL CRONJOB: Process message queue (Daily at 08:05)
+# 8. [EN] EMAIL CRONJOB: Process message queue (Daily at 08:05)
 #    [POR] CRONJOB DE E-MAIL: Processar fila de envio (Diariamente às 08:05)
 05 08 * * * root koha-shell library -c "/usr/share/koha/bin/cronjobs/process_message_queue.pl -v" >/dev/null 2>&1
 # END KOHA EMAIL NOTICES
@@ -1397,7 +1402,6 @@ ou precise de uma conta mestre de emergência.
 
     caixa_explicacao "Gerando hash seguro da senha e cadastrando no banco..." "Hashing password and creating user..."
     
-    # Usa o proprio Perl do Koha para gerar o hash bcrypt com o Salt correto
     cat << 'EOF' > /tmp/hash_pass.pl
 use strict;
 use warnings;
@@ -1468,7 +1472,156 @@ Feche esta janela para colar o Token!
 }
 
 # ======================================================================
-# 13. ATUALIZAR SISTEMA / SYSTEM & DATABASE UPDATE
+# 13. CERTIFICADO SSL GRÁTIS / LET'S ENCRYPT SSL
+# ======================================================================
+funcao_configurar_ssl() {
+    whiptail --title "Let's Encrypt SSL" --msgbox "[POR] ATENÇÃO: Para gerar o SSL gratuito, você PRECISA ter um domínio configurado (Tipo A) apontando para o IP público deste servidor.\n\nSe você usa uma rede local (localhost) ou o Cloudflare Tunnel, CANCELE esta operação agora (o Cloudflare já provê o SSL automaticamente).\n\n[EN] WARNING: To generate free SSL, you MUST have a domain (A Record) pointing to this server's public IP.\nIf using localhost or Cloudflare Tunnel, CANCEL this operation." 15 78
+    if ! whiptail --title "Continuar? / Continue?" --yesno "[POR] Deseja instalar o Certbot e ativar o HTTPS agora?\n[EN] Install Certbot and enable HTTPS now?" 10 60; then return; fi
+    
+    clear
+    caixa_explicacao "Instalando Certbot..." "Installing Certbot..."
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y certbot python3-certbot-apache
+    
+    caixa_explicacao "Iniciando assistente do Let's Encrypt..." "Starting Let's Encrypt wizard..."
+    certbot --apache
+    
+    whiptail --title "Certbot" --msgbox "[POR] Se o processo foi bem sucedido, o HTTPS já está ativo. O certificado será renovado automaticamente.\n\n[EN] If successful, HTTPS is active and will auto-renew." 10 70
+}
+
+# ======================================================================
+# 14. INTEROPERABILIDADE SIP2 E Z39.50 / ENABLE SIP2 & Z39.50
+# ======================================================================
+funcao_interoperabilidade() {
+    TEXTO_INTER="
+======================================================================
+ [POR] ATIVAR INTEROPERABILIDADE (SIP2 & Z39.50)
+ [EN]  ENABLE INTEROPERABILITY (SIP2 & Z39.50)
+======================================================================
+Esta opção irá abrir as portas no Firewall (UFW) e ligar os daemons:
+ - Z39.50 (Porta 2100): Permite que outras bibliotecas busquem livros.
+ - SIP2 (Porta 6001): Permite ligar tótens de autoatendimento.
+
+Atenção: O SIP2 exige que você crie uma conta com permissões de
+circulação no Koha e preencha o arquivo SIPconfig.xml depois.
+======================================================================
+"
+    if ! whiptail --title "SIP2 & Z39.50" --yesno "$TEXTO_INTER\n\nDeseja ativar os serviços e abrir as portas?" 18 78; then return; fi
+    
+    clear
+    caixa_explicacao "Abrindo portas no Firewall (2100 e 6001)..." "Opening UFW ports..."
+    ufw allow 2100/tcp >/dev/null 2>&1
+    ufw allow 6001/tcp >/dev/null 2>&1
+    
+    caixa_explicacao "Ativando daemon Z39.50/SRU..." "Enabling Z39.50/SRU daemon..."
+    koha-z3950-responder --enable library 2>/dev/null || true
+    systemctl start koha-z3950-responder@library 2>/dev/null || true
+    systemctl enable koha-z3950-responder@library 2>/dev/null || true
+
+    caixa_explicacao "Ativando daemon SIP2..." "Enabling SIP2 daemon..."
+    koha-sip --enable library 2>/dev/null || true
+    systemctl start koha-sip-daemon@library 2>/dev/null || true
+    systemctl enable koha-sip-daemon@library 2>/dev/null || true
+    
+    whiptail --title "Sucesso / Success" --msgbox "[POR] Serviços ativados com sucesso!\nPortas 2100 (Z39.50) e 6001 (SIP2) estão abertas.\n\nLembre-se de configurar o /etc/koha/sites/library/SIPconfig.xml para o autoatendimento.\n\n[EN] Services enabled successfully!" 12 78
+}
+
+# ======================================================================
+# 15. CONFIGURAR RELÓGIO E FUSO HORÁRIO / CONFIGURE TIMEZONE
+# ======================================================================
+funcao_configurar_relogio() {
+    clear
+    caixa_explicacao "Abrindo painel do Fuso Horário (Timezone)..." "Opening Timezone configuration..."
+    dpkg-reconfigure tzdata
+    systemctl restart cron
+    whiptail --title "Sucesso / Success" --msgbox "[POR] Relógio e fuso horário atualizados com sucesso!\nO serviço do Cron foi reiniciado para aplicar a nova hora aos backups diários.\n\n[EN] Clock and timezone updated successfully!\nCron service restarted to apply the new time to daily backups." 10 74
+}
+
+# ======================================================================
+# 16. CENTRAL DE SEGURANÇA / SECURITY CENTER
+# ======================================================================
+funcao_central_seguranca() {
+    while true; do
+        SEC_OPCAO=$(whiptail --title "Central de Segurança / Security Center" \
+        --menu "[POR] Escolha uma ação de segurança:\n[EN] Choose a security action:" 20 84 5 \
+        "1" "Status de Ameaças (Fail2ban) / Threat Status" \
+        "2" "Gerenciar Firewall Staff (Porta 8080) / Manage Staff Firewall" \
+        "3" "Rotacionar Senha do Banco / Rotate Database Password" \
+        "4" "Voltar ao Menu Principal / Back to Main Menu" 3>&1 1>&2 2>&3) || return
+
+        [ -z "$SEC_OPCAO" ] && return
+
+        case $SEC_OPCAO in
+            1)
+                clear
+                caixa_explicacao "Consultando Fail2ban..." "Querying Fail2ban..."
+                F2B_SSH=$(fail2ban-client status sshd 2>/dev/null || echo "sshd jail inativo")
+                F2B_APA=$(fail2ban-client status apache-auth 2>/dev/null || echo "apache-auth jail inativo")
+                whiptail --title "Fail2ban Status" --msgbox "=== SSHD (Acesso Terminal) ===\n$F2B_SSH\n\n=== APACHE (Acesso Web) ===\n$F2B_APA" 24 80 --scrolltext
+                ;;
+            2)
+                TEXTO_FW="
+======================================================================
+ [POR] AVISO SOBRE AS PORTAS PRINCIPAIS:
+ - Porta 80 (OPAC): Catálogo Público. Deve ficar ABERTA para o mundo.
+ - Porta 8080 (Staff): Painel Administrativo. Pode ser BLOQUEADA
+   externamente se você usa Cloudflare Tunnel ou rede local.
+
+ Deseja BLOQUEAR a porta 8080 para acesso externo direto (IP público)
+ e permitir apenas acesso local/Cloudflare?
+======================================================================
+"
+                if whiptail --title "Firewall Staff (8080)" --yesno "$TEXTO_FW" 18 78; then
+                    ufw deny 8080/tcp >/dev/null 2>&1 || true
+                    ufw allow from 127.0.0.1 to any port 8080 >/dev/null 2>&1 || true
+                    whiptail --title "Firewall" --msgbox "[POR] Porta 8080 BLOQUEADA para acessos externos diretos.\n[EN] Port 8080 BLOCKED for direct external access." 8 68
+                else
+                    if whiptail --title "Firewall Staff (8080)" --yesno "[POR] Deseja ABRIR a porta 8080 para o mundo?\n[EN] Allow port 8080 to the world?" 8 60; then
+                        ufw delete deny 8080/tcp >/dev/null 2>&1 || true
+                        ufw allow 8080/tcp >/dev/null 2>&1 || true
+                        whiptail --title "Firewall" --msgbox "[POR] Porta 8080 ABERTA.\n[EN] Port 8080 OPENED." 8 60
+                    fi
+                fi
+                ;;
+            3)
+                if whiptail --title "Senha do Banco / DB Password" --yesno "[POR] ATENÇÃO: Isso irá gerar uma nova senha forte para o banco de dados 'koha_library', atualizar os arquivos de configuração (koha-conf.xml, backups) e reiniciar os serviços.\n\nDeseja continuar?\n\n[EN] WARNING: This will generate a new strong password, update config files, and restart services.\nContinue?" 15 78; then
+                    clear
+                    caixa_explicacao "Rotacionando senha do MariaDB..." "Rotating MariaDB password..."
+                    
+                    NOVA_SENHA=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 20)
+                    ARQUIVO_CONF="/etc/koha/sites/library/koha-conf.xml"
+                    
+                    if [ -f "$ARQUIVO_CONF" ]; then
+                        # Atualiza no MariaDB
+                        mysql -e "ALTER USER 'koha_library'@'localhost' IDENTIFIED BY '$NOVA_SENHA'; FLUSH PRIVILEGES;" 2>/dev/null || true
+                        
+                        # Atualiza no koha-conf.xml (substitui todas as tags <pass>)
+                        sed -i "s|<pass>[^<]*</pass>|<pass>$NOVA_SENHA</pass>|g" "$ARQUIVO_CONF"
+                        
+                        # Atualiza no backup_sql.sh
+                        sed -i "s|MYSQL_PWD='[^']*'|MYSQL_PWD='$NOVA_SENHA'|g" /root/backup_sql.sh 2>/dev/null || true
+                        
+                        # Atualiza credenciais
+                        sed -i "s|Setup Password:.*|Setup Password: $NOVA_SENHA|g" /root/credenciais_koha.txt 2>/dev/null || true
+
+                        systemctl restart memcached apache2 koha-common mariadb
+                        koha-plack --restart library
+                        
+                        whiptail --title "Sucesso / Success" --msgbox "[POR] Senha rotacionada com sucesso!\n\nNova Senha: $NOVA_SENHA\n\nTodos os arquivos de configuração e de backup foram atualizados automaticamente.\n\n[EN] Password rotated successfully!" 14 74
+                    else
+                        whiptail --title "Erro / Error" --msgbox "[POR] Instalação do Koha não encontrada.\n[EN] Koha installation not found." 8 60
+                    fi
+                fi
+                ;;
+            4)
+                return
+                ;;
+        esac
+    done
+}
+
+# ======================================================================
+# 17. ATUALIZAR SISTEMA / SYSTEM & DATABASE UPDATE
 # ======================================================================
 funcao_atualizar_sistema() {
     whiptail --title "Atualização / Update" --msgbox "[POR] Baixando atualizações do Ubuntu e do Koha.\n[EN] Downloading Ubuntu and Koha system updates." 8 65
@@ -1500,7 +1653,7 @@ funcao_atualizar_sistema() {
 while true; do
     OPCAO=""
     OPCAO=$(whiptail --title "Koha Easy Install - Control Dashboard" \
-    --menu "[POR] Escolha uma opção / [EN] Choose an option:" 24 94 16 \
+    --menu "[POR] Escolha uma opção / [EN] Choose an option:" 25 96 20 \
     "1"  "Instalar Servidor Koha / Install Koha Server (Zebra Default)" \
     "2"  "Ver Credenciais de Acesso / View Stored Credentials" \
     "3"  "Restaurar Acervo Local / Restore Database (File Explorer)" \
@@ -1513,10 +1666,14 @@ while true; do
     "10" "Configurar E-mails e Avisos / Setup SMTP Email Notices" \
     "11" "Criar Superbibliotecário / Create Super Librarian" \
     "12" "Acesso Externo Seguro / Setup Cloudflare Tunnel" \
-    "13" "Atualizar Sistema e Schemas / Update System & Schemas" \
-    "14" "VALIDAR SISTEMA COMPLETO / FULL SYSTEM VALIDATION" \
-    "15" "Status Detalhado dos Serviços / Detailed Services Status" \
-    "16" "Sair / Exit" 3>&1 1>&2 2>&3) || { clear; exit 0; }
+    "13" "Certificado SSL Gratuito / Setup Let's Encrypt SSL" \
+    "14" "Ativar Interoperabilidade / Enable SIP2 & Z39.50" \
+    "15" "Configurar Relógio e Fuso Horário / Configure Timezone" \
+    "16" "Central de Segurança / Security Center" \
+    "17" "Atualizar Sistema e Schemas / Update System & Schemas" \
+    "18" "VALIDAR SISTEMA COMPLETO / FULL SYSTEM VALIDATION" \
+    "19" "Status Detalhado dos Serviços / Detailed Services Status" \
+    "20" "Sair / Exit" 3>&1 1>&2 2>&3) || { clear; exit 0; }
 
     [ -z "$OPCAO" ] && { clear; exit 0; }
 
@@ -1533,8 +1690,12 @@ while true; do
         10) funcao_configurar_emails ;;
         11) funcao_criar_superbibliotecario ;;
         12) funcao_configurar_cloudflare ;;
-        13) funcao_atualizar_sistema ;;
-        14)
+        13) funcao_configurar_ssl ;;
+        14) funcao_interoperabilidade ;;
+        15) funcao_configurar_relogio ;;
+        16) funcao_central_seguranca ;;
+        17) funcao_atualizar_sistema ;;
+        18)
             clear
             if validar_sistema_completo "validação manual"; then
                 whiptail --title "Validação OK / Validation OK" --msgbox "[POR] Validação concluída sem erros críticos.\n\nOK: $V_OK\nAvisos: $V_WARN\nErros: $V_FAIL\n\nLog: $VALIDACAO_LOG" 12 74
@@ -1543,7 +1704,7 @@ while true; do
             fi
             mostrar_validacao
             ;;
-        15)
+        19)
             S_APA=$(systemctl is-active apache2 2>/dev/null || echo "inativo/inactive")
             S_MAR=$(systemctl is-active mariadb 2>/dev/null || echo "inativo/inactive")
             S_MEM=$(systemctl is-active memcached 2>/dev/null || echo "inativo/inactive")
@@ -1557,7 +1718,7 @@ while true; do
             MOTOR=$(obter_motor_busca)
             whiptail --title "Status Detalhado / Detailed Status" --msgbox "Apache:       $S_APA\nMariaDB:      $S_MAR\nMemcached:    $S_MEM\nKoha common:  $S_KOH\nPlack:        $S_PLK\nZebra:        $S_ZEB\nElasticsearch:$S_ES\nkoha-es-indexer: $S_IDX\nCloudflare:   $S_CLD\nCron:         $S_CRO\nMotor Koha:   ${MOTOR:-não detectado}" 17 78
             ;;
-        16) clear; exit 0 ;;
+        20) clear; exit 0 ;;
     esac
     OPCAO=""
 done
