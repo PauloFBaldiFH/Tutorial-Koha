@@ -110,7 +110,7 @@ selecionar_diretorio() {
 }
 
 # ======================================================================
-# FUNÇÃO: AGUARDAR E LIBERAR TRAVAS DO APT / WAIT FOR APT LOCKS (BLINDADO)
+# FUNÇÃO: AGUARDAR E LIBERAR TRAVAS DO APT / WAIT FOR APT LOCKS
 # ======================================================================
 aguardar_travas_apt() {
     caixa_explicacao "Verificando travas do APT/DPKG e bloqueando atualizacoes ocultas..." "Checking APT/DPKG locks and blocking hidden background updates..."
@@ -491,6 +491,7 @@ funcao_instalar_koha() {
 
     caixa_explicacao "Ativando o motor de busca Zebra (padrão)..." "Enabling the Zebra search engine (default)..."
     koha-zebra --enable library 2>/dev/null || true
+    koha-rebuild-zebra -f -v -b -a library 2>/dev/null || true
     koha-zebra --start library 2>/dev/null || true
     systemctl enable --now koha-zebra-daemon@library 2>/dev/null || true
 
@@ -942,11 +943,12 @@ funcao_alternar_motor_busca() {
     if [ "$MOTOR_ATUAL" == "Elasticsearch" ]; then
         if whiptail --title "Motor de Busca / Search Engine" --yesno "[POR] Motor atual: ELASTICSEARCH.\nDeseja voltar para o ZEBRA (Economiza ~1.5GB de RAM)?\n\n[EN] Current engine: ELASTICSEARCH.\nSwitch back to ZEBRA (Saves ~1.5GB RAM)?" 11 72; then
             clear
-            caixa_explicacao "Desativando Elasticsearch e koha-indexer..." "Disabling Elasticsearch and koha-indexer..."
+            caixa_explicacao "Desativando Elasticsearch e koha-es-indexer..." "Disabling Elasticsearch and koha-es-indexer..."
             systemctl stop elasticsearch 2>/dev/null || true
             systemctl disable elasticsearch 2>/dev/null || true
-            systemctl stop koha-indexer 2>/dev/null || true
-            systemctl disable koha-indexer 2>/dev/null || true
+            systemctl stop koha-es-indexer@library 2>/dev/null || true
+            systemctl disable koha-es-indexer@library 2>/dev/null || true
+            koha-es-indexer --stop library 2>/dev/null || true
 
             caixa_explicacao "Removendo bloco <elasticsearch> do koha-conf.xml..." "Removing <elasticsearch> block from koha-conf.xml..."
             if ! xml_set_elasticsearch remover; then
@@ -1034,9 +1036,9 @@ JVMEOF
             curl -s -X DELETE 'localhost:9200/koha_library_authorities' >/dev/null 2>&1 || true
             systemctl restart koha-common
 
-            caixa_explicacao "Ativando Indexador em Tempo Real (koha-indexer)..." "Enabling Real-Time Indexer..."
-            systemctl enable --now koha-indexer 2>/dev/null || true
-            koha-indexer --start library 2>/dev/null || true
+            caixa_explicacao "Ativando Indexador em Tempo Real (koha-es-indexer)..." "Enabling Real-Time Indexer..."
+            koha-es-indexer --start library 2>/dev/null || true
+            systemctl enable --now koha-es-indexer@library 2>/dev/null || true
 
             caixa_explicacao "Reindexando acervo para a nuvem do Elasticsearch..." "Reindexing catalog..."
             if ! koha-elasticsearch --rebuild -d library; then
@@ -1045,7 +1047,7 @@ JVMEOF
 
             koha-plack --restart library
             validar_sistema_completo "ativação do Elasticsearch" || true
-            whiptail --title "Sucesso / Success" --msgbox "[POR] Sistema operando com ELASTICSEARCH!\nDaemon koha-indexer está ativo garantindo sincronização em tempo real via RabbitMQ.\n\n[EN] System is now running on ELASTICSEARCH!\nkoha-indexer daemon is active ensuring real-time syncing via RabbitMQ." 10 75
+            whiptail --title "Sucesso / Success" --msgbox "[POR] Sistema operando com ELASTICSEARCH!\nDaemon koha-es-indexer está ativo garantindo sincronização em tempo real via RabbitMQ.\n\n[EN] System is now running on ELASTICSEARCH!\nkoha-es-indexer daemon is active ensuring real-time syncing via RabbitMQ." 10 75
         fi
     fi
 }
@@ -1419,9 +1421,9 @@ while true; do
             S_ES=$(systemctl is-active elasticsearch 2>/dev/null || echo "não instalado/inactive")
             S_CLD=$(systemctl is-active cloudflared 2>/dev/null || echo "não instalado/uninstalled")
             S_CRO=$(systemctl is-active cron 2>/dev/null || echo "inativo/inactive")
-            S_IDX=$(systemctl is-active koha-indexer 2>/dev/null || echo "inativo/inactive")
+            S_IDX=$(systemctl is-active koha-es-indexer@library 2>/dev/null || echo "inativo/inactive")
             MOTOR=$(obter_motor_busca)
-            whiptail --title "Status Detalhado / Detailed Status" --msgbox "Apache:       $S_APA\nMariaDB:      $S_MAR\nMemcached:    $S_MEM\nKoha common:  $S_KOH\nPlack:        $S_PLK\nZebra:        $S_ZEB\nElasticsearch:$S_ES\nkoha-indexer: $S_IDX\nCloudflare:   $S_CLD\nCron:         $S_CRO\nMotor Koha:   ${MOTOR:-não detectado}" 17 78
+            whiptail --title "Status Detalhado / Detailed Status" --msgbox "Apache:       $S_APA\nMariaDB:      $S_MAR\nMemcached:    $S_MEM\nKoha common:  $S_KOH\nPlack:        $S_PLK\nZebra:        $S_ZEB\nElasticsearch:$S_ES\nkoha-es-indexer:$S_IDX\nCloudflare:   $S_CLD\nCron:         $S_CRO\nMotor Koha:   ${MOTOR:-não detectado}" 17 78
             ;;
         15) clear; exit 0 ;;
     esac
