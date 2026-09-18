@@ -45,11 +45,11 @@ caixa_explicacao() {
 # EXPLORADOR DE ARQUIVOS NATIVO / NATIVE FILE EXPLORER (TUI)
 # ======================================================================
 selecionar_arquivo() {
-    local atual="${1:-$REAL_HOME}"
+    local atual="${1:-/}"
     while true; do
         local itens=()
         if [ "$atual" != "/" ]; then
-            itens+=(".." "[Diretório Acima / Up]")
+            itens+=(".." "[Voltar para o diretorio anterior / Back]")
         fi
         
         while IFS= read -r d; do
@@ -82,11 +82,11 @@ selecionar_arquivo() {
 }
 
 selecionar_diretorio() {
-    local atual="${1:-$REAL_HOME}"
+    local atual="${1:-/}"
     while true; do
         local dirs=( ">>> SALVAR NESTA PASTA <<<" "Save in: $atual" )
         if [ "$atual" != "/" ]; then
-            dirs+=( ".." "[Diretório Acima / Up]" )
+            dirs+=( ".." "[Voltar para o diretorio anterior / Back]" )
         fi
         
         while IFS= read -r d; do
@@ -110,7 +110,7 @@ selecionar_diretorio() {
 }
 
 # ======================================================================
-# FUNÇÃO: AGUARDAR E LIBERAR TRAVAS DO APT / WAIT FOR APT LOCKS (BLINDADO)
+# FUNÇÃO: AGUARDAR E LIBERAR TRAVAS DO APT / WAIT FOR APT LOCKS
 # ======================================================================
 aguardar_travas_apt() {
     caixa_explicacao "Verificando travas do APT/DPKG e bloqueando atualizacoes ocultas..." "Checking APT/DPKG locks and blocking hidden background updates..."
@@ -164,25 +164,8 @@ PYEOF
 # ======================================================================
 # FUNÇÃO AUXILIAR: Gerenciar o koha-es-indexer (indexador em tempo real)
 # ======================================================================
-# [POR] IMPORTANTE: o Koha moderno (pacotes atuais) usa um sistema de
-# "background jobs" para propagar mudancas do banco pro Elasticsearch em
-# tempo real. O daemon responsavel por processar essa fila chama-se
-# "koha-es-indexer" - e NAO "koha-indexer" (esse ultimo e um comando
-# legado de uma geracao anterior do Koha, que nao processa esses jobs).
-# Usar o nome errado faz os registros recem-catalogados nunca chegarem
-# ao indice, mesmo com o reindex completo inicial funcionando normalmente.
-# Essa funcao tenta primeiro a unidade systemd (se existir nesta versao
-# do pacote), e cai para o comando de script como alternativa.
-# [EN] IMPORTANT: modern Koha (current packages) uses a "background jobs"
-# system to propagate DB changes to Elasticsearch in real time. The
-# daemon responsible for processing that queue is called "koha-es-indexer"
-# - NOT "koha-indexer" (a legacy command from an earlier Koha generation
-# that does not process these jobs). Using the wrong name means newly
-# catalogued records never reach the index, even though the initial full
-# reindex works fine. This function tries the systemd unit first (if this
-# package version ships one), falling back to the script command.
 koha_es_indexer_gerenciar() {
-    local ACAO="$1"   # "start" ou "stop"
+    local ACAO="$1"
 
     if systemctl list-unit-files 2>/dev/null | grep -q '^koha-es-indexer@'; then
         if [ "$ACAO" = "start" ]; then
@@ -512,14 +495,11 @@ funcao_instalar_koha() {
     # -------------------------------------------------------------
     caixa_explicacao "Criando instância 'library' do Koha..." "Creating 'library' Koha instance..."
     
-    # 1. Solicita a criação da base no MariaDB via requisição
     koha-create --request-db library
 
-    # 2. Garante que o XML está higienizado com os parâmetros de Memcached corretos
     sed -i 's/__MEMCACHED_SERVERS__/127.0.0.1:11211/g' /etc/koha/sites/library/koha-conf.xml 2>/dev/null || true
     sed -i 's/__MEMCACHED_PREFIX__/koha_library:/g' /etc/koha/sites/library/koha-conf.xml 2>/dev/null || true
 
-    # 3. Executa o script OFICIAL de preenchimento do banco de dados (evita erro bookshelf)
     koha-create --populate-db library || true
 
     DB_PASS=$(grep -oP '(?<=<pass>)[^<]+' /etc/koha/sites/library/koha-conf.xml | head -n 1)
@@ -533,7 +513,6 @@ funcao_instalar_koha() {
     koha-plack --start library
     koha-upgrade-schema library || true
 
-    # Garante o registro do motor de busca como Zebra no banco
     mysql -e "INSERT INTO koha_library.systempreferences (variable, value, explanation, type) \
               VALUES ('SearchEngine', 'Zebra', 'Search engine', 'Choice') \
               ON DUPLICATE KEY UPDATE value='Zebra';" 2>/dev/null || true
@@ -791,7 +770,17 @@ funcao_ver_credenciais() {
 # 3. RESTAURAR BANCO DE DADOS (EXPLORADOR NATIVO TUI)
 # ======================================================================
 funcao_restaurar_banco() {
-    LOCAL_ARQUIVO=$(selecionar_arquivo "/var/backups/koha_sql")
+    TEXTO_DICA="
+======================================================================
+ [POR] DICAS DE TRANSFERÊNCIA (Como colocar o arquivo no servidor):
+ - Pendrive/USB: Geralmente aparecem nas pastas /media ou /mnt
+ - SCP (Terminal Linux/Mac/Win): Envie pela rede com o comando:
+   scp seu_backup.sql root@$(hostname -I | awk '{print $1}'):/var/backups/
+======================================================================
+"
+    whiptail --title "Origem do Arquivo / File Source" --msgbox "$TEXTO_DICA" 13 76
+
+    LOCAL_ARQUIVO=$(selecionar_arquivo "/var/backups")
     if [ -z "$LOCAL_ARQUIVO" ]; then return; fi
 
     if ! whiptail --title "Confirmar Restauração / Confirm Restore" --yesno "[POR] Arquivo selecionado:\n$LOCAL_ARQUIVO\n\nATENÇÃO: O acervo atual será totalmente substituído pelo backup.\nDeseja continuar?\n\n[EN] Selected file:\n$LOCAL_ARQUIVO\n\nWARNING: Current catalog will be replaced by the backup.\nDo you want to proceed?" 14 74; then
@@ -843,7 +832,17 @@ funcao_restaurar_banco() {
 # 4. GERAR BACKUP MANUAL DO BANCO (EXPLORADOR NATIVO TUI)
 # ======================================================================
 funcao_backup_manual() {
-    DIR_DESTINO=$(selecionar_diretorio "$REAL_HOME")
+    TEXTO_DICA="
+======================================================================
+ [POR] DICAS DE ONDE SALVAR (Destino do arquivo):
+ - Pendrive/USB: Navegue até as pastas /media ou /mnt
+ - Para puxar via SCP depois: Salve em /var/backups e use o comando:
+   scp root@$(hostname -I | awk '{print $1}'):/var/backups/koha_library... .
+======================================================================
+"
+    whiptail --title "Destino do Backup / Backup Destination" --msgbox "$TEXTO_DICA" 13 76
+
+    DIR_DESTINO=$(selecionar_diretorio "/var/backups")
     if [ -z "$DIR_DESTINO" ]; then return; fi
 
     DATA_ATUAL=$(date +%Y-%m-%d_%Hh%M)
@@ -1345,7 +1344,75 @@ EOF
     whiptail --title "Tutorial SMTP" --msgbox "$TEXTO_TUTORIAL" 23 78
 }
 
-# 11. ACESSO EXTERNO (CLOUDFLARE) / EXTERNAL ACCESS (CLOUDFLARE)
+# ======================================================================
+# 11. CRIAR SUPERBIBLIOTECÁRIO / CREATE SUPER LIBRARIAN
+# ======================================================================
+funcao_criar_superbibliotecario() {
+    clear
+    TEXTO_INFO="
+======================================================================
+ [POR] CRIAR SUPERBIBLIOTECÁRIO (PERMISSÃO MÁXIMA)
+ [EN]  CREATE SUPER LIBRARIAN (HIGHEST PRIVILEGES)
+======================================================================
+Esta ferramenta cadastra um novo usuário no Koha com acesso total 
+(Superlibrarian). Ideal caso você tenha perdido acesso ao painel
+ou precise de uma conta mestre de emergência.
+======================================================================
+"
+    whiptail --title "Super Librarian" --msgbox "$TEXTO_INFO" 14 78
+
+    if ! command -v koha-list >/dev/null 2>&1 || ! koha-list 2>/dev/null | grep -qx library; then
+        whiptail --title "Erro / Error" --msgbox "[POR] Instância 'library' não encontrada.\n[EN] 'library' instance not found." 8 60
+        return
+    fi
+
+    BRANCH=$(mysql -Nse "SELECT branchcode FROM koha_library.branches LIMIT 1;" 2>/dev/null || true)
+    CAT=$(mysql -Nse "SELECT categorycode FROM koha_library.categories LIMIT 1;" 2>/dev/null || true)
+
+    if [ -z "$BRANCH" ] || [ -z "$CAT" ]; then
+        whiptail --title "Erro / Error" --msgbox "[POR] O banco de dados não possui bibliotecas (branches) ou categorias criadas ainda.\nSe esta é uma instalação nova, faça o login inicial no OPAC usando o usuário padrão (koha_library) para concluir o Web Installer.\n\n[EN] Database has no branches or categories yet. Complete the Web Installer first." 14 78
+        return
+    fi
+
+    NOVO_USER=$(whiptail --title "Usuário / Username" --inputbox "[POR] Digite o NOME DE USUÁRIO (login):\n[EN] Enter the USERNAME (login):" 10 60 3>&1 1>&2 2>&3)
+    [ -z "$NOVO_USER" ] && return
+
+    EXISTS=$(mysql -Nse "SELECT borrowernumber FROM koha_library.borrowers WHERE userid='$NOVO_USER';" 2>/dev/null || true)
+    if [ -n "$EXISTS" ]; then
+        whiptail --title "Aviso / Warning" --msgbox "[POR] O usuário '$NOVO_USER' já existe!\nPara mudar senhas, use a interface web do Koha.\n\n[EN] User '$NOVO_USER' already exists!" 10 60
+        return
+    fi
+
+    NOVA_SENHA=$(whiptail --title "Senha / Password" --inputbox "[POR] Digite a SENHA para o usuário $NOVO_USER:\n[EN] Enter the PASSWORD for $NOVO_USER:" 10 60 3>&1 1>&2 2>&3)
+    [ -z "$NOVA_SENHA" ] && return
+
+    NOME=$(whiptail --title "Nome / First Name" --inputbox "[POR] Digite o Nome (First Name):\n[EN] Enter the First Name:" 10 60 "Super" 3>&1 1>&2 2>&3)
+    SOBRENOME=$(whiptail --title "Sobrenome / Surname" --inputbox "[POR] Digite o Sobrenome (Surname):\n[EN] Enter the Surname:" 10 60 "Admin" 3>&1 1>&2 2>&3)
+
+    caixa_explicacao "Gerando hash seguro da senha e cadastrando no banco..." "Hashing password and creating user..."
+    
+    # Usa o proprio Perl do Koha para gerar o hash bcrypt com o Salt correto
+    cat << 'EOF' > /tmp/hash_pass.pl
+use strict;
+use warnings;
+use Koha::AuthUtils qw(hash_password);
+my $pw = $ARGV[0];
+print hash_password($pw);
+EOF
+
+    HASH=$(koha-shell library -c "perl /tmp/hash_pass.pl '$NOVA_SENHA'" 2>/dev/null)
+    rm -f /tmp/hash_pass.pl
+
+    if [ -n "$HASH" ]; then
+        mysql -e "INSERT INTO koha_library.borrowers (userid, password, surname, firstname, branchcode, categorycode, flags) VALUES ('$NOVO_USER', '$HASH', '$SOBRENOME', '$NOME', '$BRANCH', '$CAT', 1);" 2>/dev/null
+        whiptail --title "Sucesso / Success" --msgbox "[POR] Superbibliotecário criado com sucesso!\n\nUsuário: $NOVO_USER\nSenha:   $NOVA_SENHA\n\n[EN] Super Librarian created successfully!" 12 60
+    else
+        whiptail --title "Erro / Error" --msgbox "[POR] Falha ao gerar o hash da senha.\n[EN] Failed to hash password." 8 60
+    fi
+}
+
+# ======================================================================
+# 12. ACESSO EXTERNO (CLOUDFLARE) / EXTERNAL ACCESS (CLOUDFLARE)
 # ======================================================================
 funcao_configurar_cloudflare() {
     TEXTO_TUTORIAL_CF="
@@ -1379,7 +1446,7 @@ Feche esta janela para colar o Token!
     if ! command -v cloudflared &> /dev/null; then
         mkdir -p --mode=0755 /etc/apt/keyrings
         curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | tee /etc/apt/keyrings/cloudflare-main.gpg >/dev/null
-        echo "deb [signed-by=/etc/apt/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared bullseye main" | tee /etc/apt/sources.list.d/cloudflared.list
+        echo "deb [signed-by=/etc/apt/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main" | tee /etc/apt/sources.list.d/cloudflared.list
         apt-get update && apt-get install -y cloudflared
     fi
 
@@ -1395,7 +1462,7 @@ Feche esta janela para colar o Token!
 }
 
 # ======================================================================
-# 12. ATUALIZAR SISTEMA / SYSTEM & DATABASE UPDATE
+# 13. ATUALIZAR SISTEMA / SYSTEM & DATABASE UPDATE
 # ======================================================================
 funcao_atualizar_sistema() {
     whiptail --title "Atualização / Update" --msgbox "[POR] Baixando atualizações do Ubuntu e do Koha.\n[EN] Downloading Ubuntu and Koha system updates." 8 65
@@ -1427,7 +1494,7 @@ funcao_atualizar_sistema() {
 while true; do
     OPCAO=""
     OPCAO=$(whiptail --title "Koha Easy Install - Control Dashboard" \
-    --menu "[POR] Escolha uma opção / [EN] Choose an option:" 24 94 15 \
+    --menu "[POR] Escolha uma opção / [EN] Choose an option:" 24 94 16 \
     "1"  "Instalar Servidor Koha / Install Koha Server (Zebra Default)" \
     "2"  "Ver Credenciais de Acesso / View Stored Credentials" \
     "3"  "Restaurar Acervo Local / Restore Database (File Explorer)" \
@@ -1438,11 +1505,12 @@ while true; do
     "8"  "Configurar Backup em Nuvem / Setup Cloud Backup (Rclone)" \
     "9"  "Gerenciar Tarefas Agendadas / Manage Crontab Schedules" \
     "10" "Configurar E-mails e Avisos / Setup SMTP Email Notices" \
-    "11" "Acesso Externo Seguro / Setup Cloudflare Tunnel" \
-    "12" "Atualizar Sistema e Schemas / Update System & Schemas" \
-    "13" "VALIDAR SISTEMA COMPLETO / FULL SYSTEM VALIDATION" \
-    "14" "Status Detalhado dos Serviços / Detailed Services Status" \
-    "15" "Sair / Exit" 3>&1 1>&2 2>&3) || { clear; exit 0; }
+    "11" "Criar Superbibliotecário / Create Super Librarian" \
+    "12" "Acesso Externo Seguro / Setup Cloudflare Tunnel" \
+    "13" "Atualizar Sistema e Schemas / Update System & Schemas" \
+    "14" "VALIDAR SISTEMA COMPLETO / FULL SYSTEM VALIDATION" \
+    "15" "Status Detalhado dos Serviços / Detailed Services Status" \
+    "16" "Sair / Exit" 3>&1 1>&2 2>&3) || { clear; exit 0; }
 
     [ -z "$OPCAO" ] && { clear; exit 0; }
 
@@ -1457,9 +1525,10 @@ while true; do
         8)  funcao_configurar_rclone ;;
         9)  funcao_gerenciar_crons ;;
         10) funcao_configurar_emails ;;
-        11) funcao_configurar_cloudflare ;;
-        12) funcao_atualizar_sistema ;;
-        13)
+        11) funcao_criar_superbibliotecario ;;
+        12) funcao_configurar_cloudflare ;;
+        13) funcao_atualizar_sistema ;;
+        14)
             clear
             if validar_sistema_completo "validação manual"; then
                 whiptail --title "Validação OK / Validation OK" --msgbox "[POR] Validação concluída sem erros críticos.\n\nOK: $V_OK\nAvisos: $V_WARN\nErros: $V_FAIL\n\nLog: $VALIDACAO_LOG" 12 74
@@ -1468,7 +1537,7 @@ while true; do
             fi
             mostrar_validacao
             ;;
-        14)
+        15)
             S_APA=$(systemctl is-active apache2 2>/dev/null || echo "inativo/inactive")
             S_MAR=$(systemctl is-active mariadb 2>/dev/null || echo "inativo/inactive")
             S_MEM=$(systemctl is-active memcached 2>/dev/null || echo "inativo/inactive")
@@ -1482,7 +1551,7 @@ while true; do
             MOTOR=$(obter_motor_busca)
             whiptail --title "Status Detalhado / Detailed Status" --msgbox "Apache:       $S_APA\nMariaDB:      $S_MAR\nMemcached:    $S_MEM\nKoha common:  $S_KOH\nPlack:        $S_PLK\nZebra:        $S_ZEB\nElasticsearch:$S_ES\nkoha-es-indexer: $S_IDX\nCloudflare:   $S_CLD\nCron:         $S_CRO\nMotor Koha:   ${MOTOR:-não detectado}" 17 78
             ;;
-        15) clear; exit 0 ;;
+        16) clear; exit 0 ;;
     esac
     OPCAO=""
 done
