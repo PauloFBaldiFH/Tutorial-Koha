@@ -508,21 +508,21 @@ funcao_instalar_koha() {
     fi
 
     # -------------------------------------------------------------
-    # CRIAÇÃO DA INSTÂNCIA E POVOAMENTO DAS TABELAS
+    # CRIAÇÃO DA INSTÂNCIA E POVOAMENTO OFICIAL DAS TABELAS
     # -------------------------------------------------------------
     caixa_explicacao "Criando instância 'library' do Koha..." "Creating 'library' Koha instance..."
-    koha-create --create-db library
+    
+    # 1. Solicita a criação da base no MariaDB via requisição
+    koha-create --request-db library
 
+    # 2. Garante que o XML está higienizado com os parâmetros de Memcached corretos
     sed -i 's/__MEMCACHED_SERVERS__/127.0.0.1:11211/g' /etc/koha/sites/library/koha-conf.xml 2>/dev/null || true
     sed -i 's/__MEMCACHED_PREFIX__/koha_library:/g' /etc/koha/sites/library/koha-conf.xml 2>/dev/null || true
 
-    DB_PASS=$(grep -oP '(?<=<pass>)[^<]+' /etc/koha/sites/library/koha-conf.xml | head -n 1)
+    # 3. Executa o script OFICIAL de preenchimento do banco de dados (evita erro bookshelf)
+    koha-create --populate-db library || true
 
-    TABELAS_ATUAIS=$(mysql -Nse "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='koha_library';" 2>/dev/null || echo 0)
-    if [ "$TABELAS_ATUAIS" -le 10 ]; then
-        caixa_explicacao "Populando banco de dados inicial (kohastructure.sql)..." "Populating initial database schema..."
-        MYSQL_PWD="$DB_PASS" mysql -ukoha_library koha_library < /usr/share/koha/intranet/cgi-bin/installer/data/mysql/kohastructure.sql 2>/dev/null || true
-    fi
+    DB_PASS=$(grep -oP '(?<=<pass>)[^<]+' /etc/koha/sites/library/koha-conf.xml | head -n 1)
 
     a2dissite 000-default 2>/dev/null || true
     a2ensite library
@@ -540,6 +540,7 @@ funcao_instalar_koha() {
 
     caixa_explicacao "Ativando o motor de busca Zebra (padrão)..." "Enabling the Zebra search engine (default)..."
     koha-zebra --enable library 2>/dev/null || true
+    koha-rebuild-zebra -f -v -b -a library 2>/dev/null || true
     koha-zebra --start library 2>/dev/null || true
     systemctl enable --now koha-zebra-daemon@library 2>/dev/null || true
 
@@ -706,17 +707,18 @@ EOF
     cp /etc/issue /etc/issue.net
     cp /etc/issue /etc/motd
 
-    systemctl start apt-daily.timer apt-daily-upgrade.timer unattended-upgrades 2>/dev/null || true
-
     # ----------------------------------------------------------------------
     # LIMPEZA PREVENTIVA PÓS-INSTALAÇÃO / POST-INSTALL CLEANUP
     # ----------------------------------------------------------------------
     caixa_explicacao "Limpando arquivos temporários e pacotes órfãos..." "Cleaning temporary files and orphan packages..."
     apt-get clean -y
     apt-get autoclean -y
-    DEBIAN_FRONTEND=noninteractive apt-get autoremove --purge -y
+    DEBIAN_FRONTEND=noninteractive apt-get autoremove --purge -y || true
     rm -rf /tmp/koha /tmp/koha-easy-install* 2>/dev/null || true
     journalctl --vacuum-time=7d >/dev/null 2>&1 || true
+
+    # REATIVA SERVIÇOS DO APT APENAS NO FINAL
+    systemctl start apt-daily.timer apt-daily-upgrade.timer unattended-upgrades 2>/dev/null || true
 
     STATUS_NUVEM="\e[1;33mNão configurado. Use a Opção 8 do painel.\e[0m"
 
@@ -1409,7 +1411,7 @@ funcao_atualizar_sistema() {
     caixa_explicacao "Limpando arquivos temporários e pacotes órfãos pós-atualização..." "Cleaning temporary files and orphan packages post-update..."
     apt-get clean -y
     apt-get autoclean -y
-    DEBIAN_FRONTEND=noninteractive apt-get autoremove --purge -y
+    DEBIAN_FRONTEND=noninteractive apt-get autoremove --purge -y || true
     journalctl --vacuum-time=7d >/dev/null 2>&1 || true
 
     if validar_sistema_completo "atualização do sistema"; then
@@ -1478,7 +1480,7 @@ while true; do
             S_CRO=$(systemctl is-active cron 2>/dev/null || echo "inativo/inactive")
             if koha_es_indexer_esta_rodando; then S_IDX="ativo/active"; else S_IDX="inativo/inactive"; fi
             MOTOR=$(obter_motor_busca)
-            whiptail --title "Status Detalhado / Detailed Status" --msgbox "Apache:        $S_APA\nMariaDB:       $S_MAR\nMemcached:     $S_MEM\nKoha common:   $S_KOH\nPlack:         $S_PLK\nZebra:         $S_ZEB\nElasticsearch: $S_ES\nkoha-es-indexer: $S_IDX\nCloudflare:    $S_CLD\nCron:          $S_CRO\nMotor Koha:    ${MOTOR:-não detectado}" 17 78
+            whiptail --title "Status Detalhado / Detailed Status" --msgbox "Apache:       $S_APA\nMariaDB:      $S_MAR\nMemcached:    $S_MEM\nKoha common:  $S_KOH\nPlack:        $S_PLK\nZebra:        $S_ZEB\nElasticsearch:$S_ES\nkoha-es-indexer: $S_IDX\nCloudflare:   $S_CLD\nCron:         $S_CRO\nMotor Koha:   ${MOTOR:-não detectado}" 17 78
             ;;
         15) clear; exit 0 ;;
     esac
