@@ -405,14 +405,34 @@ funcao_instalar_koha() {
     systemctl enable --now mariadb
 
     caixa_explicacao "Configurando Apache e portas de rede..." "Configuring Apache and network ports..."
+    
+    # -------------------------------------------------------------
+    # CORREÇÃO: Forçando os parâmetros GLOBAIS antes do koha-create
+    # -------------------------------------------------------------
     sed -i 's/^INTRAPORT=.*/INTRAPORT="8080"/' /etc/koha/koha-sites.conf
     sed -i 's/^OPACPORT=.*/OPACPORT="80"/' /etc/koha/koha-sites.conf
-    sed -i 's/^#*MEMCACHED_SERVERS=.*/MEMCACHED_SERVERS="127.0.0.1:11211"/' /etc/koha/koha-sites.conf
-    sed -i 's/^#*MEMCACHED_PREFIX=.*/MEMCACHED_PREFIX="koha_"/' /etc/koha/koha-sites.conf
+    
+    # Adiciona ou corrige o Memcached global
+    if grep -q "^MEMCACHED_SERVERS=" /etc/koha/koha-sites.conf; then
+        sed -i 's/^MEMCACHED_SERVERS=.*/MEMCACHED_SERVERS="127.0.0.1:11211"/' /etc/koha/koha-sites.conf
+    else
+        echo 'MEMCACHED_SERVERS="127.0.0.1:11211"' >> /etc/koha/koha-sites.conf
+    fi
+    
+    if grep -q "^MEMCACHED_PREFIX=" /etc/koha/koha-sites.conf; then
+        sed -i 's/^MEMCACHED_PREFIX=.*/MEMCACHED_PREFIX="koha_"/' /etc/koha/koha-sites.conf
+    else
+        echo 'MEMCACHED_PREFIX="koha_"' >> /etc/koha/koha-sites.conf
+    fi
 
     a2enmod rewrite cgi deflate headers proxy_http
     grep -q "^Listen 8080" /etc/apache2/ports.conf || sed -i '/Listen 80/a Listen 8080' /etc/apache2/ports.conf
-    systemctl restart apache2
+    systemctl restart apache2 memcached koha-common
+
+    # -------------------------------------------------------------
+    # Instala o idioma PRIMEIRO, para o koha-create encontrar os scripts sql
+    # -------------------------------------------------------------
+    koha-translate --install pt-BR || true
 
     caixa_explicacao "Criando instância 'library' do Koha..." "Creating 'library' Koha instance..."
 
@@ -445,18 +465,23 @@ funcao_instalar_koha() {
         rm -rf /etc/koha/sites/library
     fi
 
-    koha-create --create-db library
+    # -------------------------------------------------------------
+    # Agora sim, criamos o banco com os parâmetros do Memcached já resolvidos
+    # -------------------------------------------------------------
+    koha-create --create-db library --request-db || true
 
-    sed -i 's/__MEMCACHED_SERVERS__/127.0.0.1:11211/g' /etc/koha/sites/library/koha-conf.xml
-    sed -i 's/__MEMCACHED_PREFIX__/koha_library:/g' /etc/koha/sites/library/koha-conf.xml
+    # Garantia dupla de substituição no XML específico (evita a quebra anterior)
+    sed -i 's/__MEMCACHED_SERVERS__/127.0.0.1:11211/g' /etc/koha/sites/library/koha-conf.xml 2>/dev/null || true
+    sed -i 's/__MEMCACHED_PREFIX__/koha_library:/g' /etc/koha/sites/library/koha-conf.xml 2>/dev/null || true
 
     a2dissite 000-default 2>/dev/null || true
     a2ensite library
-    systemctl restart apache2 memcached
-    koha-translate --install pt-BR || true
+    systemctl restart apache2 memcached koha-common
+
+    # Inicia o Plack e força o upgrade do schema (povoa o banco se estiver vazio)
     koha-plack --enable library
     koha-plack --start library
-    systemctl restart koha-common
+    koha-upgrade-schema library || true
 
     caixa_explicacao "Ativando o motor de busca Zebra (padrão)..." "Enabling the Zebra search engine (default)..."
     koha-zebra --enable library 2>/dev/null || true
