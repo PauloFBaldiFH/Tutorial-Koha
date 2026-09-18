@@ -390,7 +390,7 @@ funcao_instalar_koha() {
                   libapache2-mod-security2 fail2ban libsasl2-modules glabels \
                   rclone avahi-daemon memcached python3 expect libxml2-utils
 
-    systemctl enable --now avahi-daemon fail2ban
+    systemctl enable --now avahi-daemon fail2ban memcached
 
     caixa_explicacao "Adicionando repositórios (Koha e Elasticsearch)..." "Adding repositories (Koha and Elasticsearch)..."
     mkdir -p /usr/share/keyrings
@@ -404,32 +404,31 @@ funcao_instalar_koha() {
     DEBIAN_FRONTEND=noninteractive apt-get install -y mariadb-server koha-common
     systemctl enable --now mariadb
 
-    caixa_explicacao "Configurando Apache e portas de rede..." "Configuring Apache and network ports..."
+    caixa_explicacao "Configurando Apache e parâmetros globais do Koha..." "Configuring Apache and Koha global templates..."
     
-    # -------------------------------------------------------------
-    # FORÇAR OS PARÂMETROS GLOBAIS DE PORTA E MEMCACHED ANTES
-    # -------------------------------------------------------------
     sed -i 's/^INTRAPORT=.*/INTRAPORT="8080"/' /etc/koha/koha-sites.conf
     sed -i 's/^OPACPORT=.*/OPACPORT="80"/' /etc/koha/koha-sites.conf
     
-    if grep -q "^MEMCACHED_SERVERS=" /etc/koha/koha-sites.conf; then
-        sed -i 's/^MEMCACHED_SERVERS=.*/MEMCACHED_SERVERS="127.0.0.1:11211"/' /etc/koha/koha-sites.conf
-    else
+    grep -q "^MEMCACHED_SERVERS=" /etc/koha/koha-sites.conf && \
+        sed -i 's/^MEMCACHED_SERVERS=.*/MEMCACHED_SERVERS="127.0.0.1:11211"/' /etc/koha/koha-sites.conf || \
         echo 'MEMCACHED_SERVERS="127.0.0.1:11211"' >> /etc/koha/koha-sites.conf
-    fi
-    
-    if grep -q "^MEMCACHED_PREFIX=" /etc/koha/koha-sites.conf; then
-        sed -i 's/^MEMCACHED_PREFIX=.*/MEMCACHED_PREFIX="koha_"/' /etc/koha/koha-sites.conf
-    else
+
+    grep -q "^MEMCACHED_PREFIX=" /etc/koha/koha-sites.conf && \
+        sed -i 's/^MEMCACHED_PREFIX=.*/MEMCACHED_PREFIX="koha_"/' /etc/koha/koha-sites.conf || \
         echo 'MEMCACHED_PREFIX="koha_"' >> /etc/koha/koha-sites.conf
+
+    # Corrige o arquivo modelo (template) para nunca mais gerar XML com '__MEMCACHED_SERVERS__'
+    if [ -f /etc/koha/koha-conf-site.xml.in ]; then
+        sed -i 's/__MEMCACHED_SERVERS__/127.0.0.1:11211/g' /etc/koha/koha-conf-site.xml.in
+        sed -i 's/__MEMCACHED_PREFIX__/koha_/g' /etc/koha/koha-conf-site.xml.in
     fi
 
     a2enmod rewrite cgi deflate headers proxy_http
     grep -q "^Listen 8080" /etc/apache2/ports.conf || sed -i '/Listen 80/a Listen 8080' /etc/apache2/ports.conf
-    systemctl restart apache2 memcached koha-common
+    systemctl restart apache2 memcached
 
     # -------------------------------------------------------------
-    # REMOVE INSTALAÇÃO ANTERIOR (SE EXISTIR E CONFIRMADO)
+    # REMOVER INSTALAÇÃO ANTERIOR SE EXISTIR
     # -------------------------------------------------------------
     KOHA_INSTANCIA_EXISTE=false
     if [ -d /etc/koha/sites/library ]; then
@@ -461,24 +460,30 @@ funcao_instalar_koha() {
     fi
 
     # -------------------------------------------------------------
-    # INSTALA O IDIOMA ANTES DA CRIAÇÃO DO BANCO PARA POVOAR CORRETAMENTE
-    # -------------------------------------------------------------
-    caixa_explicacao "Instalando pacote de idioma pt-BR..." "Installing pt-BR language pack..."
-    koha-translate --install pt-BR || true
-
-    # -------------------------------------------------------------
-    # CRIA O BANCO DE DADOS (SEM O --request-db)
+    # CRIAÇÃO DA INSTÂNCIA E POVOAMENTO DAS TABELAS
     # -------------------------------------------------------------
     caixa_explicacao "Criando instância 'library' do Koha..." "Creating 'library' Koha instance..."
-    koha-create --create-db library || true
+    koha-create --create-db library
 
+    # Higienização de segurança no XML da instância gerada
     sed -i 's/__MEMCACHED_SERVERS__/127.0.0.1:11211/g' /etc/koha/sites/library/koha-conf.xml 2>/dev/null || true
     sed -i 's/__MEMCACHED_PREFIX__/koha_library:/g' /etc/koha/sites/library/koha-conf.xml 2>/dev/null || true
+
+    # Extrai a senha gerada pelo Koha para carregar o schema no MariaDB
+    DB_PASS=$(grep -oP '(?<=<pass>)[^<]+' /etc/koha/sites/library/koha-conf.xml | head -n 1)
+
+    # Caso a contagem seja 0 tabelas, injeta a estrutura oficial do Koha diretamente
+    TABELAS_ATUAIS=$(mysql -Nse "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='koha_library';" 2>/dev/null || echo 0)
+    if [ "$TABELAS_ATUAIS" -le 10 ]; then
+        caixa_explicacao "Populando banco de dados inicial (kohastructure.sql)..." "Populating initial database schema..."
+        MYSQL_PWD="$DB_PASS" mysql -ukoha_library koha_library < /usr/share/koha/intranet/cgi-bin/installer/data/mysql/kohastructure.sql 2>/dev/null || true
+    fi
 
     a2dissite 000-default 2>/dev/null || true
     a2ensite library
     systemctl restart apache2 memcached koha-common
 
+    koha-translate --install pt-BR || true
     koha-plack --enable library
     koha-plack --start library
     koha-upgrade-schema library || true
@@ -767,7 +772,6 @@ EOF
     echo -e "\e[1;37mPressione [ENTER] para sair do instalador... / Press [ENTER] to exit...\e[0m"
     read -r
 }
-
 # ======================================================================
 # 2. VISUALIZAR CREDENCIAIS / VIEW CREDENTIALS
 # ======================================================================
