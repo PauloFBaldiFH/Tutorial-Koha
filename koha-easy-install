@@ -30,7 +30,7 @@ REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 [ -z "$REAL_HOME" ] && REAL_HOME="/home/$REAL_USER"
 
 # ======================================================================
-# FUNÇÃO DE CAIXAS DE EXPLICAÇÃO / EXPLANATION BOX FUNCTION
+# FUNÇÕES DE INTERFACE E EXPLORADOR / TUI & EXPLORER FUNCTIONS
 # ======================================================================
 caixa_explicacao() {
     local msg_pt="$1"
@@ -41,9 +41,6 @@ caixa_explicacao() {
     echo -e "+-----------------------------------------------------------------------------------------+\n"
 }
 
-# ======================================================================
-# EXPLORADOR DE ARQUIVOS NATIVO / NATIVE FILE EXPLORER (TUI)
-# ======================================================================
 selecionar_arquivo() {
     local atual="${1:-/}"
     while true; do
@@ -110,27 +107,46 @@ selecionar_diretorio() {
 }
 
 # ======================================================================
-# FUNÇÃO: AGUARDAR E LIBERAR TRAVAS DO APT / WAIT FOR APT LOCKS
+# ROTINAS DE BLINDAGEM DO APT (DOWNLOAD E TRAVAS) / APT SHIELD
 # ======================================================================
 aguardar_travas_apt() {
     caixa_explicacao "Verificando travas do APT/DPKG e bloqueando atualizacoes ocultas..." "Checking APT/DPKG locks and blocking hidden background updates..."
-    
     systemctl stop apt-daily.timer apt-daily-upgrade.timer unattended-upgrades apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
-
     while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || \
           fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || \
           fuser /var/lib/dpkg/lock >/dev/null 2>&1; do
         echo "[INFO] Processos em segundo plano estao ativos. Aguardando 3 segundos..."
         sleep 3
     done
-
     dpkg --configure -a 2>/dev/null || true
+}
+
+apt_instalar_com_retry() {
+    local pacotes=("$@")
+    local tentativas=1
+    local max_tentativas=3
+
+    # Desativa provisoriamente o set -e para tratar o erro internamente
+    set +e
+    until DEBIAN_FRONTEND=noninteractive apt-get install -y "${pacotes[@]}"; do
+        if [ "$tentativas" -ge "$max_tentativas" ]; then
+            whiptail --title "Falha no APT / APT Failure" --msgbox "[POR] Falha crônica ao baixar pacotes após $max_tentativas tentativas. Verifique sua rede ou os espelhos do Ubuntu.\n\n[EN] Failed to download packages after $max_tentativas attempts. Check network." 12 70
+            set -e
+            return 1
+        fi
+        echo -e "\n\e[1;33m[AVISO/WARNING] Falha na tentativa $tentativas de $max_tentativas. Curando índices do Ubuntu (--fix-missing) e tentando novamente em 3s...\e[0m\n"
+        apt-get update --fix-missing -y >/dev/null 2>&1 || true
+        dpkg --configure -a >/dev/null 2>&1 || true
+        sleep 3
+        tentativas=$((tentativas + 1))
+    done
+    set -e
+    return 0
 }
 
 # ======================================================================
 # FUNÇÕES AUXILIARES DE INDEXAÇÃO (Patch Elasticsearch)
 # ======================================================================
-
 INSTANCIA_KOHA="library"
 KOHA_CONF="/etc/koha/sites/${INSTANCIA_KOHA}/koha-conf.xml"
 
@@ -147,8 +163,6 @@ acao, path = sys.argv[1], sys.argv[2]
 with open(path, "r") as f:
     text = f.read()
 
-# Divide o arquivo em pedaços "comentário" e "não comentário" e só mexe
-# nos pedaços que não são comentário.
 partes = re.split(r"(<!--.*?-->)", text, flags=re.DOTALL)
 for i, p in enumerate(partes):
     if not p.startswith("<!--"):
@@ -182,7 +196,7 @@ koha_es_ativo_no_xml() {
 
 koha_broker_preparar() {
     if ! dpkg -s rabbitmq-server >/dev/null 2>&1; then
-        DEBIAN_FRONTEND=noninteractive apt-get install -y rabbitmq-server >/dev/null 2>&1 || return 1
+        apt_instalar_com_retry rabbitmq-server || return 1
     fi
     rabbitmq-plugins enable rabbitmq_stomp >/dev/null 2>&1 || true
     systemctl enable --now rabbitmq-server >/dev/null 2>&1 || true
@@ -197,12 +211,9 @@ koha_indexadores_gerenciar() {
     local ACAO="$1"
 
     if [ "$ACAO" = "start" ]; then
-        # 1) Filas genéricas (default e long_tasks): outros módulos do Koha
-        #    dependem delas, mas elas NÃO indexam o Elasticsearch.
         koha-worker --start "$INSTANCIA_KOHA" >/dev/null 2>&1 || true
         koha-worker --start --queue long_tasks "$INSTANCIA_KOHA" >/dev/null 2>&1 || true
 
-        # 2) Daemon dedicado do Elasticsearch.
         if command -v koha-es-indexer >/dev/null 2>&1; then
             koha-es-indexer --stop  --quiet "$INSTANCIA_KOHA" >/dev/null 2>&1 || true
             koha-es-indexer --start --quiet "$INSTANCIA_KOHA" >/dev/null 2>&1 || true
@@ -217,7 +228,6 @@ koha_indexadores_gerenciar() {
         if koha_worker_tem_fila_es; then
             koha-worker --stop --queue elastic_index "$INSTANCIA_KOHA" >/dev/null 2>&1 || true
         fi
-        # default/long_tasks continuam ativos de propósito.
     fi
     return 0
 }
@@ -483,18 +493,18 @@ funcao_instalar_koha() {
     aguardar_travas_apt
 
     caixa_explicacao "Configurando Locales e Codificação UTF-8..." "Configuring Locales and UTF-8 Encoding..."
-    apt-get update -o Acquire::Check-Valid-Until=false -y || true
-    DEBIAN_FRONTEND=noninteractive apt-get install -y locales
+    apt-get update -o Acquire::Check-Valid-Until=false -y >/dev/null 2>&1 || true
+    apt_instalar_com_retry locales
     locale-gen pt_BR.UTF-8 en_US.UTF-8
     update-locale LANG=pt_BR.UTF-8 LC_ALL=pt_BR.UTF-8
     export LANG=pt_BR.UTF-8
     export LC_ALL=pt_BR.UTF-8
 
     caixa_explicacao "Sincronizando relógio do sistema (NTP)..." "Synchronizing system clock (NTP)..."
-    DEBIAN_FRONTEND=noninteractive apt-get install -y systemd-timesyncd
+    apt_instalar_com_retry systemd-timesyncd
     systemctl enable --now systemd-timesyncd
     timeout 10 bash -c 'until timedatectl | grep -q "synchronized: yes"; do sleep 1; done' || true
-    dpkg-reconfigure tzdata
+    dpkg-reconfigure -f noninteractive tzdata
     export DEBIAN_FRONTEND=noninteractive
 
     caixa_explicacao "Criando Memória Virtual (SWAP 4GB)..." "Creating Virtual Memory (SWAP 4GB)..."
@@ -509,9 +519,11 @@ funcao_instalar_koha() {
     aguardar_travas_apt
 
     caixa_explicacao "Instalando dependências essenciais..." "Installing essential dependencies..."
-    apt-get update && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
+    apt-get update -y >/dev/null 2>&1 || true
+    # Atualiza pacotes com tratamento de erro
+    set +e; DEBIAN_FRONTEND=noninteractive apt-get upgrade -y; set -e
     
-    DEBIAN_FRONTEND=noninteractive apt-get install -y nano curl wget gpg ufw software-properties-common default-jre-headless \
+    apt_instalar_com_retry nano curl wget gpg ufw software-properties-common default-jre-headless \
                   libapache2-mod-security2 fail2ban libsasl2-modules glabels \
                   rclone avahi-daemon memcached python3 expect libxml2-utils
 
@@ -525,8 +537,8 @@ funcao_instalar_koha() {
     wget -q --timeout=20 --tries=3 -O - https://artifacts.elastic.co/GPG-KEY-elasticsearch | gpg --dearmor --yes -o /usr/share/keyrings/elasticsearch-keyring.gpg
     echo "deb [signed-by=/usr/share/keyrings/elasticsearch-keyring.gpg] https://artifacts.elastic.co/packages/7.x/apt stable main" > /etc/apt/sources.list.d/elastic-7.x.list
 
-    apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y mariadb-server koha-common
+    apt-get update -y >/dev/null 2>&1 || true
+    apt_instalar_com_retry mariadb-server koha-common
     systemctl enable --now mariadb
 
     caixa_explicacao "Configurando Apache e parâmetros globais do Koha..." "Configuring Apache and Koha global templates..."
@@ -1139,8 +1151,8 @@ funcao_alternar_motor_busca() {
 
             if ! dpkg -s koha-elasticsearch >/dev/null 2>&1; then
                 caixa_explicacao "Instalando pacotes do Elasticsearch 7..." "Installing Elasticsearch 7 packages..."
-                apt-get update
-                if ! DEBIAN_FRONTEND=noninteractive apt-get install -y elasticsearch koha-elasticsearch; then
+                apt-get update -y >/dev/null 2>&1 || true
+                if ! apt_instalar_com_retry elasticsearch koha-elasticsearch; then
                     whiptail --title "Erro / Error" --msgbox "[POR] Falha na instalação dos pacotes. Verifique se há espaço suficiente no disco.\n\n[EN] Failed to install packages. Check available disk space." 9 70
                     return
                 fi
@@ -1398,7 +1410,7 @@ funcao_configurar_emails() {
     whiptail --title "E-mails (SMTP)" --msgbox "[POR] O Koha possui configuração própria de servidores SMTP.\nO instalador não precisa iniciar um servidor de e-mail local.\n\nA rotina abaixo instala apenas o suporte SASL e grava os cronjobs de avisos sem duplicá-los.\n\n[EN] Koha has its own SMTP server configuration.\nThe installer does not need to start a local mail server.\n\nThe routine below installs only SASL support and writes the notice cronjobs without duplicates." 15 78
     clear
 
-    DEBIAN_FRONTEND=noninteractive apt-get install -y libsasl2-modules
+    apt_instalar_com_retry libsasl2-modules
 
     CRON_FILE="/etc/cron.d/koha_tasks"
     touch "$CRON_FILE"
@@ -1573,7 +1585,8 @@ Feche esta janela para colar o Token!
         mkdir -p --mode=0755 /etc/apt/keyrings
         curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | tee /etc/apt/keyrings/cloudflare-main.gpg >/dev/null
         echo "deb [signed-by=/etc/apt/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main" | tee /etc/apt/sources.list.d/cloudflared.list
-        apt-get update && apt-get install -y cloudflared
+        apt-get update -y >/dev/null 2>&1 || true
+        apt_instalar_com_retry cloudflared
     fi
 
     caixa_explicacao "Ativando o serviço do Túnel..." "Activating Tunnel daemon..."
@@ -1596,8 +1609,8 @@ funcao_configurar_ssl() {
     
     clear
     caixa_explicacao "Instalando Certbot..." "Installing Certbot..."
-    apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y certbot python3-certbot-apache
+    apt-get update -y >/dev/null 2>&1 || true
+    apt_instalar_com_retry certbot python3-certbot-apache
     
     caixa_explicacao "Iniciando assistente do Let's Encrypt..." "Starting Let's Encrypt wizard..."
     certbot --apache
@@ -1738,10 +1751,15 @@ funcao_atualizar_sistema() {
     
     aguardar_travas_apt
 
-    apt-get update -y && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
+    apt-get update -y >/dev/null 2>&1 || true
+    
+    caixa_explicacao "Baixando pacotes de atualizacao (isso pode demorar algumas tentativas)..." "Downloading update packages..."
+    set +e; DEBIAN_FRONTEND=noninteractive apt-get upgrade -y; set -e
+    
     koha-upgrade-schema library || true
     systemctl restart memcached apache2 koha-common mariadb
     koha-plack --restart library
+    
     if [ "$(obter_motor_busca)" = "Elasticsearch" ]; then
         if ! koha_indexador_esta_rodando; then
             koha_indexadores_gerenciar start || true
@@ -1790,7 +1808,7 @@ funcao_reparar_indexacao_es() {
     whiptail --title "Diagnóstico / Diagnostics" --msgbox "\
 Elasticsearch no ar (9200):      $ES_UP
 Bloco <elasticsearch> no XML:    $XML_OK
-Daemon koha-es-indexer:          $IDX
+Daemon indexador hibrido:        $IDX
 RabbitMQ/STOMP (61613):          $BROKER
 
 Jobs de indexação pendentes:     ${PEND:-?}
@@ -1802,7 +1820,7 @@ daemon de indexação não está consumindo a fila.
 [EN] Growing pending jobs + smaller index = the indexing daemon
 is not consuming the queue." 20 78
 
-    whiptail --title "Reparar / Repair" --yesno "[POR] Deseja reparar agora?\n(Sobe RabbitMQ, limpa o cache e reinicia o koha-es-indexer.)\n\n[EN] Repair now?\n(Brings up RabbitMQ, flushes cache and restarts koha-es-indexer.)" 11 74 || return
+    whiptail --title "Reparar / Repair" --yesno "[POR] Deseja reparar agora?\n(Sobe RabbitMQ, limpa o cache e reinicia os indexadores.)\n\n[EN] Repair now?\n(Brings up RabbitMQ, flushes cache and restarts indexers.)" 11 74 || return
 
     clear
     caixa_explicacao "Reparando serviços de indexação..." "Repairing indexing services..."
@@ -1826,7 +1844,7 @@ is not consuming the queue." 20 78
     if koha_indexador_esta_rodando; then
         whiptail --title "Sucesso / Success" --msgbox "[POR] Indexador ativo. Cadastre um registro de teste e busque por ele em alguns segundos.\n\n[EN] Indexer is running. Add a test record and search for it after a few seconds.\n\nLog: $VALIDACAO_LOG" 12 76
     else
-        whiptail --title "Atenção / Warning" --msgbox "[POR] O daemon ainda não subiu. Verifique:\n  tail -n 50 /var/log/koha/library/es-indexer-error.log\n  koha-es-indexer --status library\n\n[EN] Daemon still down. Check the logs above.\n\nLog: $VALIDACAO_LOG" 13 76
+        whiptail --title "Atenção / Warning" --msgbox "[POR] O daemon ainda não subiu. Verifique o status com a Opção 19.\n\n[EN] Daemon still down. Check status via Option 19.\n\nLog: $VALIDACAO_LOG" 11 76
     fi
 }
 
