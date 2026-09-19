@@ -98,3 +98,19 @@ funcao_instalar_idiomas() {
     "zh-Hant-TW"  "Chinese (Traditional)" 3>&1 1>&2 2>&3)
 
     if [ $? -ne 0 ] || [ -z "$IDIOMA_SELECIONADO" ]; then return; fi
+
+    if ! mysql -Nse "SELECT 1 FROM information_schema.tables WHERE table_schema='koha_library' AND table_name='systempreferences';" 2>/dev/null | grep -q 1; then
+        whiptail --title "$(t "Aviso" "Warning")" --msgbox "$(t "Conclua o Web Installer no navegador primeiro." "Complete the Web Installer in your browser first.")" 10 70
+        return
+    fi
+
+    clear
+    caixa_explicacao "Baixando e instalando idioma: $IDIOMA_SELECIONADO..." "Downloading and installing language: $IDIOMA_SELECIONADO..."
+    if koha-translate --install "$IDIOMA_SELECIONADO"; then
+        systemctl restart memcached apache2 koha-common
+        koha-plack --restart library
+        whiptail --title "$(t "Sucesso" "Success")" --msgbox "$(t "Pacote '$IDIOMA_SELECIONADO' instalado!\nAtive no painel: Preferências do Sistema > Idiomas." "Package '$IDIOMA_SELECIONADO' installed!\nEnable it in System Preferences > Languages.")" 10 74
+    else
+        whiptail --title "$(t "Erro" "Error")" --msgbox "$(t "Falha ao baixar o idioma '$IDIOMA_SELECIONADO'." "Failed to download language '$IDIOMA_SELECIONADO'.")" 9 70
+    fi
+}
