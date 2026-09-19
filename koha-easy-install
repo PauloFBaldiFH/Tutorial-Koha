@@ -82,7 +82,9 @@ selecionar_arquivo() {
             itens+=(".." "$(t "[Diretório Vazio - Voltar]" "[Empty Directory - Go back]")")
         fi
 
-        escolha=$(whiptail --title "$(t "Explorador de Arquivos" "File Explorer")" --menu "$(t "Navegando em:\n$atual\n\nSelecione o arquivo de backup (.sql ou .sql.gz):" "Browsing:\n$atual\n\nSelect the backup file:")" 22 76 12 "${itens[@]}" 3>&1 1>&2 2>&3) || true
+        escolha=$(whiptail --title "$(t "Explorador de Arquivos" "File Explorer")" \
+        --cancel-button "$(t "Voltar" "Back")" \
+        --menu "$(t "Navegando em:\n$atual\n\nSelecione o arquivo de backup (.sql ou .sql.gz):" "Browsing:\n$atual\n\nSelect the backup file:")" 22 76 12 "${itens[@]}" 3>&1 1>&2 2>&3) || true
 
         if [ -z "$escolha" ]; then return 1; fi
 
@@ -110,7 +112,9 @@ selecionar_diretorio() {
             dirs+=("$d" "$(t "[Pasta]" "[Folder]")")
         done <<< "$(find "$atual" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort)"
 
-        escolha=$(whiptail --title "$(t "Seletor de Diretório" "Directory Picker")" --menu "$(t "Navegando em:\n$atual\n\nEntre numa pasta ou escolha salvar aqui:" "Browsing:\n$atual\n\nEnter a folder or save here:")" 22 76 12 "${dirs[@]}" 3>&1 1>&2 2>&3) || true
+        escolha=$(whiptail --title "$(t "Seletor de Diretório" "Directory Picker")" \
+        --cancel-button "$(t "Voltar" "Back")" \
+        --menu "$(t "Navegando em:\n$atual\n\nEntre numa pasta ou escolha salvar aqui:" "Browsing:\n$atual\n\nEnter a folder or save here:")" 22 76 12 "${dirs[@]}" 3>&1 1>&2 2>&3) || true
 
         if [ -z "$escolha" ]; then return 1; fi
 
@@ -831,7 +835,7 @@ funcao_ver_credenciais() {
     ARQUIVO_CONF="/etc/koha/sites/library/koha-conf.xml"
     if [ ! -f "$ARQUIVO_CONF" ]; then
         whiptail --title "$(t "Erro" "Error")" --msgbox "$(t "O Koha ainda não foi instalado." "Koha has not been installed yet.")" 8 60 || true
-        return
+        return 0
     fi
 
     DB_PASS=$(grep -oP '(?<=<pass>)[^<]+' "$ARQUIVO_CONF" | head -n 1)
@@ -944,14 +948,14 @@ funcao_dimensionar_servidor() {
     if [ "$RAM_GB_ROUNDED" -lt 4 ]; then PERFIL_RECOMENDADO=1; elif [ "$RAM_GB_ROUNDED" -lt 8 ]; then PERFIL_RECOMENDADO=2; elif [ "$RAM_GB_ROUNDED" -lt 16 ]; then PERFIL_RECOMENDADO=3; else PERFIL_RECOMENDADO=4; fi
 
     PERFIL=$(whiptail --title "$(t "Tuning" "Sizing")" \
+    --cancel-button "$(t "Voltar" "Back")" \
     --menu "$(t "RAM: ${RAM_GB} GB\n$TEXTO_ES\nRecomendado: $PERFIL_RECOMENDADO" "RAM: ${RAM_GB} GB\n$TEXTO_ES\nRecommended: $PERFIL_RECOMENDADO")" 20 76 5 \
     "1" "< 4GB  - 2 Workers, 64MB Cache, 512MB DB" \
     "2" "4–8GB  - 3 Workers, 128MB Cache, 768MB DB" \
     "3" "8–16GB - 4 Workers, 128MB Cache, 1GB DB" \
-    "4" "16GB+  - 6 Workers, 256MB Cache, 2GB DB" \
-    "5" "$(t "Cancelar" "Cancel")" 3>&1 1>&2 2>&3) || true
+    "4" "16GB+  - 6 Workers, 256MB Cache, 2GB DB" 3>&1 1>&2 2>&3) || true
 
-    if [ -z "$PERFIL" ] || [ "$PERFIL" = "5" ]; then return 0; fi
+    if [ -z "$PERFIL" ]; then return 0; fi
 
     case "$PERFIL" in
         1) WK="2"; MEM="64"; DB="512M" ;;
@@ -979,20 +983,28 @@ EOF
 }
 
 # ======================================================================
-# 8. CONFIGURAR NUVEM (RCLONE OTIMIZADO)
+# 8. CONFIGURAR NUVEM (RCLONE OTIMIZADO PARA TERMINAL)
 # ======================================================================
 funcao_configurar_rclone() {
-    ESCOLHA=$(whiptail --title "$(t "Backup em Nuvem" "Cloud Backup")" --menu "$(t "Como deseja configurar o envio automático de Backups?" "How do you want to configure auto cloud backups?")" 15 76 2 \
+    ESCOLHA=$(whiptail --title "$(t "Backup em Nuvem" "Cloud Backup")" \
+    --cancel-button "$(t "Voltar" "Back")" \
+    --menu "$(t "Como deseja configurar o envio automático de Backups?" "How do you want to configure auto cloud backups?")" 15 76 2 \
     "1" "$(t "Expresso (Apenas Google Drive)" "Express (Google Drive only)")" \
     "2" "$(t "Manual (Dropbox, AWS, Outras Nuvens)" "Manual (Dropbox, AWS, Other clouds)")" 3>&1 1>&2 2>&3) || true
 
     [ -z "$ESCOLHA" ] && return 0
 
     if [ "$ESCOLHA" = "1" ]; then
-        whiptail --title "Google Drive Expresso" --msgbox "$(t "INSTRUÇÕES:\n1. O script vai gerar um link grande no terminal.\n2. Copie esse link e abra no navegador do seu computador.\n3. Faça login no seu Google Drive.\n4. O Google vai te dar um 'Código de Verificação'. Cole esse código de volta aqui no terminal." "INSTRUCTIONS:\n1. The script will generate a long link in the terminal.\n2. Copy and open it in your browser.\n3. Login to Google Drive.\n4. Google will give you a 'Verification Code'. Paste it back here.")" 14 74 || true
+        whiptail --title "Google Drive Expresso" --msgbox "$(t "INSTRUÇÕES:\n1. O script vai abrir o terminal puro.\n2. Ele vai gerar um link de autorização.\n3. Copie o link e abra no navegador do seu computador.\n4. Autorize o Google e cole o 'Código de Verificação' de volta aqui." "INSTRUCTIONS:\n1. The script will open the terminal.\n2. It will generate an auth link.\n3. Copy the link and open it in your browser.\n4. Authorize Google and paste the 'Verification Code' back here.")" 15 74 || true
         clear
         echo -e "\e[1;36m$(t "Iniciando configuração expressa do Google Drive..." "Starting express Google Drive setup...")\e[0m\n"
-        rclone config create gdrive drive config_is_local false
+        
+        # Roda o rclone em modo interativo direto no terminal
+        rclone config create gdrive drive config_is_local false || true
+        
+        echo -e "\n\e[1;32m$(t "Pressione [ENTER] para voltar ao painel de controle..." "Press [ENTER] to return to the control panel...")\e[0m"
+        read -r
+        
         NOME_CONEXAO="gdrive"
     else
         clear
@@ -1018,7 +1030,7 @@ funcao_gerenciar_crons() {
     if ! grep -q "COMO AJUSTAR A HORA" /etc/cron.d/koha_tasks 2>/dev/null; then
         sed -i '1s/^/# ======================================================================\n# COMO AJUSTAR A HORA \/ HOW TO CHANGE TIME:\n# A ordem das colunas e: MINUTO HORA DIA_MES MES DIA_SEMANA(0=Dom) comando\n# Exemplo: "30 01 * * *" significa "Todo dia as 01:30 da madrugada"\n# ======================================================================\n/' /etc/cron.d/koha_tasks
     fi
-    whiptail --title "$(t "Tarefas (Cron)" "Tasks (Cron)")" --msgbox "$(t "O arquivo de agendamentos abrirá agora.\n\nPara alterar a hora de um backup, modifique APENAS os números das DUAS PRIMEIRAS colunas (Minuto e Hora).\n\nSalve com: CTRL+O, ENTER, e CTRL+X." "The schedule file will open now.\n\nTo change time, edit ONLY the first two columns (Minute and Hour).\n\nSave with: CTRL+O, ENTER, and CTRL+X.")" 15 76 || true
+    whiptail --title "$(t "Tarefas (Cron)" "Tasks (Cron)")" --msgbox "$(t "O arquivo de agendamentos abrirá agora.\n\nAltere apenas os números das DUAS PRIMEIRAS colunas (Minuto e Hora).\n\nSalve com: CTRL+O, ENTER, e CTRL+X." "The schedule file will open.\n\nEdit only the first two columns (Minute and Hour).\n\nSave with: CTRL+O, ENTER, and CTRL+X.")" 15 76 || true
     nano /etc/cron.d/koha_tasks
     systemctl restart cron
     chmod 644 /etc/cron.d/koha_tasks 2>/dev/null || true
@@ -1160,13 +1172,13 @@ funcao_configurar_relogio() {
 funcao_central_seguranca() {
     while true; do
         SEC_OPCAO=$(whiptail --title "$(t "Segurança" "Security")" \
-        --menu "$(t "Ações:" "Actions:")" 16 76 4 \
+        --cancel-button "$(t "Voltar" "Back")" \
+        --menu "$(t "Ações:" "Actions:")" 16 76 3 \
         "1" "$(t "Status Fail2ban" "Fail2ban Status")" \
         "2" "$(t "Firewall Staff (8080)" "Staff Firewall")" \
-        "3" "$(t "Rotacionar Senha do Banco" "Rotate Database Password")" \
-        "4" "$(t "Voltar" "Back")" 3>&1 1>&2 2>&3) || true
+        "3" "$(t "Rotacionar Senha do Banco" "Rotate Database Password")" 3>&1 1>&2 2>&3) || true
 
-        if [ -z "$SEC_OPCAO" ] || [ "$SEC_OPCAO" = "4" ]; then return 0; fi
+        if [ -z "$SEC_OPCAO" ]; then return 0; fi
 
         case $SEC_OPCAO in
             1)
@@ -1257,10 +1269,21 @@ funcao_alternar_plugins() {
 }
 
 # ======================================================================
+# 22. REINICIAR SERVIDOR
+# ======================================================================
+funcao_reiniciar_servidor() {
+    if whiptail --title "$(t "Reiniciar Servidor" "Reboot Server")" --yesno "$(t "Tem certeza que deseja reiniciar o servidor agora? Todas as conexões serão perdidas." "Are you sure you want to reboot the server now? All connections will be lost.")" 10 70; then
+        clear
+        echo -e "\e[1;32m$(t "Reiniciando o sistema..." "Rebooting system...")\e[0m"
+        sleep 2
+        reboot
+    fi
+}
+
+# ======================================================================
 # MENU PRINCIPAL / MAIN INTERACTIVE MENU
 # ======================================================================
 while true; do
-    OPCAO=""
     OPCAO=$(whiptail --title "Koha Easy Install - $(t "Painel de Controle" "Control Dashboard")" \
     --cancel-button "$(t "Sair" "Exit")" \
     --menu "$(t "Escolha uma opção:" "Choose an option:")" 22 76 13 \
@@ -1285,10 +1308,11 @@ while true; do
     "19" "$(t "Status Detalhado dos Serviços" "Detailed Services Status")" \
     "20" "$(t "Reparar / Reconstruir Indexação" "Repair / Rebuild Indexing")" \
     "21" "$(t "Habilitar / Desabilitar Plugins" "Enable / Disable Plugins")" \
-    "22" "$(t "Sair" "Exit")" 3>&1 1>&2 2>&3) || true
+    "22" "$(t "Reiniciar Servidor" "Reboot Server")" \
+    "23" "$(t "Sair" "Exit")" 3>&1 1>&2 2>&3) || true
 
-    # Se clicar em Cancel ou Sair, finaliza o script limpo
-    if [ -z "$OPCAO" ] || [ "$OPCAO" = "22" ]; then
+    # Se clicar em Sair ou pressionar ESC no menu principal, o script encerra lindamente
+    if [ -z "$OPCAO" ] || [ "$OPCAO" = "23" ]; then
         clear
         exit 0
     fi
@@ -1333,5 +1357,6 @@ while true; do
             ;;
         20) funcao_reparar_indexacao ;;
         21) funcao_alternar_plugins ;;
+        22) funcao_reiniciar_servidor ;;
     esac
 done
