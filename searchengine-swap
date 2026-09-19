@@ -1,1 +1,289 @@
 
+#!/bin/bash
+# ======================================================================
+# MÓDULO REMOTO: MOTOR DE BUSCA (ZEBRA / ELASTICSEARCH)
+# ======================================================================
+INSTANCIA_KOHA="library"
+KOHA_CONF="/etc/koha/sites/${INSTANCIA_KOHA}/koha-conf.xml"
+
+xml_set_elasticsearch() {
+    local ACAO="$1"
+    local CONF="$KOHA_CONF"
+
+    python3 - "$ACAO" "$CONF" << 'PYEOF'
+import re
+import sys
+
+acao, path = sys.argv[1], sys.argv[2]
+
+with open(path, "r") as f:
+    text = f.read()
+
+partes = re.split(r"(<!--.*?-->)", text, flags=re.DOTALL)
+for i, p in enumerate(partes):
+    if not p.startswith("<!--"):
+        partes[i] = re.sub(r"[ \t]*<elasticsearch>.*?</elasticsearch>[ \t]*\n?", "", p, flags=re.DOTALL)
+text = "".join(partes)
+
+if acao == "inserir":
+    es_block = (
+        "  <elasticsearch>\n"
+        "    <server>127.0.0.1:9200</server>\n"
+        "    <index_name>koha_library</index_name>\n"
+        "  </elasticsearch>\n"
+    )
+    if "</config>" not in text:
+        sys.exit("ERRO: tag </config> nao encontrada em koha-conf.xml")
+    text = text.replace("</config>", es_block + "</config>", 1)
+
+with open(path, "w") as f:
+    f.write(text)
+PYEOF
+}
+
+koha_es_ativo_no_xml() { grep -q "<elasticsearch>" "$KOHA_CONF" 2>/dev/null; }
+
+koha_broker_preparar() {
+    if ! dpkg -s rabbitmq-server >/dev/null 2>&1; then apt_instalar_com_retry rabbitmq-server || return 1; fi
+    rabbitmq-plugins enable rabbitmq_stomp >/dev/null 2>&1 || true
+    systemctl enable --now rabbitmq-server >/dev/null 2>&1 || true
+    return 0
+}
+
+koha_es_worker_path() {
+    local p
+    for p in /usr/share/koha/bin/workers/es_indexer_daemon.pl /usr/share/koha/bin/workers/background_jobs_worker.pl; do
+        [ -f "$p" ] && { echo "$p"; return 0; }
+    done
+    p=$(find /usr/share/koha -name 'es_indexer_daemon.pl' 2>/dev/null | head -n 1)
+    [ -n "$p" ] && { echo "$p"; return 0; }
+    return 1
+}
+
+koha_instalar_servico_indexador() {
+    local inst="${1:-$INSTANCIA_KOHA}"; local db="koha_${inst}"; local worker cmd
+    local unit_file="/etc/systemd/system/koha-es-indexer@.service"
+    local watchdog="/usr/local/bin/koha-es-watchdog.sh"
+    local cron_watchdog="/etc/cron.d/koha_es_watchdog"
+
+    worker=$(koha_es_worker_path) || return 1
+    if [[ "$worker" == *background_jobs_worker.pl ]]; then cmd="/usr/bin/perl ${worker} --queue elastic_index"; else cmd="/usr/bin/perl ${worker}"; fi
+
+    cat > "$unit_file" << EOF
+[Unit]
+Description=Koha Elasticsearch indexer daemon (%i)
+After=network-online.target mariadb.service elasticsearch.service memcached.service koha-common.service
+
+[Service]
+Type=simple
+ExecStartPre=-/usr/sbin/koha-es-indexer --stop --quiet %i
+ExecStart=/usr/sbin/koha-shell %i -c "${cmd}"
+Restart=always
+RestartSec=10
+SyslogIdentifier=koha-es-indexer-%i
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    cat > "$watchdog" << EOF
+#!/bin/bash
+INSTANCIA="\${1:-$inst}"
+DB="koha_\${INSTANCIA}"
+UNIT="koha-es-indexer@\${INSTANCIA}"
+
+grep -q "<elasticsearch>" "/etc/koha/sites/\${INSTANCIA}/koha-conf.xml" 2>/dev/null || exit 0
+/usr/sbin/koha-es-indexer --stop --quiet "\$INSTANCIA" >/dev/null 2>&1
+
+if ! systemctl is-active --quiet "\$UNIT"; then
+    systemctl restart "\$UNIT"
+    exit 0
+fi
+
+PEND=\$(mysql -Nse "SELECT COUNT(*) FROM \${DB}.background_jobs WHERE type='update_elastic_index' AND status='new' AND enqueued_on < DATE_SUB(NOW(), INTERVAL 5 MINUTE);" 2>/dev/null || echo 0)
+if [ "\${PEND:-0}" -gt 0 ]; then systemctl restart "\$UNIT"; fi
+EOF
+    chmod 755 "$watchdog"
+
+    cat > "$cron_watchdog" << EOF
+*/5 * * * * root ${watchdog} ${inst} >/dev/null 2>&1
+EOF
+    chmod 644 "$cron_watchdog"
+    systemctl restart cron >/dev/null 2>&1 || true
+    systemctl daemon-reload
+    systemctl enable "koha-es-indexer@${inst}" >/dev/null 2>&1
+    return 0
+}
+
+koha_indexadores_gerenciar() {
+    local ACAO="$1"; local inst="${INSTANCIA_KOHA:-library}"
+    if [ "$ACAO" = "start" ]; then
+        koha-worker --start "$inst" >/dev/null 2>&1 || true
+        koha-worker --start --queue long_tasks "$inst" >/dev/null 2>&1 || true
+        if dpkg -s koha-elasticsearch >/dev/null 2>&1 && koha_es_ativo_no_xml; then
+            koha_instalar_servico_indexador "$inst" || return 1
+            systemctl restart "koha-es-indexer@${inst}" >/dev/null 2>&1 || true
+            systemctl restart memcached >/dev/null 2>&1 || true
+        fi
+    else
+        systemctl disable --now "koha-es-indexer@${inst}" >/dev/null 2>&1 || true
+        koha-es-indexer --stop --quiet "$inst" >/dev/null 2>&1 || true
+        rm -f /etc/cron.d/koha_es_watchdog
+        systemctl restart cron >/dev/null 2>&1 || true
+    fi
+    return 0
+}
+
+funcao_alternar_motor_busca() {
+    if ! mysql -Nse "SELECT 1 FROM information_schema.tables WHERE table_schema='koha_library' AND table_name='systempreferences';" 2>/dev/null | grep -q 1; then
+        whiptail --title "$(t "Aviso" "Warning")" --msgbox "$(t "Conclua o Web Installer primeiro." "Complete the Web Installer first.")" 10 70
+        return
+    fi
+
+    MOTOR_ATUAL=$(mysql -N -e "SELECT value FROM koha_library.systempreferences WHERE variable='SearchEngine';" 2>/dev/null || echo "Zebra")
+
+    if [ "$MOTOR_ATUAL" = "Elasticsearch" ]; then
+        if whiptail --title "$(t "Motor de Busca" "Search Engine")" --yesno "$(t "Motor atual: ELASTICSEARCH.\nDeseja voltar para o ZEBRA (Economiza ~1.5GB de RAM)?" "Current engine: ELASTICSEARCH.\nSwitch back to ZEBRA (Saves ~1.5GB RAM)?")" 10 72; then
+            clear
+            caixa_explicacao "Parando os indexadores do Elasticsearch..." "Stopping Elasticsearch indexers..."
+            koha_indexadores_gerenciar stop || true
+            systemctl stop elasticsearch 2>/dev/null || true
+            systemctl disable elasticsearch 2>/dev/null || true
+
+            caixa_explicacao "Ajustando configurações para Zebra..." "Configuring Zebra settings..."
+            xml_set_elasticsearch remover || return
+            mysql -e "UPDATE koha_library.systempreferences SET value='Zebra' WHERE variable='SearchEngine';"
+
+            caixa_explicacao "Limpando travas residuais do Zebra..." "Cleaning residual Zebra locks..."
+            koha-zebra --stop library 2>/dev/null || true
+            killall -9 zebrasrv 2>/dev/null || true
+            rm -f /var/lock/koha/library/rebuild/rebuild..LCK
+            rm -f /var/run/koha/library/zebrasrv.pid 2>/dev/null || true
+            chown -R library-koha:library-koha /var/lib/koha/library/biblios /var/lib/koha/library/authorities /var/lock/koha/library 2>/dev/null || true
+            chmod -R 755 /var/lib/koha/library/biblios /var/lib/koha/library/authorities 2>/dev/null || true
+
+            koha-zebra --start library 2>/dev/null || true
+
+            cat << 'EOF' > /etc/cron.d/koha_zebra_queue
+# Indexação incremental da fila do Zebra (a cada 2 minutos)
+*/2 * * * * root koha-shell library -c "/usr/share/koha/bin/migration_tools/rebuild_zebra.pl -b -a -z" >/dev/null 2>&1
+EOF
+            chmod 644 /etc/cron.d/koha_zebra_queue
+            systemctl restart cron
+
+            caixa_explicacao "Limpando cache de preferências (Memcached)..." "Flushing system preferences cache (Memcached)..."
+            systemctl restart memcached koha-common
+            koha-plack --restart library
+
+            caixa_explicacao "Reindexando acervo completo para o Zebra..." "Reindexing entire catalog into Zebra..."
+            koha-rebuild-zebra -f -v -b -a -r library || true
+
+            whiptail --title "$(t "Sucesso" "Success")" --msgbox "$(t "Sistema operando com ZEBRA!\nO cronjob incremental foi reativado para indexação automática." "System running on ZEBRA!\nIncremental cronjob re-enabled.")" 10 74
+        fi
+    else
+        if whiptail --title "$(t "Motor de Busca" "Search Engine")" --yesno "$(t "Motor atual: ZEBRA.\nDeseja ativar o ELASTICSEARCH (Busca avançada e Facetas dinâmicas)?" "Current engine: ZEBRA.\nEnable ELASTICSEARCH (Advanced search and dynamic facets)?")" 11 72; then
+            clear
+
+            caixa_explicacao "Desativando o Zebra e rotinas de fila..." "Disabling Zebra and queue jobs..."
+            rm -f /etc/cron.d/koha_zebra_queue
+            systemctl restart cron
+            koha-zebra --stop library 2>/dev/null || true
+            killall -9 zebrasrv 2>/dev/null || true
+
+            caixa_explicacao "Instalando Elasticsearch..." "Installing Elasticsearch..."
+            if ! dpkg -s koha-elasticsearch >/dev/null 2>&1; then
+                apt-get update -y >/dev/null 2>&1 || true
+                apt_instalar_com_retry elasticsearch koha-elasticsearch || return
+            fi
+
+            caixa_explicacao "Ajustando configuração e memória do Elasticsearch..." "Tuning Elasticsearch configuration and memory..."
+            mkdir -p /etc/elasticsearch/jvm.options.d
+            cat << 'JVMEOF' > /etc/elasticsearch/jvm.options.d/koha.options
+-Xms1g
+-Xmx1g
+JVMEOF
+
+            grep -q "^discovery.type: single-node" /etc/elasticsearch/elasticsearch.yml 2>/dev/null || echo "discovery.type: single-node" >> /etc/elasticsearch/elasticsearch.yml
+            grep -q "^network.host: 127.0.0.1" /etc/elasticsearch/elasticsearch.yml 2>/dev/null || echo "network.host: 127.0.0.1" >> /etc/elasticsearch/elasticsearch.yml
+            /usr/share/elasticsearch/bin/elasticsearch-plugin install --batch analysis-icu 2>/dev/null || true
+
+            caixa_explicacao "Iniciando e aguardando serviço do Elasticsearch..." "Starting and waiting for Elasticsearch service..."
+            systemctl daemon-reload
+            systemctl enable --now elasticsearch
+
+            ES_OK=false
+            for i in {1..45}; do
+                if curl -s http://127.0.0.1:9200 >/dev/null 2>&1; then ES_OK=true; break; fi
+                sleep 1
+            done
+
+            if [ "$ES_OK" = false ]; then
+                whiptail --title "$(t "Erro" "Error")" --msgbox "$(t "Elasticsearch não subiu na porta 9200. Verifique espaço em disco e os logs." "Elasticsearch failed to start on port 9200. Check disk space and logs.")" 10 74
+                systemctl stop elasticsearch 2>/dev/null || true
+                systemctl disable elasticsearch 2>/dev/null || true
+                return
+            fi
+
+            caixa_explicacao "Inserindo bloco <elasticsearch> no koha-conf.xml..." "Inserting <elasticsearch> block into koha-conf.xml..."
+            xml_set_elasticsearch inserir || return
+
+            mysql -e "UPDATE koha_library.systempreferences SET value='Elasticsearch' WHERE variable='SearchEngine';"
+            
+            caixa_explicacao "Limpando cache de preferências (Memcached)..." "Flushing system preferences cache (Memcached)..."
+            systemctl restart memcached
+
+            caixa_explicacao "Preparando mensageria dos jobs (RabbitMQ + STOMP)..." "Preparing background job broker (RabbitMQ + STOMP)..."
+            koha_broker_preparar || true
+            curl -s -X DELETE 'localhost:9200/koha_library_biblios' >/dev/null 2>&1 || true
+            curl -s -X DELETE 'localhost:9200/koha_library_authorities' >/dev/null 2>&1 || true
+
+            caixa_explicacao "Reiniciando o Koha já com o Elasticsearch declarado..." "Restarting Koha with Elasticsearch declared..."
+            systemctl restart koha-common
+            koha_indexadores_gerenciar start
+
+            caixa_explicacao "Reindexando acervo para o Elasticsearch..." "Reindexing catalog into Elasticsearch..."
+            TS_REBUILD=$(date '+%Y-%m-%d %H:%M:%S')
+            koha-elasticsearch --rebuild -d library || true
+            mysql -e "UPDATE koha_library.background_jobs SET status='cancelled' WHERE type='update_elastic_index' AND status='new' AND enqueued_on < '$TS_REBUILD';" 2>/dev/null || true
+
+            koha-plack --restart library
+            whiptail --title "$(t "Sucesso" "Success")" --msgbox "$(t "Sistema operando com ELASTICSEARCH!\nIndexador contínuo Systemd ativo." "System is now running on ELASTICSEARCH!")" 10 78
+        fi
+    fi
+}
+
+funcao_reparar_indexacao() {
+    MOTOR=$(obter_motor_busca)
+    if [ "$MOTOR" = "Elasticsearch" ]; then
+        if whiptail --title "$(t "Reparar Elasticsearch" "Repair Elasticsearch")" --yesno "$(t "O motor atual é o ELASTICSEARCH.\nDeseja reiniciar o daemon e reconstruir os índices?" "Current engine is ELASTICSEARCH.\nRestart daemon and rebuild indices?")" 10 70; then
+            clear
+            caixa_explicacao "Reparando serviços do Elasticsearch..." "Repairing Elasticsearch services..."
+            koha_broker_preparar || true
+            systemctl restart memcached koha-common
+            koha_indexadores_gerenciar start
+            koha-plack --restart library
+            caixa_explicacao "Reconstruindo índice do zero para o Elasticsearch..." "Rebuilding entire index for Elasticsearch..."
+            koha-elasticsearch --rebuild -d library || true
+            whiptail --title "$(t "Concluído" "Done")" --msgbox "$(t "Reparo finalizado e índice reconstruído." "Repair finished and index rebuilt.")" 8 60
+        fi
+    else
+        if whiptail --title "$(t "Reparar Zebra" "Repair Zebra")" --yesno "$(t "O motor atual é o ZEBRA.\nDeseja destravar o daemon e reconstruir os índices do zero?" "Current engine is ZEBRA.\nUnlock daemon and rebuild indices?")" 10 70; then
+            clear
+            caixa_explicacao "Reparando e destravando serviços do Zebra..." "Repairing and unlocking Zebra services..."
+            koha-zebra --stop library 2>/dev/null || true
+            killall -9 zebrasrv 2>/dev/null || true
+            rm -f /var/lock/koha/library/rebuild/rebuild..LCK
+            rm -f /var/run/koha/library/zebrasrv.pid 2>/dev/null || true
+            chown -R library-koha:library-koha /var/lib/koha/library/biblios /var/lib/koha/library/authorities /var/lock/koha/library 2>/dev/null || true
+            chmod -R 755 /var/lib/koha/library/biblios /var/lib/koha/library/authorities 2>/dev/null || true
+            
+            koha-zebra --start library 2>/dev/null || true
+            systemctl restart memcached koha-common
+            
+            caixa_explicacao "Sincronizando acervo com o Zebra (Rebuild Completo)..." "Synchronizing catalog with Zebra (Full Rebuild)..."
+            koha-rebuild-zebra -f -v -b -a -r library || true
+            koha-plack --restart library
+            whiptail --title "$(t "Concluído" "Done")" --msgbox "$(t "Zebra destravado e banco de dados sincronizado." "Zebra unlocked and database synchronized.")" 8 60
+        fi
+    fi
+}
