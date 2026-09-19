@@ -983,34 +983,25 @@ EOF
 }
 
 # ======================================================================
-# 8. CONFIGURAR NUVEM (RCLONE OTIMIZADO PARA TERMINAL)
+# 8. CONFIGURAR NUVEM (RCLONE OFICIAL)
 # ======================================================================
 funcao_configurar_rclone() {
-    ESCOLHA=$(whiptail --title "$(t "Backup em Nuvem" "Cloud Backup")" \
-    --cancel-button "$(t "Voltar" "Back")" \
-    --menu "$(t "Como deseja configurar o envio automático de Backups?" "How do you want to configure auto cloud backups?")" 15 76 2 \
-    "1" "$(t "Expresso (Apenas Google Drive)" "Express (Google Drive only)")" \
-    "2" "$(t "Manual (Dropbox, AWS, Outras Nuvens)" "Manual (Dropbox, AWS, Other clouds)")" 3>&1 1>&2 2>&3) || true
-
-    [ -z "$ESCOLHA" ] && return 0
-
-    if [ "$ESCOLHA" = "1" ]; then
-        whiptail --title "Google Drive Expresso" --msgbox "$(t "INSTRUÇÕES:\n1. O script vai abrir o terminal puro.\n2. Ele vai gerar um link de autorização.\n3. Copie o link e abra no navegador do seu computador.\n4. Autorize o Google e cole o 'Código de Verificação' de volta aqui." "INSTRUCTIONS:\n1. The script will open the terminal.\n2. It will generate an auth link.\n3. Copy the link and open it in your browser.\n4. Authorize Google and paste the 'Verification Code' back here.")" 15 74 || true
-        clear
-        echo -e "\e[1;36m$(t "Iniciando configuração expressa do Google Drive..." "Starting express Google Drive setup...")\e[0m\n"
-        
-        # Roda o rclone em modo interativo direto no terminal
-        rclone config create gdrive drive config_is_local false || true
-        
-        echo -e "\n\e[1;32m$(t "Pressione [ENTER] para voltar ao painel de controle..." "Press [ENTER] to return to the control panel...")\e[0m"
-        read -r
-        
-        NOME_CONEXAO="gdrive"
-    else
-        clear
-        rclone config
-        NOME_CONEXAO=$(whiptail --title "$(t "Nome da Conexão" "Remote Name")" --inputbox "$(t "Digite o NOME EXATO que você acabou de criar no Rclone:" "Enter the EXACT NAME you just created in Rclone:")" 10 70 3>&1 1>&2 2>&3) || true
+    local texto_instrucoes=$(t "O Google mudou as regras de segurança recentemente.\nNão é mais possível apenas clicar num link.\n\nPASSO A PASSO:\n1. O terminal vai abrir. Digite 'n' (New remote) e chame de: gdrive\n2. Escolha o número do 'Google Drive' (geralmente 18 ou 19)\n3. Deixe Client ID e Secret em branco (dê Enter)\n4. Escolha '1' (Full access)\n5. Na pergunta 'Use auto config?', digite 'n' (Não).\n\nO Rclone vai mandar você rodar um comando (rclone authorize...) no SEU computador pessoal. Você roda lá e cola o token gigante de volta aqui." "Google changed security rules...\n...")
+    
+    if ! whiptail --title "$(t "Atenção: Google Drive" "Warning: Google Drive")" --msgbox "$texto_instrucoes" 18 76; then
+        return 0
     fi
+
+    clear
+    echo -e "\e[1;36m$(t "=== ASSISTENTE DE NUVEM ===" "=== CLOUD SETUP ===")\e[0m\n"
+    
+    # Chama o configurador oficial e interativo do rclone no terminal
+    rclone config
+    
+    echo -e "\n\e[1;32m$(t "Pressione [ENTER] para continuar..." "Press [ENTER] to continue...")\e[0m"
+    read -r
+
+    NOME_CONEXAO=$(whiptail --title "$(t "Nome da Conexão" "Remote Name")" --inputbox "$(t "Digite o NOME EXATO que você acabou de criar no Rclone (Padrão: gdrive):" "Enter the EXACT NAME you just created in Rclone:")" 10 70 "gdrive" 3>&1 1>&2 2>&3) || true
 
     if [ -n "$NOME_CONEXAO" ]; then
         if rclone mkdir "$NOME_CONEXAO:Backup_SQL_Koha" 2>/dev/null; then
@@ -1018,11 +1009,10 @@ funcao_configurar_rclone() {
             sed -i "s|RCLONE_REMOTE=\".*\"|RCLONE_REMOTE=\"$NOME_CONEXAO\"|g" /root/backup_marc.sh 2>/dev/null || true
             whiptail --title "$(t "Sucesso" "Success")" --msgbox "$(t "Nuvem ativada! Backups serão enviados para a pasta: $NOME_CONEXAO" "Cloud activated! Backups will be sent to: $NOME_CONEXAO")" 8 70 || true
         else
-            whiptail --title "$(t "Erro" "Error")" --msgbox "$(t "A conexão com a nuvem falhou ou não foi autorizada." "Cloud connection failed or was not authorized.")" 8 68 || true
+            whiptail --title "$(t "Erro" "Error")" --msgbox "$(t "A conexão falhou. O rclone não conseguiu criar a pasta lá na nuvem." "Cloud connection failed. Rclone could not create the folder.")" 8 68 || true
         fi
     fi
 }
-
 # ======================================================================
 # 9. GERENCIADOR DE CRONJOBS DIDÁTICO
 # ======================================================================
