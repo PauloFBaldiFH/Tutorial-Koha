@@ -989,19 +989,21 @@ funcao_configurar_rclone() {
     ESCOLHA=$(whiptail --title "$(t "Backup em Nuvem" "Cloud Backup")" \
     --cancel-button "$(t "Voltar" "Back")" \
     --menu "$(t "Como deseja configurar o envio automático de Backups?" "How do you want to configure auto cloud backups?")" 15 76 2 \
-    "1" "$(t "Expresso (Google Drive - Gera link direto no terminal)" "Express (Google Drive - Generates link in terminal)")" \
+    "1" "$(t "Expresso (Google Drive - Cola o código no terminal)" "Express (Google Drive - Paste code in terminal)")" \
     "2" "$(t "Manual (Assistente completo do Rclone)" "Manual (Full Rclone Assistant)")" 3>&1 1>&2 2>&3) || true
 
     [ -z "$ESCOLHA" ] && return 0
 
     if [ "$ESCOLHA" = "1" ]; then
-        whiptail --title "Google Drive Expresso" --msgbox "$(t "INSTRUÇÕES:\n1. O terminal vai abrir o assistente da Google.\n2. Copie o link gerado, abra no navegador do seu PC e autorize.\n3. Cole o 'Código de Verificação' de volta aqui no terminal.\n4. Ao terminar, pressione [ENTER] para continuar." "INSTRUCTIONS:\n1. The terminal will open Google's assistant.\n2. Copy the link, open it in your browser and authorize.\n3. Paste the 'Verification Code' back here.\n4. Press [ENTER] when done.")" 18 74 || true
+        whiptail --title "Google Drive Expresso" --msgbox "$(t "INSTRUÇÕES:\n1. O terminal vai gerar um link grande.\n2. Copie o link, abra no navegador do seu PC e faça login.\n3. O Google dará um 'Código de Verificação'.\n4. Copie o código e cole de volta aqui no terminal." "INSTRUCTIONS:\n1. The terminal will generate a long link.\n2. Copy and open it in your browser to login.\n3. Google will provide a 'Verification Code'.\n4. Paste it back here.")" 16 74 || true
         clear
         echo -e "\e[1;36m$(t "Iniciando configuração expressa do Google Drive..." "Starting express Google Drive setup...")\e[0m\n"
         
-        # Remove configuração antiga e chama o assistente interativo correto
-        rclone config disconnect gdrive >/dev/null 2>&1 || true
-        rclone config create gdrive drive || true
+        # Remove configuração anterior se houver
+        rclone config delete gdrive >/dev/null 2>&1 || true
+        
+        # Roda o comando expresso forçando o fluxo correto para SSH
+        rclone config create gdrive drive config_is_local false
         
         echo -e "\n\e[1;32m$(t "Pressione [ENTER] para retornar ao painel..." "Press [ENTER] to return to the panel...")\e[0m"
         read -r
