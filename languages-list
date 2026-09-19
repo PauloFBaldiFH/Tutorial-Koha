@@ -1,0 +1,100 @@
+funcao_instalar_idiomas() {
+    IDIOMA_SELECIONADO=$(whiptail --title "$(t "Idiomas do Koha" "Koha Languages")" \
+    --menu "$(t "Selecione o pacote de idioma para download e instalação:" "Select the language package to download and install:")" 22 76 13 \
+    "am-Ethi"     "Amharic (Ethiopia)" \
+    "ar-Arab"     "Arabic" \
+    "as-IN"       "Assamese (India)" \
+    "az-AZ"       "Azerbaijani" \
+    "be-BY"       "Belarusian" \
+    "bg-Cyrl"     "Bulgarian" \
+    "bn-IN"       "Bengali (India)" \
+    "bo-CN"       "Tibetan (China)" \
+    "ca-ES"       "Catalan (Spain)" \
+    "cs-CZ"       "Czech" \
+    "cy-GB"       "Welsh" \
+    "da-DK"       "Danish" \
+    "de-CH"       "German (Switzerland)" \
+    "de-DE"       "German (Germany)" \
+    "dz"          "Dzongkha" \
+    "el-GR"       "Greek" \
+    "en-GB"       "English (United Kingdom)" \
+    "en-NZ"       "English (New Zealand)" \
+    "eo"          "Esperanto" \
+    "es-ES"       "Spanish (Spain)" \
+    "et"          "Estonian" \
+    "eu"          "Basque" \
+    "fa-Arab"     "Persian" \
+    "fi-FI"       "Finnish" \
+    "fo-FO"       "Faroese" \
+    "fr-CA"       "French (Canada)" \
+    "fr-FR"       "French (France)" \
+    "ga"          "Irish" \
+    "gd"          "Scottish Gaelic" \
+    "gl"          "Galician" \
+    "he-Hebr"     "Hebrew" \
+    "hi"          "Hindi" \
+    "hr-HR"       "Croatian" \
+    "hu-HU"       "Hungarian" \
+    "hy-Armn"     "Armenian" \
+    "hyw-Armn"    "Western Armenian" \
+    "ia"          "Interlingua" \
+    "id-ID"       "Indonesian" \
+    "iq-CA"       "Inuktitut" \
+    "is-IS"       "Icelandic" \
+    "it-IT"       "Italian" \
+    "iu-CA"       "Inuktitut (Canada)" \
+    "ja-Jpan-JP"  "Japanese" \
+    "ka"          "Georgian" \
+    "kk-KZ"       "Kazakh" \
+    "km-KH"       "Khmer" \
+    "kn-Knda"     "Kannada" \
+    "ko-Kore-KP"  "Korean" \
+    "ku-Arab"     "Kurdish" \
+    "lo-Laoo"     "Lao" \
+    "lv"          "Latvian" \
+    "mi-NZ"       "Maori" \
+    "ml"          "Malayalam" \
+    "mon"         "Mongolian" \
+    "mr"          "Marathi" \
+    "ms-MY"       "Malay" \
+    "my"          "Burmese" \
+    "nb-NO"       "Norwegian Bokmål" \
+    "ne-NE"       "Nepali" \
+    "nl-BE"       "Dutch (Belgium)" \
+    "nl-NL"       "Dutch (Netherlands)" \
+    "nn-NO"       "Norwegian Nynorsk" \
+    "oc"          "Occitan" \
+    "pbr"         "Portuguese (Brazil - Alt)" \
+    "pl-PL"       "Polish" \
+    "prs"         "Dari" \
+    "pt-BR"       "Portuguese (Brazil)" \
+    "pt-PT"       "Portuguese (Portugal)" \
+    "ro-RO"       "Romanian" \
+    "ru-RU"       "Russian" \
+    "rw-RW"       "Kinyarwanda" \
+    "sd-PK"       "Sindhi" \
+    "si"          "Sinhala" \
+    "sk-SK"       "Slovak" \
+    "sl-SI"       "Slovenian" \
+    "sq-AL"       "Albanian" \
+    "sr-Cyrl"     "Serbian (Cyrillic)" \
+    "sv-SE"       "Swedish" \
+    "sw-KE"       "Swahili" \
+    "ta-LK"       "Tamil (Sri Lanka)" \
+    "ta"          "Tamil" \
+    "te"          "Telugu" \
+    "tet"         "Tetum" \
+    "th-TH"       "Thai" \
+    "tk"          "Turkmen" \
+    "tl-PH"       "Tagalog (Philippines)" \
+    "tr-TR"       "Turkish" \
+    "tvl"         "Tuvaluan" \
+    "ty"          "Tahitian" \
+    "uk-UA"       "Ukrainian" \
+    "ur-Arab"     "Urdu" \
+    "uz"          "Uzbek" \
+    "vi-VN"       "Vietnamese" \
+    "zh-Hans-CN"  "Chinese (Simplified)" \
+    "zh-Hant-TW"  "Chinese (Traditional)" 3>&1 1>&2 2>&3)
+
+    if [ $? -ne 0 ] || [ -z "$IDIOMA_SELECIONADO" ]; then return; fi
