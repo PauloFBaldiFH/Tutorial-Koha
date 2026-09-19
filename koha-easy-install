@@ -8,6 +8,26 @@ set -e
 set -o pipefail
 
 # ======================================================================
+# ELEVAÇÃO AUTOMÁTICA DE PRIVILÉGIOS (Executado antes para preservar LANG)
+# ======================================================================
+if [ "$EUID" -ne 0 ]; then
+  echo -e "\n+-----------------------------------------------------------------------------------------+"
+  echo -e "| Privilégios de administrador (root) necessários. Digite sua senha:"
+  echo -e "+-----------------------------------------------------------------------------------------+\n"
+  
+  if [ -f "$0" ]; then
+    exec sudo bash "$0" "$@"
+  else
+    echo "ERRO: Execute como root: 'sudo bash ...'"
+    exit 1
+  fi
+fi
+
+REAL_USER="${SUDO_USER:-$USER}"
+REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
+[ -z "$REAL_HOME" ] && REAL_HOME="/home/$REAL_USER"
+
+# ======================================================================
 # DETECÇÃO AUTOMÁTICA DE IDIOMA
 # ======================================================================
 if echo "${LANG:-}" | grep -qiE "^pt"; then
@@ -25,30 +45,40 @@ t() {
 }
 
 # ======================================================================
-# ELEVAÇÃO AUTOMÁTICA DE PRIVILÉGIOS
+# IMPORTAÇÃO SEGURA DE MÓDULOS (CACHE LOCAL)
 # ======================================================================
-if [ "$EUID" -ne 0 ]; then
-  echo -e "\n+-----------------------------------------------------------------------------------------+"
-  echo -e "| $(t "Privilégios de administrador (root) necessários. Digite sua senha:" "Root privileges required. Please enter your password:")"
-  echo -e "+-----------------------------------------------------------------------------------------+\n"
-  
-  if [ -f "$0" ]; then
-    exec sudo bash "$0" "$@"
-  else
-    echo "$(t "ERRO: Execute como root: 'sudo bash ...'" "ERROR: Run with root privileges: 'sudo bash ...'")"
-    exit 1
-  fi
+MODULES_DIR="/usr/local/share/koha-easy-install"
+mkdir -p "$MODULES_DIR"
+
+baixar_modulos_remotos() {
+    local url_lang="https://raw.githubusercontent.com/PauloFBaldiFH/Tutorial-Koha/refs/heads/main/languages-list"
+    local url_search="https://raw.githubusercontent.com/PauloFBaldiFH/Tutorial-Koha/refs/heads/main/searchengine-swap"
+    
+    curl -fsSL -o "${MODULES_DIR}/languages-list.tmp" "$url_lang" && \
+    curl -fsSL -o "${MODULES_DIR}/searchengine-swap.tmp" "$url_search" && \
+    mv "${MODULES_DIR}/languages-list.tmp" "${MODULES_DIR}/languages-list" && \
+    mv "${MODULES_DIR}/searchengine-swap.tmp" "${MODULES_DIR}/searchengine-swap"
+}
+
+if [ ! -f "$MODULES_DIR/languages-list" ] || [ ! -f "$MODULES_DIR/searchengine-swap" ]; then
+    echo -e "\n$(t "Baixando módulos essenciais do GitHub pela primeira vez..." "Downloading essential GitHub modules for the first time...")"
+    baixar_modulos_remotos || { echo "$(t "Falha crítica ao baixar módulos. Verifique sua internet." "Critical failure downloading modules. Check your internet.")"; exit 1; }
 fi
 
-REAL_USER="${SUDO_USER:-$USER}"
-REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
-[ -z "$REAL_HOME" ] && REAL_HOME="/home/$REAL_USER"
+source "$MODULES_DIR/languages-list"
+source "$MODULES_DIR/searchengine-swap"
 
-# ======================================================================
-# IMPORTAÇÃO DE MÓDULOS REMOTOS DO GITHUB
-# ======================================================================
-source <(curl -s https://raw.githubusercontent.com/PauloFBaldiFH/Tutorial-Koha/refs/heads/main/languages-list)
-source <(curl -s https://raw.githubusercontent.com/PauloFBaldiFH/Tutorial-Koha/refs/heads/main/searchengine-swap)
+funcao_atualizar_modulos() {
+    clear
+    caixa_explicacao "Sincronizando módulos a partir do GitHub..." "Synchronizing modules from GitHub..."
+    if baixar_modulos_remotos; then
+        source "$MODULES_DIR/languages-list"
+        source "$MODULES_DIR/searchengine-swap"
+        whiptail --title "$(t "Sucesso" "Success")" --msgbox "$(t "Módulos atualizados com sucesso e guardados no cache local!" "Modules successfully updated and cached locally!")" 8 70 || true
+    else
+        whiptail --title "$(t "Erro" "Error")" --msgbox "$(t "Falha ao atualizar. O sistema continuará usando a versão local existente." "Update failed. System will continue using the existing local version.")" 8 76 || true
+    fi
+}
 
 # ======================================================================
 # FUNÇÕES DE INTERFACE E EXPLORADOR
@@ -983,48 +1013,76 @@ EOF
 }
 
 # ======================================================================
+# FUNÇÃO AUXILIAR: registrar e testar um remote do rclone nos backups
+# ======================================================================
+rclone_validar_e_registrar() {
+    local nome="$1"
+    if [ -z "$nome" ]; then
+        return 1
+    fi
+    if ! rclone listremotes 2>/dev/null | grep -qx "${nome}:"; then
+        whiptail --title "$(t "Erro" "Error")" --msgbox "$(t "O nome '$nome' não corresponde a nenhuma conexão configurada no rclone.\n\nConexões existentes:\n$(rclone listremotes 2>/dev/null)" "The name '$nome' does not match any configured rclone remote.\n\nExisting remotes:\n$(rclone listremotes 2>/dev/null)")" 14 74 || true
+        return 1
+    fi
+    local ERRO_MKDIR
+    ERRO_MKDIR=$(rclone mkdir "${nome}:Backup_SQL_Koha" 2>&1)
+    if [ $? -eq 0 ]; then
+        sed -i "s|[a-zA-Z0-9_-]\+:Backup_SQL_Koha|${nome}:Backup_SQL_Koha|g" /root/backup_sql.sh 2>/dev/null || true
+        sed -i "s|RCLONE_REMOTE=\".*\"|RCLONE_REMOTE=\"${nome}\"|g" /root/backup_marc.sh 2>/dev/null || true
+        whiptail --title "$(t "Sucesso" "Success")" --msgbox "$(t "Nuvem ativada! Backups serão enviados para a conexão: $nome" "Cloud activated! Backups will be sent to: $nome")" 8 70 || true
+        return 0
+    else
+        whiptail --title "$(t "Erro" "Error")" --msgbox "$(t "A conexão '$nome' existe, mas falhou ao testar (sem permissão de escrita, token expirado, ou nome de pasta inválido no provedor).\n\nDetalhe do erro do rclone:\n$ERRO_MKDIR" "The remote '$nome' exists but the test failed (no write permission, expired token, or invalid folder name at the provider).\n\nRclone error detail:\n$ERRO_MKDIR")" 16 78 || true
+        return 1
+    fi
+}
+
+# ======================================================================
 # 8. CONFIGURAR NUVEM (RCLONE - EXPRESSO OU MANUAL)
 # ======================================================================
 funcao_configurar_rclone() {
     ESCOLHA=$(whiptail --title "$(t "Backup em Nuvem" "Cloud Backup")" \
     --cancel-button "$(t "Voltar" "Back")" \
     --menu "$(t "Como deseja configurar o envio automático de Backups?" "How do you want to configure auto cloud backups?")" 15 76 2 \
-    "1" "$(t "Expresso (Google Drive - Cola o código no terminal)" "Express (Google Drive - Paste code in terminal)")" \
-    "2" "$(t "Manual (Assistente completo do Rclone)" "Manual (Full Rclone Assistant)")" 3>&1 1>&2 2>&3) || true
+    "1" "$(t "Expresso (Google Drive)" "Express (Google Drive)")" \
+    "2" "$(t "Manual (Qualquer serviço - Assistente do Rclone)" "Manual (Any service - Rclone Assistant)")" 3>&1 1>&2 2>&3) || true
 
     [ -z "$ESCOLHA" ] && return 0
 
     if [ "$ESCOLHA" = "1" ]; then
-        whiptail --title "Google Drive Expresso" --msgbox "$(t "INSTRUÇÕES:\n1. O terminal vai gerar um link grande.\n2. Copie o link, abra no navegador do seu PC e faça login.\n3. O Google dará um 'Código de Verificação'.\n4. Copie o código e cole de volta aqui no terminal." "INSTRUCTIONS:\n1. The terminal will generate a long link.\n2. Copy and open it in your browser to login.\n3. Google will provide a 'Verification Code'.\n4. Paste it back here.")" 16 74 || true
+        TEXTO_EXPRESSO=$(t "CONFIGURAÇÃO EXPRESSA (Google Drive) - PASSO A PASSO REAL:\n\n1. Daqui a pouco vai aparecer na tela um comando começando com:\n   rclone authorize \"drive\" \"...\"\n\n2. Esse comando precisa ser rodado NO SEU COMPUTADOR (não aqui no servidor) - é lá que existe navegador. Se você não tem o rclone instalado no seu PC, baixe em: https://rclone.org/downloads/\n\n3. Copie a linha inteira (com as aspas) e cole no terminal/PowerShell do seu computador. Aperte ENTER lá.\n\n4. O navegador do SEU PC vai abrir sozinho. Faça login no Google e autorize o acesso.\n\n5. O terminal do SEU PC vai mostrar um texto grande, algo como { \"access_token\":... }. Copie esse texto inteiro.\n\n6. Volte para ESTA tela (aqui no servidor) e cole esse texto quando aparecer 'config_token>'. Aperte ENTER." \
+        "EXPRESS SETUP (Google Drive) - THE REAL STEP BY STEP:\n\n1. In a moment a command will appear starting with:\n   rclone authorize \"drive\" \"...\"\n\n2. That command must be run on YOUR OWN COMPUTER (not here) - that's where a browser exists. If you don't have rclone installed locally, get it at: https://rclone.org/downloads/\n\n3. Copy the whole line (quotes included) and paste it into your computer's terminal/PowerShell. Press ENTER there.\n\n4. A browser will open by itself on YOUR PC. Log into Google and authorize access.\n\n5. Your PC's terminal will show a long text block, something like { \"access_token\":... }. Copy that whole text.\n\n6. Come back to THIS screen (server) and paste it when 'config_token>' appears. Press ENTER.")
+        
+        whiptail --title "Google Drive - Passo a Passo" --msgbox "$TEXTO_EXPRESSO" 24 78 || true
         clear
-        echo -e "\e[1;36m$(t "Iniciando configuração expressa do Google Drive..." "Starting express Google Drive setup...")\e[0m\n"
+        echo -e "\e[1;36m$(t "Aguardando o comando de autorização aparecer abaixo..." "Waiting for the authorization command to appear below...")\e[0m\n"
         
-        # Remove configuração anterior se houver
         rclone config delete gdrive >/dev/null 2>&1 || true
-        
-        # Roda o comando expresso forçando o fluxo correto para SSH
+        set +e
         rclone config create gdrive drive config_is_local false
+        RCLONE_STATUS=$?
+        set -e
+        echo ""
         
-        echo -e "\n\e[1;32m$(t "Pressione [ENTER] para retornar ao painel..." "Press [ENTER] to return to the panel...")\e[0m"
-        read -r
+        if [ $RCLONE_STATUS -ne 0 ]; then
+            whiptail --title "$(t "Erro" "Error")" --msgbox "$(t "A configuração falhou ou foi cancelada antes de terminar. Veja a saída acima no terminal para detalhes, e tente de novo." "Configuration failed or was cancelled before finishing. See the terminal output above for details, and try again.")" 10 74 || true
+            return 0
+        fi
         
-        NOME_CONEXAO="gdrive"
+        rclone_validar_e_registrar "gdrive"
+        return 0
     else
         clear
+        set +e
         rclone config
-        NOME_CONEXAO=$(whiptail --title "$(t "Nome da Conexão" "Remote Name")" --inputbox "$(t "Digite o NOME EXATO que você acabou de criar no Rclone:" "Enter the EXACT NAME you just created in Rclone:")" 10 70 3>&1 1>&2 2>&3) || true
-    fi
-
-    if [ -n "$NOME_CONEXAO" ]; then
-        if rclone mkdir "$NOME_CONEXAO:Backup_SQL_Koha" 2>/dev/null; then
-            sed -i "s|[a-zA-Z0-9_-]\+:Backup_SQL_Koha|$NOME_CONEXAO:Backup_SQL_Koha|g" /root/backup_sql.sh 2>/dev/null || true
-            sed -i "s|RCLONE_REMOTE=\".*\"|RCLONE_REMOTE=\"$NOME_CONEXAO\"|g" /root/backup_marc.sh 2>/dev/null || true
-            whiptail --title "$(t "Sucesso" "Success")" --msgbox "$(t "Nuvem ativada! Backups serão enviados para a pasta: $NOME_CONEXAO" "Cloud activated! Backups will be sent to: $NOME_CONEXAO")" 8 70 || true
-        else
-            whiptail --title "$(t "Erro" "Error")" --msgbox "$(t "A conexão com a nuvem falhou ou não foi autorizada." "Cloud connection failed or was not authorized.")" 8 68 || true
-        fi
+        set -e
+        NOME_CONEXAO=$(whiptail --title "$(t "Nome da Conexão" "Remote Name")" --inputbox "$(t "Digite o NOME EXATO que você acabou de criar no Rclone (pode ser qualquer nome que você tenha escolhido):" "Enter the EXACT NAME you just created in Rclone (any name you chose is fine):")" 10 70 3>&1 1>&2 2>&3) || true
+        rclone_validar_e_registrar "$NOME_CONEXAO"
+        return 0
     fi
 }
+
+# ======================================================================
 # 9. GERENCIADOR DE CRONJOBS DIDÁTICO
 # ======================================================================
 funcao_gerenciar_crons() {
@@ -1092,7 +1150,8 @@ EOF
     rm -f /tmp/hash_pass.pl
 
     if [ -n "$HASH" ]; then
-        mysql -e "INSERT INTO koha_library.borrowers (userid, password, surname, firstname, branchcode, categorycode, flags) VALUES ('$NOVO_USER', '$HASH', 'Admin', 'Super', '$BRANCH', '$CAT', 1);" 2>/dev/null
+        # Proteção contra injeção SQL no username
+        mysql -e "INSERT INTO koha_library.borrowers (userid, password, surname, firstname, branchcode, categorycode, flags) VALUES ('${NOVO_USER//\'/\'\'}', '$HASH', 'Admin', 'Super', '$BRANCH', '$CAT', 1);" 2>/dev/null
         whiptail --title "$(t "Sucesso" "Success")" --msgbox "$(t "Superbibliotecário criado!" "Super Librarian created!")" 8 60 || true
     fi
 }
@@ -1227,7 +1286,7 @@ funcao_atualizar_sistema() {
 }
 
 # ======================================================================
-# 21. ATIVAR / DESATIVAR PLUGINS DO KOHA
+# 21. ATIVAR / DESATIVAR PLUGINS DO KOHA (Substituído sed por Python)
 # ======================================================================
 funcao_alternar_plugins() {
     ARQUIVO_CONF="/etc/koha/sites/library/koha-conf.xml"
@@ -1240,7 +1299,13 @@ funcao_alternar_plugins() {
         if whiptail --title "$(t "Plugins do Koha" "Koha Plugins")" --yesno "$(t "Status atual: ATIVADOS.\n\nDeseja DESATIVAR os plugins do Koha?" "Current status: ENABLED.\n\nDo you want to DISABLE Koha plugins?")" 10 65; then
             clear
             caixa_explicacao "Desativando plugins do Koha..." "Disabling Koha plugins..."
-            sed -i 's/<enable_plugins>1<\/enable_plugins>/<enable_plugins>0<\/enable_plugins>/g' "$ARQUIVO_CONF"
+            python3 - "disable" "$ARQUIVO_CONF" << 'PYEOF'
+import re, sys
+path = sys.argv[2]
+with open(path, "r") as f: text = f.read()
+text = re.sub(r"<enable_plugins>\d*</enable_plugins>", "<enable_plugins>0</enable_plugins>", text)
+with open(path, "w") as f: f.write(text)
+PYEOF
             mysql -e "UPDATE koha_library.systempreferences SET value='0' WHERE variable='UseKohaPlugins';" 2>/dev/null || true
             systemctl restart memcached koha-common
             koha-plack --restart library
@@ -1250,18 +1315,19 @@ funcao_alternar_plugins() {
         if whiptail --title "$(t "Plugins do Koha" "Koha Plugins")" --yesno "$(t "Status atual: DESATIVADOS.\n\nDeseja ATIVAR os plugins do Koha?" "Current status: DISABLED.\n\nDo you want to ENABLE Koha plugins?")" 10 65; then
             clear
             caixa_explicacao "Ativando plugins do Koha..." "Enabling Koha plugins..."
-            
-            if grep -q "<enable_plugins>0</enable_plugins>" "$ARQUIVO_CONF"; then
-                sed -i 's/<enable_plugins>0<\/enable_plugins>/<enable_plugins>1<\/enable_plugins>/g' "$ARQUIVO_CONF"
-            elif ! grep -q "<enable_plugins>" "$ARQUIVO_CONF"; then
-                sed -i 's/<\/config>/  <enable_plugins>1<\/enable_plugins>\n<\/config>/g' "$ARQUIVO_CONF"
-            fi
-            
+            python3 - "enable" "$ARQUIVO_CONF" << 'PYEOF'
+import re, sys
+path = sys.argv[2]
+with open(path, "r") as f: text = f.read()
+if "<enable_plugins>" not in text:
+    text = text.replace("</config>", "  <enable_plugins>1</enable_plugins>\n</config>", 1)
+else:
+    text = re.sub(r"<enable_plugins>\d*</enable_plugins>", "<enable_plugins>1</enable_plugins>", text)
+with open(path, "w") as f: f.write(text)
+PYEOF
             mysql -e "UPDATE koha_library.systempreferences SET value='1' WHERE variable='UseKohaPlugins';" 2>/dev/null || true
-            
             mkdir -p /var/lib/koha/library/plugins
             chown -R library-koha:library-koha /var/lib/koha/library/plugins
-            
             systemctl restart memcached koha-common
             koha-plack --restart library
             whiptail --title "$(t "Sucesso" "Success")" --msgbox "$(t "Plugins ativados com sucesso!" "Plugins successfully enabled!")" 8 60 || true
@@ -1287,7 +1353,7 @@ funcao_reiniciar_servidor() {
 while true; do
     OPCAO=$(whiptail --title "Koha Easy Install - $(t "Painel de Controle" "Control Dashboard")" \
     --cancel-button "$(t "Sair" "Exit")" \
-    --menu "$(t "Escolha uma opção:" "Choose an option:")" 22 76 13 \
+    --menu "$(t "Escolha uma opção:" "Choose an option:")" 24 76 15 \
     "1"  "$(t "Instalar Servidor Koha (Zebra Padrão)" "Install Koha Server (Zebra Default)")" \
     "2"  "$(t "Ver Credenciais de Acesso" "View Stored Credentials")" \
     "3"  "$(t "Restaurar Acervo Local" "Restore Database (File Explorer)")" \
@@ -1309,11 +1375,12 @@ while true; do
     "19" "$(t "Status Detalhado dos Serviços" "Detailed Services Status")" \
     "20" "$(t "Reparar / Reconstruir Indexação" "Repair / Rebuild Indexing")" \
     "21" "$(t "Habilitar / Desabilitar Plugins" "Enable / Disable Plugins")" \
-    "22" "$(t "Reiniciar Servidor" "Reboot Server")" \
-    "23" "$(t "Sair" "Exit")" 3>&1 1>&2 2>&3) || true
+    "22" "$(t "Atualizar Módulos do GitHub" "Update GitHub Modules")" \
+    "23" "$(t "Reiniciar Servidor" "Reboot Server")" \
+    "24" "$(t "Sair" "Exit")" 3>&1 1>&2 2>&3) || true
 
     # Se clicar em Sair ou pressionar ESC no menu principal, o script encerra lindamente
-    if [ -z "$OPCAO" ] || [ "$OPCAO" = "23" ]; then
+    if [ -z "$OPCAO" ] || [ "$OPCAO" = "24" ]; then
         clear
         exit 0
     fi
@@ -1358,6 +1425,7 @@ while true; do
             ;;
         20) funcao_reparar_indexacao ;;
         21) funcao_alternar_plugins ;;
-        22) funcao_reiniciar_servidor ;;
+        22) funcao_atualizar_modulos ;;
+        23) funcao_reiniciar_servidor ;;
     esac
 done
