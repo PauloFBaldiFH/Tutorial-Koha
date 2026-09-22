@@ -961,6 +961,18 @@ rebuild_koha_elasticsearch() {
     return "$rc"
 }
 
+write_cron_zebra() {
+    cat > "$CRON_ZEBRA" << EOF
+$CRON_PATH
+# [PT] Indexação incremental do Zebra a cada 2 minutos
+# [EN] Zebra incremental indexing every 2 minutes
+*/2 * * * * root /usr/sbin/koha-shell $INSTANCE -c "/usr/share/koha/bin/cronjobs/zebraqueue_daemon.pl -m z3950" >/dev/null 2>&1
+EOF
+    chmod 644 "$CRON_ZEBRA"
+    chown root:root "$CRON_ZEBRA"
+    systemctl restart cron >/dev/null 2>&1 || true
+}
+
 validate_elasticsearch() {
     local e="$1" pend docs bibs
     if ! dpkg -s elasticsearch >/dev/null 2>&1 && ! dpkg -s koha-elasticsearch >/dev/null 2>&1; then
