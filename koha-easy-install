@@ -1230,20 +1230,39 @@ write_cron_tasks() {
 
     cat > "$CRON_TASKS" << EOF
 # ======================================================================
-# KOHA EASY INSTALL & TOOLS - TAREFAS AUTOMATICAS / SCHEDULED TASKS
+# KOHA EASY INSTALL & TOOLS - TAREFAS AUTOMÁTICAS / SCHEDULED TASKS
 # ======================================================================
-# COMO AJUSTAR A HORA / HOW TO CHANGE TIME
-# Colunas: MINUTO HORA DIA_DO_MES MES DIA_DA_SEMANA(0=domingo) usuario comando
-# Exemplo: "30 01 * * *" = todo dia as 01:30.
+# [PT] Este arquivo controla as manutenções automáticas periódicas do Koha.
+# [EN] This file controls Koha's periodic automated maintenance routines.
+#
+# Formato / Format:
+# MIN HORA DIA_MES MES DIA_SEMANA(0=domingo) USUÁRIO COMANDO
 # ======================================================================
 $CRON_PATH
 MAILTO=""
 
+# [PT] Limpeza de logs do sistema antigos (mantém os últimos 14 dias) - Diário às 00:30
+# [EN] System log cleanup (keeps last 14 days) - Daily at 00:30
 30 0 * * * root /usr/bin/journalctl --vacuum-time=14d >/dev/null 2>&1
+
+# [PT] Verificação preventiva de integridade das tabelas do banco - Dia 5 de cada mês à 01:00
+# [EN] Database table integrity check - 5th day of every month at 01:00
 0 1 5 * * root /usr/bin/mysqlcheck --check --databases ${DB_NAME} >/dev/null 2>&1
+
+# [PT] Reinicialização do acelerador Plack para liberar memória acumulada - Diário às 05:00
+# [EN] Plack accelerator restart to flush accumulated memory - Daily at 05:00
 0 5 * * * root /usr/sbin/koha-plack --restart ${INSTANCE} >/dev/null 2>&1
+
+# [PT] Backup completo do banco de dados (SQL comprimido) - Diário às 23:00
+# [EN] Full database backup (compressed SQL) - Daily at 23:00
 0 23 * * * root /bin/bash /root/backup_sql.sh >/dev/null 2>&1
+
+# [PT] Backup dos registros bibliográficos e autoridades em MARC21 - Domingos às 03:00
+# [EN] MARC21 bibliographic and authority records backup - Sundays at 03:00
 0 3 * * 0 root /bin/bash /root/backup_marc.sh >/dev/null 2>&1
+
+# [PT] Limpeza de sessões inativas e fila do Zebra - Diário às 01:30
+# [EN] Clear old user sessions and Zebra queue - Daily at 01:30
 30 1 * * * root /usr/sbin/koha-shell ${INSTANCE} -c "/usr/share/koha/bin/cronjobs/cleanup_database.pl --sessions --sessdays 2 --zebraqueue 10" >/dev/null 2>&1
 EOF
 
@@ -1251,8 +1270,14 @@ EOF
         printf '%s\n' "$email_block" >> "$CRON_TASKS"
     else
         cat >> "$CRON_TASKS" << EOF
+
 # BEGIN KOHA EMAIL NOTICES
+# [PT] Processa regras de atraso e gera notificações aos leitores - Diário às 08:00
+# [EN] Triggers overdue rules and generates patron notices - Daily at 08:00
 0 8 * * * root /usr/sbin/koha-shell ${INSTANCE} -c "/usr/share/koha/bin/cronjobs/overdue_notices.pl -v -t" >/dev/null 2>&1
+
+# [PT] Dispara os e-mails pendentes na fila de saída - Diário às 08:05
+# [EN] Dispatches pending emails from message queue - Daily at 08:05
 5 8 * * * root /usr/sbin/koha-shell ${INSTANCE} -c "/usr/share/koha/bin/cronjobs/process_message_queue.pl -v" >/dev/null 2>&1
 # END KOHA EMAIL NOTICES
 EOF
@@ -1260,16 +1285,6 @@ EOF
 
     chmod 644 "$CRON_TASKS"
     chown root:root "$CRON_TASKS"
-    systemctl restart cron >/dev/null 2>&1
-}
-
-write_cron_zebra() {
-    {
-        echo "$CRON_PATH"
-        echo "# Indexacao incremental do Zebra (a cada 2 minutos)"
-        echo "*/2 * * * * root /usr/sbin/koha-shell ${INSTANCE} -c \"/usr/share/koha/bin/migration_tools/rebuild_zebra.pl -b -a -z\" >/dev/null 2>&1"
-    } > "$CRON_ZEBRA"
-    chmod 644 "$CRON_ZEBRA"
     systemctl restart cron >/dev/null 2>&1
 }
 
@@ -2405,18 +2420,62 @@ function_configure_automatic_scp_backup() {
 # ======================================================================
 function_manage_crons() {
     [ -f "$CRON_TASKS" ] || write_cron_tasks
-    msg_info "$(t "Tarefas Agendadas" "Scheduled Tasks")" \
-"$(t "O arquivo de agendamentos vai abrir no editor nano.\n\nAltere apenas os NÚMEROS das duas primeiras colunas\n(minuto e hora). Não apague a linha PATH do topo:\nsem ela as tarefas falham em silêncio.\n\nPara salvar: CTRL+O, ENTER, depois CTRL+X." \
-"The schedule file will open in the nano editor.\n\nChange only the NUMBERS in the first two columns\n(minute and hour). Do not delete the PATH line at the top:\nwithout it the tasks fail silently.\n\nTo save: CTRL+O, ENTER, then CTRL+X.")" 16 76
-    cp -f "$CRON_TASKS" "${CRON_TASKS}.bak" 2>/dev/null
-    nano "$CRON_TASKS"
-    chmod 644 "$CRON_TASKS"
-    if ! grep -q '^PATH=' "$CRON_TASKS"; then
-        sed -i "1i $CRON_PATH" "$CRON_TASKS"
-        msg_info "$(t "Corrigido" "Fixed")" "$(t "A linha PATH tinha sido removida. Recoloquei automaticamente." "The PATH line had been removed. It was restored automatically.")" 9 70
-    fi
-    systemctl restart cron >/dev/null 2>&1
-    msg_ok "$(t "Agendamentos atualizados.\nCópia do arquivo anterior: ${CRON_TASKS}.bak" "Schedules updated.\nPrevious file copy: ${CRON_TASKS}.bak")" 9 70
+
+    while true; do
+        local cron_choice
+        cron_choice=$(whiptail --title "$(t "Cronogramas e Tarefas Agendadas" "Schedules & Scheduled Tasks")" \
+            --cancel-button "$(t "Voltar" "Back")" \
+            --menu "$(t "O serviço Cron executa tarefas de manutenção e segurança automaticamente sem interferência humana." "The Cron service runs routine maintenance and backup jobs without human intervention.")" 18 78 4 \
+            "1" "$(t "📖 Entender o que cada tarefa automática faz" "📖 Understand what each automated task does")" \
+            "2" "$(t "📋 Ver tarefas ativas e próximos horários" "📋 View active tasks and schedules")" \
+            "3" "$(t "⚙️ Restaurar/Regerar configurações padrão" "⚙️ Restore/Regenerate default schedules")" \
+            "4" "$(t "✏️ Editar horários manualmente (Avançado - nano)" "✏️ Edit schedules manually (Advanced - nano)")" \
+            3>&1 1>&2 2>&3) || return 0
+
+        [ -z "$cron_choice" ] && return 0
+
+        case "$cron_choice" in
+            1)
+                local txt_help
+                txt_help=$(t "DETALHAMENTO DAS TAREFAS AUTOMÁTICAS:\n\n" "AUTOMATED TASKS BREAKDOWN:\n\n")
+                txt_help+=$(t "• Backup do Banco de Dados (23:00 diário):\n  Gera cópia completa .sql.gz, valida integridade e sincroniza com a nuvem/SCP.\n\n" "• Database Backup (23:00 daily):\n  Generates .sql.gz archive, verifies integrity, and syncs to cloud/SCP.\n\n")
+                txt_help+=$(t "• Backup dos Registros MARC21 (Domingos às 03:00):\n  Exporta livros e autoridades em formato padronizado MARC21 intercambiável.\n\n" "• MARC21 Records Backup (Sundays at 03:00):\n  Exports catalog and authorities in standard MARC21 exchange format.\n\n")
+                txt_help+=$(t "• Limpeza de Banco e Sessões (01:30 diário):\n  Expira logins antigos para manter a navegação rápida e o banco enxuto.\n\n" "• DB & Session Cleanup (01:30 daily):\n  Purges stale web sessions keeping database and browsing responsive.\n\n")
+                txt_help+=$(t "• Manutenção do Acelerador Plack (05:00 diário):\n  Reinicia os processos em segundo plano para garantir consumo estável de RAM.\n\n" "• Plack Accelerator Maintenance (05:00 daily):\n  Flushes workers ensuring stable low memory consumption.\n\n")
+                txt_help+=$(t "• Fila de E-mails e Cobranças (08:00 e 08:05 diário):\n  Processa multas, atrasos e envia comunicados da biblioteca aos leitores.\n\n" "• Email & Circulation Notices (08:00 & 08:05 daily):\n  Generates overdue notices and dispatches pending emails to patrons.\n\n")
+                txt_help+=$(t "• Indexação Incremental do Catálogo (a cada 2 min):\n  Permite que novos livros fiquem pesquisáveis quase imediatamente no OPAC." "• Incremental Catalog Indexing (every 2 min):\n  Ensures new titles become searchable in the OPAC almost immediately.")
+
+                whiptail --title "$(t "Guia de Tarefas Automáticas" "Automated Tasks Guide")" --scrolltext --msgbox "$txt_help" 22 80 2>/dev/null || true
+                ;;
+            2)
+                local current_content
+                current_content=$(cat "$CRON_TASKS" 2>/dev/null || echo "$(t "Arquivo não encontrado." "File not found.")")
+                whiptail --title "$(t "Tarefas Ativas em /etc/cron.d/koha_tasks" "Active Tasks in /etc/cron.d/koha_tasks")" \
+                    --scrolltext --msgbox "$current_content" 24 82 2>/dev/null || true
+                ;;
+            3)
+                if prompt_yes_no "$(t "Regerar Tarefas" "Regenerate Tasks")" \
+                    "$(t "Deseja restaurar as tarefas e comentários padrão do sistema?\nIsso recriará o arquivo com a documentação bilíngue completa." "Do you want to regenerate default tasks?\nThis will recreate the file with full bilingual documentation.")" 10 74; then
+                    write_cron_tasks
+                    msg_ok "$(t "Tarefas automáticas restauradas e cron reiniciado com sucesso!" "Automated tasks restored and cron restarted successfully!")" 8 68
+                fi
+                ;;
+            4)
+                msg_info "$(t "Editor Avançado" "Advanced Editor")" \
+                    "$(t "O arquivo de agendamentos vai abrir no editor nano.\n\nAltere apenas os NÚMEROS das duas primeiras colunas (minuto e hora).\nNão apague a linha PATH do topo.\n\nPara salvar: CTRL+O, ENTER, depois CTRL+X." \
+                    "The schedule file will open in nano.\n\nChange only the NUMBERS in the first two columns (minute and hour).\nDo not delete the PATH line at the top.\n\nTo save: CTRL+O, ENTER, then CTRL+X.")" 16 76
+                cp -f "$CRON_TASKS" "${CRON_TASKS}.bak" 2>/dev/null
+                nano "$CRON_TASKS"
+                chmod 644 "$CRON_TASKS"
+                if ! grep -q '^PATH=' "$CRON_TASKS"; then
+                    sed -i "1i $CRON_PATH" "$CRON_TASKS"
+                    msg_info "$(t "Corrigido" "Fixed")" "$(t "A linha PATH tinha sido removida. Recoloquei automaticamente." "The PATH line had been removed. It was restored automatically.")" 9 70
+                fi
+                systemctl restart cron >/dev/null 2>&1
+                msg_ok "$(t "Agendamentos atualizados com sucesso.\nCópia anterior salva em: ${CRON_TASKS}.bak" "Schedules updated successfully.\nPrevious copy saved at: ${CRON_TASKS}.bak")" 9 70
+                ;;
+        esac
+    done
 }
 
 # ======================================================================
