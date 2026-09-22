@@ -3354,81 +3354,55 @@ function_about() {
 "Koha Easy Install & Tools v${PANEL_VERSION}\n\nThis project was born from real-life experience facing technical barriers in collection management. It was specifically designed for libraries lacking financial resources for proprietary systems or specialized technical support, democratizing access to robust, free, and truly accessible technology.\n\nThe goal is to help other institutions facing the same struggles.\n\nIf this initiative helped you:\n⭐ Star the repository on GitHub!\n📢 Share it with friends and colleagues.\n\nRepository: github.com/BibliotecaPalotina/koha-easy-install\n\nCreated with dedication by Paulo F. Baldi FH.\nLibrary Assistant - Castro Alves Public Library\nPalotina, Paraná, Brazil")" 22 76 2>/dev/null || true
 }
 # ======================================================================
-# MENU PRINCIPAL / MAIN MENU
+# MENU PRINCIPAL / MAIN MENU (16 OPÇÕES)
 # ======================================================================
 while true; do
     restore_apt_timers
     export NCURSES_NO_UTF8_ACS=1
-    
+
     MAIN_OPT=$(whiptail --title "Koha Easy Install & Tools v${PANEL_VERSION} - $(t "Painel de Controle" "Control Dashboard")" \
         --cancel-button "$(t "Sair" "Exit")" \
-        --menu "$(t "Selecione uma categoria:" "Select a category:")" 22 76 11 \
-        "1"  "$(t "🚀 Instalação e Configuração Base" "🚀 Installation & Base Config")" \
-        "2"  "$(t "🔐 Segurança e Credenciais" "🔐 Security & Credentials")" \
-        "3"  "$(t "💾 Backup Manual e Restauração" "💾 Manual Backup & Restore")" \
-        "4"  "$(t "☁️ Automação de Backups (Nuvem/SCP)" "☁️ Backup Automation (Cloud/SCP)")" \
-        "5"  "$(t "🔍 Motor de Busca e Indexação" "🔍 Search Engine & Indexing")" \
-        "6"  "$(t "🌐 Rede, Túneis e SSL" "🌐 Network, Tunnels & SSL")" \
-        "7"  "$(t "🤖 Integrações e Interoperabilidade" "🤖 Integrations & Interoperability")" \
-        "8"  "$(t "🛠️ Ferramentas e Diagnóstico" "🛠️ Tools & Diagnostics")" \
-        "9"  "$(t "⚙️ Manutenção do Sistema" "⚙️ System Maintenance")" \
-        "10" "$(t "🔄 Atualização e Reboot" "🔄 Update & Reboot")" \
-        "11" "$(t "ℹ️ Sobre / Sair" "ℹ️ About / Exit")" 3>&1 1>&2 2>&3) || { clear; rm -f "$PANEL_LOCK_FILE"; exit 0; }
+        --menu "$(t "Selecione uma opção:" "Select an option:")" 25 80 16 \
+        "1"  "$(t "🚀 Instalar o servidor Koha" "🚀 Install Koha server")" \
+        "2"  "$(t "🔑 Ver credenciais de primeiro acesso" "🔑 View first-access credentials")" \
+        "3"  "$(t "📥 Restaurar banco de dados" "📥 Restore database")" \
+        "4"  "$(t "💾 Central de backups" "💾 Backup center")" \
+        "5"  "$(t "🔍 Motor de busca e indexação" "🔍 Search engine & indexing")" \
+        "6"  "$(t "🌐 Publicar o sistema na internet" "🌐 Publish system to internet")" \
+        "7"  "$(t "🩺 Central de diagnóstico e manutenção" "🩺 Diagnostics & maintenance center")" \
+        "8"  "$(t "🛡️ Central de segurança" "🛡️ Security center")" \
+        "9"  "$(t "⚙️ Configurações e parâmetros do Koha" "⚙️ Koha settings & parameters")" \
+        "10" "$(t "🛠️ Ferramentas gerais" "🛠️ General tools")" \
+        "11" "$(t "⏱️ Cronogramas e tarefas agendadas" "⏱️ Schedules & cron tasks")" \
+        "12" "$(t "🌍 Idiomas do Koha" "🌍 Koha languages")" \
+        "13" "$(t "🔄 Central de atualizações" "🔄 Update center")" \
+        "14" "$(t "ℹ️ Sobre o programa e apoio" "ℹ️ About the program & support")" \
+        "15" "$(t "⚡ Reiniciar o servidor" "⚡ Reboot server")" \
+        "16" "$(t "🚪 Sair" "🚪 Exit")" 3>&1 1>&2 2>&3) || { clear; rm -f "$PANEL_LOCK_FILE"; exit 0; }
 
     case "$MAIN_OPT" in
-        1)
-            SUB_OPT=$(whiptail --title "$(t "Instalação e Configuração Base" "Installation & Base Config")" --cancel-button "$(t "Voltar" "Back")" \
-                --menu "$(t "Escolha uma opção:" "Choose an option:")" 18 76 4 \
-                "1" "$(t "Instalar o servidor Koha" "Install the Koha server")" \
-                "2" "$(t "Instalar idiomas do Koha" "Install Koha languages")" \
-                "3" "$(t "Dimensionar o servidor (memória)" "Server sizing (memory)")" \
-                "4" "$(t "Relógio e fuso horário" "Clock and timezone")" 3>&1 1>&2 2>&3) || continue
-            case "$SUB_OPT" in
-                1) function_install_koha ;;
-                2) function_install_languages ;;
-                3) function_size_server ;;
-                4) function_configure_clock ;;
-            esac
-            ;;
-        2)
-            SUB_OPT=$(whiptail --title "$(t "Segurança e Credenciais" "Security & Credentials")" --cancel-button "$(t "Voltar" "Back")" \
-                --menu "$(t "Escolha uma opção:" "Choose an option:")" 17 76 3 \
-                "1" "$(t "Ver credenciais de acesso" "View access credentials")" \
-                "2" "$(t "Criar superbibliotecário" "Create a super librarian")" \
-                "3" "$(t "Central de segurança (Fail2ban, Senha, UFW)" "Security center (Fail2ban, Password, UFW)")" 3>&1 1>&2 2>&3) || continue
-            case "$SUB_OPT" in
-                1) function_view_credentials ;;
-                2) function_create_superlibrarian ;;
-                3) function_security_center ;;
-            esac
-            ;;
-        3)
-            SUB_OPT=$(whiptail --title "$(t "Backup Manual e Restauração" "Manual Backup & Restore")" --cancel-button "$(t "Voltar" "Back")" \
-                --menu "$(t "Escolha uma opção:" "Choose an option:")" 18 76 4 \
+        1) function_install_koha ;;
+        2) function_view_credentials ;;
+        3) function_restore_database ;;
+        4)
+            SUB_OPT=$(whiptail --title "$(t "Central de Backups" "Backup Center")" --cancel-button "$(t "Voltar" "Back")" \
+                --menu "$(t "Escolha uma rotina de backup:" "Choose a backup routine:")" 19 76 5 \
                 "1" "$(t "Gerar backup manual local agora" "Generate manual local backup now")" \
                 "2" "$(t "Enviar backup via SCP manual agora" "Send manual SCP backup now")" \
-                "3" "$(t "Restaurar acervo de um backup" "Restore catalog from a backup")" \
-                "4" "$(t "Testar o último backup automático" "Test the latest automatic backup")" 3>&1 1>&2 2>&3) || continue
+                "3" "$(t "Configurar backup em nuvem (Rclone / Google Drive)" "Configure cloud backup (Rclone / Google Drive)")" \
+                "4" "$(t "Configurar envio automático via SCP" "Configure automatic SCP backup")" \
+                "5" "$(t "Testar integridade do último backup" "Test integrity of latest backup")" 3>&1 1>&2 2>&3) || continue
             case "$SUB_OPT" in
                 1) function_manual_backup ;;
                 2) function_send_manual_scp_backup ;;
-                3) function_restore_database ;;
-                4) function_test_backup ;;
-            esac
-            ;;
-        4)
-            SUB_OPT=$(whiptail --title "$(t "Automação de Backups" "Backup Automation")" --cancel-button "$(t "Voltar" "Back")" \
-                --menu "$(t "Escolha uma opção:" "Choose an option:")" 16 76 2 \
-                "1" "$(t "Configurar backup em nuvem (Rclone)" "Set up cloud backup (Rclone)")" \
-                "2" "$(t "Configurar backup automático via SCP" "Set up automatic SCP backup")" 3>&1 1>&2 2>&3) || continue
-            case "$SUB_OPT" in
-                1) function_configure_rclone ;;
-                2) function_configure_automatic_scp_backup ;;
+                3) function_configure_rclone ;;
+                4) function_configure_automatic_scp_backup ;;
+                5) function_test_backup ;;
             esac
             ;;
         5)
             SUB_OPT=$(whiptail --title "$(t "Motor de Busca e Indexação" "Search Engine & Indexing")" --cancel-button "$(t "Voltar" "Back")" \
-                --menu "$(t "Escolha uma opção:" "Choose an option:")" 16 76 2 \
+                --menu "$(t "Escolha uma ação:" "Choose an action:")" 16 76 2 \
                 "1" "$(t "Alternar motor de busca (Zebra ⇄ Elasticsearch)" "Toggle search engine (Zebra ⇄ Elasticsearch)")" \
                 "2" "$(t "Reparar / reconstruir indexação" "Repair / rebuild indexing")" 3>&1 1>&2 2>&3) || continue
             case "$SUB_OPT" in
@@ -3437,79 +3411,146 @@ while true; do
             esac
             ;;
         6)
-            SUB_OPT=$(whiptail --title "$(t "Rede, Túneis e SSL" "Network, Tunnels & SSL")" --cancel-button "$(t "Voltar" "Back")" \
-                --menu "$(t "Escolha uma opção:" "Choose an option:")" 17 76 3 \
-                "1" "$(t "Acesso externo OPAC/Staff (Cloudflare Tunnel)" "External OPAC/Staff access (Cloudflare Tunnel)")" \
+            SUB_OPT=$(whiptail --title "$(t "Publicar o Sistema na Internet" "Publish System to Internet")" --cancel-button "$(t "Voltar" "Back")" \
+                --menu "$(t "Escolha um método de publicação:" "Choose a publishing method:")" 18 76 4 \
+                "1" "$(t "Acesso externo com domínio (Cloudflare Tunnel)" "External access with domain (Cloudflare Tunnel)")" \
                 "2" "$(t "Acesso privado VPN / Funnel (Tailscale)" "Private VPN access / Funnel (Tailscale)")" \
-                "3" "$(t "Certificado SSL gratuito (Certbot/Apache)" "Free SSL certificate (Certbot/Apache)")" 3>&1 1>&2 2>&3) || continue
+                "3" "$(t "Certificado SSL gratuito (Certbot / Apache)" "Free SSL certificate (Certbot / Apache)")" \
+                "4" "$(t "Assistente do Google Search Console" "Google Search Console Assistant")" 3>&1 1>&2 2>&3) || continue
             case "$SUB_OPT" in
                 1) function_configure_cloudflare ;;
                 2) function_configure_tailscale ;;
                 3) function_configure_ssl ;;
+                4) function_google_search_console ;;
             esac
             ;;
         7)
-            SUB_OPT=$(whiptail --title "$(t "Integrações e Interoperabilidade" "Integrations & Interoperability")" --cancel-button "$(t "Voltar" "Back")" \
-                --menu "$(t "Escolha uma opção:" "Choose an option:")" 17 76 3 \
-                "1" "$(t "Configurar e-mails e avisos de cobrança" "Set up email and overdue notices")" \
-                "2" "$(t "Assistente do Google Search Console" "Google Search Console Assistant")" \
-                "3" "$(t "Ativar SIP2 e Z39.50" "Enable SIP2 and Z39.50")" 3>&1 1>&2 2>&3) || continue
+            SUB_OPT=$(whiptail --title "$(t "Central de Diagnóstico e Manutenção" "Diagnostics & Maintenance Center")" --cancel-button "$(t "Voltar" "Back")" \
+                --menu "$(t "Escolha uma ferramenta:" "Choose a tool:")" 17 76 3 \
+                "1" "$(t "Status detalhado do servidor e Koha" "Detailed server & Koha status")" \
+                "2" "$(t "Validação geral de integridade (Health Check)" "Full system health check")" \
+                "3" "$(t "Auditoria de logs do Apache em tempo real" "Real-time Apache log auditing")" 3>&1 1>&2 2>&3) || continue
             case "$SUB_OPT" in
-                1) function_configure_emails ;;
-                2) function_google_search_console ;;
-                3) function_interoperability ;;
+                1) function_detailed_status ;;
+                2) function_validate_system ;;
+                3) function_view_logs ;;
             esac
             ;;
         8)
-            SUB_OPT=$(whiptail --title "$(t "Ferramentas e Diagnóstico" "Tools & Diagnostics")" --cancel-button "$(t "Voltar" "Back")" \
-                --menu "$(t "Escolha uma opção:" "Choose an option:")" 19 76 5 \
-                "1" "$(t "Status detalhado do Servidor e Koha" "Detailed Server and Koha status")" \
-                "2" "$(t "Auditoria de Logs do Apache em Tempo Real" "Real-Time Apache Log Auditing")" \
-                "3" "$(t "Monitoramento de Recursos (Htop / Nethogs)" "Resource Monitoring (Htop / Nethogs)")" \
-                "4" "$(t "Navegador Web de Terminal (Links)" "Terminal Web Browser (Links)")" \
-                "5" "$(t "Explorador de Arquivos CLI (Midnight Commander)" "CLI File Explorer (Midnight Commander)")" 3>&1 1>&2 2>&3) || continue
+            SUB_OPT=$(whiptail --title "$(t "Central de Segurança" "Security Center")" --cancel-button "$(t "Voltar" "Back")" \
+                --menu "$(t "Escolha uma rotina de segurança:" "Choose a security routine:")" 18 76 4 \
+                "1" "$(t "Status do Fail2ban (tentativas de invasão)" "Fail2ban status (intrusion attempts)")" \
+                "2" "$(t "Firewall do Staff (restringir porta 8080)" "Staff firewall (restrict port 8080)")" \
+                "3" "$(t "Rotacionar senha do banco de dados" "Rotate database password")" \
+                "4" "$(t "Exibir regras ativas do UFW" "Show active UFW rules")" 3>&1 1>&2 2>&3) || continue
             case "$SUB_OPT" in
-                1) function_detailed_status ;;
-                2) function_view_logs ;;
-                3) function_run_monitor ;;
-                4) function_run_links ;;
-                5) function_run_mc ;;
+                1)
+                    local info=""
+                    for jail in sshd apache-auth apache-badbots; do
+                        info="${info}=== ${jail} ===\n$(fail2ban-client status "$jail" 2>/dev/null || echo "$(t "jail inativa" "jail inactive")")\n\n"
+                    done
+                    whiptail --title "Fail2ban" --scrolltext --msgbox "$(printf '%b' "$info")" 24 78 2>/dev/null || true
+                    ;;
+                2)
+                    if prompt_yes_no "$(t "Firewall do Staff" "Staff firewall")" \
+"$(t "A porta 80 (OPAC) deve ficar aberta para o público.\nA porta 8080 (administração) pode ser fechada para a internet\nse você usa Cloudflare Tunnel ou só acessa pela rede local.\n\nBLOQUEAR o acesso externo direto à 8080?" \
+"Port 80 (OPAC) must stay open to the public.\nPort 8080 (staff) can be closed to the internet if you use\nCloudflare Tunnel or only access it from the local network.\n\nBLOCK direct external access to 8080?")" 14 78; then
+                        ufw delete allow 8080/tcp >/dev/null 2>&1
+                        ufw allow from 127.0.0.1 to any port 8080 >/dev/null 2>&1
+                        ufw allow from 192.168.0.0/16 to any port 8080 >/dev/null 2>&1
+                        ufw allow from 10.0.0.0/8 to any port 8080 >/dev/null 2>&1
+                        ufw deny 8080/tcp >/dev/null 2>&1
+                        msg_ok "$(t "Porta 8080 liberada só para 127.0.0.1 e rede local." "Port 8080 now allowed only from 127.0.0.1 and the local network.")" 9 72
+                    else
+                        ufw delete deny 8080/tcp >/dev/null 2>&1
+                        ufw allow 8080/tcp >/dev/null 2>&1
+                        msg_ok "$(t "Porta 8080 aberta." "Port 8080 is open.")" 8 60
+                    fi
+                    ;;
+                3)
+                    require_koha || continue
+                    prompt_yes_no "$(t "Rotacionar Senha" "Rotate Password")" \
+"$(t "Vou gerar uma senha nova e forte para o usuário do banco,\natualizar o koha-conf.xml e reiniciar os serviços.\n\nContinuar?" \
+"A new strong password will be generated for the database user,\nkoha-conf.xml updated and services restarted.\n\nContinue?")" 12 74 || continue
+                    clear
+                    local new_pass
+                    new_pass=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 24)
+                    local xml_bak="${KOHA_CONF}.bak-$(date +%s)"
+                    cp -f "$KOHA_CONF" "$xml_bak" || {
+                        msg_error "" "$(t "Não consegui criar o backup do koha-conf.xml. A senha não foi alterada." "Could not back up koha-conf.xml. Password was not changed.")" 9 74
+                        continue
+                    }
+                    if mysql -e "ALTER USER '${DB_NAME}'@'localhost' IDENTIFIED BY '${new_pass}'; FLUSH PRIVILEGES;"; then
+                        sed -i "s|<pass>[^<]*</pass>|<pass>${new_pass}</pass>|g" "$KOHA_CONF"
+                        if ! xmllint --noout "$KOHA_CONF" >/dev/null 2>&1; then
+                            cp -f "$xml_bak" "$KOHA_CONF"
+                            mysql -e "ALTER USER '${DB_NAME}'@'localhost' IDENTIFIED BY '$(get_database_password)'; FLUSH PRIVILEGES;" >/dev/null 2>&1 || true
+                            msg_error "" "$(t "A nova senha foi desfeita porque o koha-conf.xml ficou inválido.\nNada foi reiniciado." "The new password was rolled back because koha-conf.xml became invalid.\nNothing was restarted.")" 11 76
+                            continue
+                        fi
+                        sed -i "s|Senha   / Password    : .*|Senha   / Password    : ${new_pass}|" /root/credenciais_koha.txt 2>/dev/null
+                        systemctl restart memcached koha-common >/dev/null 2>&1
+                        koha-plack --restart "$INSTANCE" >/dev/null 2>&1
+                        sleep 2
+                        if validate_http "http://127.0.0.1:8080/" "Staff" >/dev/null 2>&1; then
+                            log "senha do banco rotacionada"
+                            msg_ok "$(t "Senha rotacionada e o Koha continua respondendo.\n\nNova senha: ${new_pass}\n(salva em /root/credenciais_koha.txt)" "Password rotated and Koha still responds.\n\nNew password: ${new_pass}\n(saved in /root/credenciais_koha.txt)")" 12 74
+                        else
+                            msg_error "" "$(t "A senha mudou, mas o Koha não respondeu no teste.\nCópia do XML anterior em ${KOHA_CONF}.bak-*" "Password changed but Koha did not answer the test.\nPrevious XML copy at ${KOHA_CONF}.bak-*")" 11 76
+                        fi
+                    else
+                        msg_error "" "$(t "Falha ao alterar a senha no MariaDB. Nada foi mudado." "Failed to change the password in MariaDB. Nothing was changed.")" 9 72
+                    fi
+                    ;;
+                4) whiptail --title "UFW" --scrolltext --msgbox "$(ufw status verbose 2>/dev/null || echo 'ufw?')" 24 78 2>/dev/null || true ;;
             esac
             ;;
         9)
-            SUB_OPT=$(whiptail --title "$(t "Manutenção do Sistema" "System Maintenance")" --cancel-button "$(t "Voltar" "Back")" \
-                --menu "$(t "Escolha uma opção:" "Choose an option:")" 17 76 3 \
-                "1" "$(t "Atualizar sistema e schemas do banco" "Update system and database schemas")" \
-                "2" "$(t "Validar o sistema completo (Health Check)" "Full system validation (Health Check)")" \
-                "3" "$(t "Gerenciar tarefas agendadas (Cron)" "Manage scheduled tasks (Cron)")" 3>&1 1>&2 2>&3) || continue
+            SUB_OPT=$(whiptail --title "$(t "Configurações e Parâmetros do Koha" "Koha Settings & Parameters")" --cancel-button "$(t "Voltar" "Back")" \
+                --menu "$(t "Escolha um parâmetro:" "Choose a parameter:")" 19 76 5 \
+                "1" "$(t "Dimensionar o servidor (memória / workers)" "Server sizing (memory / workers)")" \
+                "2" "$(t "Configurar e-mails e avisos de circulação" "Configure email and circulation notices")" \
+                "3" "$(t "Criar superbibliotecário" "Create super librarian")" \
+                "4" "$(t "Ativar interoperabilidade (SIP2 e Z39.50)" "Enable interoperability (SIP2 and Z39.50)")" \
+                "5" "$(t "Relógio e fuso horário (NTP)" "Clock and timezone (NTP)")" 3>&1 1>&2 2>&3) || continue
             case "$SUB_OPT" in
-                1) function_update_system ;;
-                2) function_validate_system ;;
-                3) function_manage_crons ;;
+                1) function_size_server ;;
+                2) function_configure_emails ;;
+                3) function_create_superlibrarian ;;
+                4) function_interoperability ;;
+                5) function_configure_clock ;;
             esac
             ;;
         10)
-            SUB_OPT=$(whiptail --title "$(t "Atualização e Reboot" "Update & Reboot")" --cancel-button "$(t "Voltar" "Back")" \
-                --menu "$(t "Escolha uma opção:" "Choose an option:")" 16 76 2 \
-                "1" "$(t "Atualizar este painel via GitHub" "Update this panel via GitHub")" \
-                "2" "$(t "Reiniciar o servidor" "Reboot the server")" 3>&1 1>&2 2>&3) || continue
+            SUB_OPT=$(whiptail --title "$(t "Ferramentas Gerais" "General Tools")" --cancel-button "$(t "Voltar" "Back")" \
+                --menu "$(t "Escolha uma ferramenta:" "Choose a tool:")" 17 76 3 \
+                "1" "$(t "Monitoramento de recursos (Htop / Nethogs)" "Resource monitoring (Htop / Nethogs)")" \
+                "2" "$(t "Navegador web de terminal (Links)" "Terminal web browser (Links)")" \
+                "3" "$(t "Explorador de arquivos (Midnight Commander)" "File explorer (Midnight Commander)")" 3>&1 1>&2 2>&3) || continue
             case "$SUB_OPT" in
-                1) function_autoupdate ;;
-                2) function_reboot_server ;;
+                1) function_run_monitor ;;
+                2) function_run_links ;;
+                3) function_run_mc ;;
             esac
             ;;
-        11)
-            SUB_OPT=$(whiptail --title "$(t "Sobre / Sair" "About / Exit")" --cancel-button "$(t "Voltar" "Back")" \
-                --menu "$(t "Escolha uma opção:" "Choose an option:")" 16 76 2 \
-                "1" "$(t "Sobre o programa (GitHub / Apoio)" "About this program (GitHub / Support)")" \
-                "2" "$(t "Sair do Painel" "Exit Panel")" 3>&1 1>&2 2>&3) || continue
+        11) function_manage_crons ;;
+        12) function_install_languages ;;
+        13)
+            SUB_OPT=$(whiptail --title "$(t "Central de Atualizações" "Update Center")" --cancel-button "$(t "Voltar" "Back")" \
+                --menu "$(t "Escolha o que deseja atualizar:" "Choose what to update:")" 16 76 2 \
+                "1" "$(t "Atualizar pacotes do sistema e schemas do Koha" "Update OS packages & Koha schemas")" \
+                "2" "$(t "Atualizar este painel via GitHub" "Update this panel via GitHub")" 3>&1 1>&2 2>&3) || continue
             case "$SUB_OPT" in
-                1) function_about ;;
-                2) clear; rm -f "$PANEL_LOCK_FILE"; exit 0 ;;
+                1) function_update_system ;;
+                2) function_autoupdate ;;
             esac
             ;;
+        14) function_about ;;
+        15) function_reboot_server ;;
+        16) clear; rm -f "$PANEL_LOCK_FILE"; exit 0 ;;
     esac
     clear
 done
+
 
 
