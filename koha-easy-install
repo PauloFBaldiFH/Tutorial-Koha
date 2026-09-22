@@ -2512,23 +2512,13 @@ SQLEOF
 }
 
 # ======================================================================
-# 16. CLOUDFLARE TUNNEL / CLOUDFLARE TUNNEL
+# 16. CLOUDFLARE TUNNEL / CLOUDFLARE TUNNEL (modo local automatizado)
 # ======================================================================
 function_configure_cloudflare() {
     msg_info "$(t "Passo 1: Domínio e Nameservers" "Step 1: Domain & Nameservers")" \
-"$(t "COMO ASSOCIAR SEU DOMÍNIO À CLOUDFLARE:\n\n1. OBTENHA UM DOMÍNIO GRATUITO:\n   - Digital Plat (rápido/automático): https://domain.digitalplat.org/\n   - nic.eu.org (manual, demora de 14 a 45 dias): https://nic.eu.org\n   - Ou solicite à TI um CNAME oficial (ex: catalogo.palotina.pr.gov.br)\n\n2. ADICIONE NA CLOUDFLARE (dash.cloudflare.com):\n   - Clique em 'Add a site/domain', digite o domínio e selecione Free.\n   - A Cloudflare exibirá DOIS Nameservers (ex: vera.ns.cloudflare.com\n     e rob.ns.cloudflare.com). Copie os dois.\n\n3. ATUALIZE ONDE REGISTROU O DOMÍNIO:\n   - No Digital Plat ou nic.eu.org, vá em DNS / Nameservers.\n   - Substitua os servidores existentes pelos DOIS da Cloudflare.\n   - Na Cloudflare, clique em 'Check nameservers' até o status ficar Ativo." \
-"HOW TO LINK YOUR DOMAIN TO CLOUDFLARE:\n\n1. GET A FREE DOMAIN:\n   - Digital Plat (fast/automated): https://domain.digitalplat.org/\n   - nic.eu.org (manual, takes 14 to 45 days): https://nic.eu.org\n   - Or ask local IT for an official CNAME (e.g. catalog.city.gov.br)\n\n2. ADD TO CLOUDFLARE (dash.cloudflare.com):\n   - Click 'Add a site/domain', type your domain and select Free.\n   - Cloudflare provides TWO Nameservers (e.g. vera.ns.cloudflare.com\n     and rob.ns.cloudflare.com). Copy both.\n\n3. UPDATE AT YOUR DOMAIN REGISTRAR:\n   - In Digital Plat or nic.eu.org, go to DNS / Nameservers settings.\n   - Replace existing servers with the TWO from Cloudflare.\n   - In Cloudflare, click 'Check nameservers' until status is Active.")" 22 78
-    msg_info "Cloudflare Tunnel" \
-"$(t "Publica o Koha na internet sem abrir portas no roteador.\n\n1. Acesse: one.dash.cloudflare.com (Zero Trust)\n2. Networks > Tunnels > Create a tunnel > Escolha 'Debian 64-bit'\n\n3. ATENÇÃO NA TELA DA CLOUDFLARE:\n   - Ignore o primeiro bloco de comandos (instalação).\n   - Copie o comando do 2º bloco ('sudo cloudflared service install...')\n     ou do 3º bloco ('cloudflared tunnel run...').\n\nNa próxima tela, cole o comando copiado (ou apenas a chave 'ey...')." \
-"Publishes Koha on the internet without opening router ports.\n\n1. Go to: one.dash.cloudflare.com (Zero Trust)\n2. Networks > Tunnels > Create a tunnel > Choose 'Debian 64-bit'\n\n3. ATTENTION ON CLOUDFLARE SCREEN:\n   - Ignore the 1st command block (installation commands).\n   - Copy the command from the 2nd block ('sudo cloudflared service install...')\n     or the 3rd block ('cloudflared tunnel run...').\n\nOn the next screen, paste the copied command (or just the 'ey...' token).")" 18 78
-    local input token
-    input=$(whiptail --title "Token Cloudflare" --inputbox "$(t "Cole aqui:" "Paste here:")" 10 76 3>&1 1>&2 2>&3) || return 0
-    [ -z "$input" ] && return 0
-    token=$(printf '%s' "$input" | grep -oE 'ey[A-Za-z0-9_-]{40,}' | head -n1)
-    if [ -z "$token" ]; then
-        msg_error "" "$(t "Não encontrei um token válido (deve começar com 'ey')." "No valid token found (it must start with 'ey').")" 9 70
-        return 0
-    fi
+"$(t "COMO ASSOCIAR SEU DOMÍNIO À CLOUDFLARE:\n\n1. OBTENHA UM DOMÍNIO GRATUITO:\n   - Digital Plat (rápido/automático): https://domain.digitalplat.org/\n   - nic.eu.org (manual, demora de 14 a 45 dias): https://nic.eu.org\n   - Ou solicite à TI um CNAME oficial (ex: catalogo.palotina.pr.gov.br)\n\n2. ADICIONE NA CLOUDFLARE (dash.cloudflare.com):\n   - Clique em 'Add a site/domain', digite o domínio e selecione Free.\n   - A Cloudflare exibirá DOIS Nameservers. Copie os dois.\n\n3. ATUALIZE ONDE REGISTROU O DOMÍNIO:\n   - No Digital Plat ou nic.eu.org, vá em DNS / Nameservers.\n   - Substitua os servidores existentes pelos DOIS da Cloudflare.\n   - Na Cloudflare, clique em 'Check nameservers' até o status ficar Ativo.\n\nEsta parte não dá pra automatizar, mas o resto do processo é todo automático." \
+"HOW TO LINK YOUR DOMAIN TO CLOUDFLARE:\n\n1. GET A FREE DOMAIN:\n   - Digital Plat (fast/automated): https://domain.digitalplat.org/\n   - nic.eu.org (manual, takes 14 to 45 days): https://nic.eu.org\n   - Or ask local IT for an official CNAME (e.g. catalog.city.gov.br)\n\n2. ADD TO CLOUDFLARE (dash.cloudflare.com):\n   - Click 'Add a site/domain', type your domain and select Free.\n   - Cloudflare provides TWO Nameservers. Copy both.\n\n3. UPDATE AT YOUR DOMAIN REGISTRAR:\n   - Replace existing servers with the TWO from Cloudflare.\n   - In Cloudflare, click 'Check nameservers' until status is Active.\n\nThis part can't be automated, but everything from here on is fully automatic.")" 22 78
+
     clear
     display_explanation "Instalando o cloudflared..." "Installing cloudflared..."
     if ! command -v cloudflared >/dev/null 2>&1; then
@@ -2540,26 +2530,397 @@ function_configure_cloudflare() {
             return 1
         fi
         echo "deb [signed-by=/etc/apt/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main" > /etc/apt/sources.list.d/cloudflared.list
-        apt_update_indices
+        if ! apt_update_indices; then
+            rm -f /etc/apt/sources.list.d/cloudflared.list
+            restore_apt_timers
+            msg_error "" "$(t "Não foi possível atualizar o repositório da Cloudflare." "Could not update the Cloudflare repository.")" 9 72
+            return 1
+        fi
         if ! apt_install cloudflared; then
             restore_apt_timers
             return 1
         fi
         restore_apt_timers
     fi
-    cloudflared service uninstall >/dev/null 2>&1
-    if cloudflared service install "$token"; then
-        systemctl enable --now cloudflared >/dev/null 2>&1
-        sleep 3
-        if systemctl is-active --quiet cloudflared; then
-            msg_ok "$(t "TÚNEL ATIVO! PASSO FINAL NO ZERO TRUST:\n\n1. No túnel, vá em 'Public Hostnames' > 'Add a public hostname'.\n\n   IMPORTANTE: Use sempre 'localhost' (ou 127.0.0.1).\n   NUNCA use o IP da rede local (ex: 192.168.x.x), pois se o IP do\n   servidor mudar via DHCP, o túnel vai quebrar!\n\n   PARA O CATÁLOGO PÚBLICO (OPAC):\n   - Subdomain: catalogo   | Domain: selecione o seu domínio\n   - Type: HTTP            | URL: localhost:80 (ou 127.0.0.1:80)\n\n   PARA A ADMINISTRAÇÃO (STAFF):\n   - Subdomain: admin      | Domain: selecione o seu domínio\n   - Type: HTTP            | URL: localhost:8080 (ou 127.0.0.1:8080)\n\n2. GOOGLE SEARCH CONSOLE:\n   - Adicione via 'Prefixo do URL': https://catalogo.seudominio\n   - Pegue a 'Tag HTML' (<meta ...>) e cole em:\n     Koha Staff > Administração > Preferências > opacheader\n   - Envie o sitemap: sitemap.xml" \
-"TUNNEL ACTIVE! FINAL STEP IN ZERO TRUST:\n\n1. In your tunnel, go to 'Public Hostnames' > 'Add a public hostname'.\n\n   IMPORTANT: Always use 'localhost' (or 127.0.0.1).\n   NEVER use local LAN IP (e.g. 192.168.x.x). If DHCP changes the\n   server IP, the tunnel will immediately break!\n\n   FOR OPAC (PUBLIC CATALOG):\n   - Subdomain: catalog    | Domain: select your domain\n   - Type: HTTP            | URL: localhost:80 (or 127.0.0.1:80)\n\n   FOR STAFF (ADMIN):\n   - Subdomain: admin      | Domain: select your domain\n   - Type: HTTP            | URL: localhost:8080 (or 127.0.0.1:8080)\n\n2. GOOGLE SEARCH CONSOLE:\n   - Add property via 'URL prefix': https://catalog.yourdomain\n   - Copy 'HTML Tag' (<meta ...>) and paste into:\n     Koha Staff > Administration > Preferences > opacheader\n   - Submit sitemap: sitemap.xml")" 26 80
+
+    if [ ! -f "$REAL_HOME/.cloudflared/cert.pem" ] && [ ! -f "/root/.cloudflared/cert.pem" ]; then
+        msg_info "Cloudflare Tunnel" \
+"$(t "AUTORIZAÇÃO (só na primeira vez):\n\nVai aparecer um link abaixo. Copie e abra em qualquer navegador,\nescolha o domínio que você já ativou na Cloudflare e clique Authorize.\n\nNão precisa colar código nenhum de volta - o servidor detecta\nsozinho quando você autorizar." "AUTHORIZATION (first time only):\n\nA link will appear below. Copy it into any browser, select the\ndomain you already activated in Cloudflare, and click Authorize.\n\nNo need to paste anything back - the server detects it automatically.")" 12 76
+        clear
+        cloudflared tunnel login
+        echo ""
+    fi
+
+    if [ ! -f "$REAL_HOME/.cloudflared/cert.pem" ] && [ ! -f "/root/.cloudflared/cert.pem" ]; then
+        msg_error "" "$(t "Autorização não concluída. Tente novamente." "Authorization not completed. Try again.")" 8 66
+        return 1
+    fi
+
+    local tunnel_name="koha-library"
+    if ! cloudflared tunnel list 2>/dev/null | grep -q "$tunnel_name"; then
+        display_explanation "Criando o túnel '$tunnel_name'..." "Creating tunnel '$tunnel_name'..."
+        if ! cloudflared tunnel create "$tunnel_name"; then
+            msg_error "" "$(t "Falha ao criar o túnel." "Failed to create the tunnel.")" 8 66
+            return 1
+        fi
+    fi
+
+    local tunnel_id
+    tunnel_id=$(cloudflared tunnel list 2>/dev/null | awk -v n="$tunnel_name" '$0 ~ n {print $1; exit}')
+    if [ -z "$tunnel_id" ]; then
+        msg_error "" "$(t "Não consegui identificar o ID do túnel criado." "Could not identify the created tunnel's ID.")" 8 66
+        return 1
+    fi
+
+    local cred_file
+    cred_file=$(find "$REAL_HOME/.cloudflared" /root/.cloudflared -name "${tunnel_id}.json" 2>/dev/null | head -n1)
+
+    local dominio opac_sub staff_sub
+    dominio=$(whiptail --title "$(t "Seu Domínio" "Your Domain")" --inputbox "$(t "Digite o domínio que você já ativou na Cloudflare (ex: bibliotecapalotina.org):" "Enter the domain you already activated in Cloudflare (e.g. bibliotecapalotina.org):")" 10 74 3>&1 1>&2 2>&3) || return 0
+    [ -z "$dominio" ] && return 0
+
+    opac_sub=$(whiptail --title "OPAC" --inputbox "$(t "Subdomínio do Catálogo Público:" "Public Catalog subdomain:")" 10 60 "catalogo" 3>&1 1>&2 2>&3) || return 0
+    staff_sub=$(whiptail --title "Staff" --inputbox "$(t "Subdomínio da Administração:" "Administration subdomain:")" 10 60 "admin" 3>&1 1>&2 2>&3) || return 0
+
+    mkdir -p /etc/cloudflared
+    cat > /etc/cloudflared/config.yml <<EOF
+tunnel: ${tunnel_id}
+credentials-file: ${cred_file}
+
+ingress:
+  - hostname: ${opac_sub}.${dominio}
+    service: http://localhost:80
+  - hostname: ${staff_sub}.${dominio}
+    service: http://localhost:8080
+  - service: http_status:404
+EOF
+
+    display_explanation "Registrando os subdomínios no DNS..." "Registering subdomains in DNS..."
+    cloudflared tunnel route dns "$tunnel_name" "${opac_sub}.${dominio}" || true
+    cloudflared tunnel route dns "$tunnel_name" "${staff_sub}.${dominio}" || true
+
+    display_explanation "Instalando o túnel como serviço..." "Installing tunnel as a service..."
+    cloudflared service uninstall >/dev/null 2>&1 || true
+    cp /etc/cloudflared/config.yml /etc/cloudflared/config.yml.bak 2>/dev/null || true
+    cloudflared --config /etc/cloudflared/config.yml service install
+    systemctl enable --now cloudflared >/dev/null 2>&1
+    sleep 3
+
+    if systemctl is-active --quiet cloudflared; then
+        msg_ok "$(t "TÚNEL ATIVO E ROTAS CRIADAS AUTOMATICAMENTE!\n\nCatálogo (OPAC): https://${opac_sub}.${dominio}\nAdministração:   https://${staff_sub}.${dominio}\n\nPode levar alguns minutos até o DNS propagar." "TUNNEL ACTIVE AND ROUTES CREATED AUTOMATICALLY!\n\nCatalog (OPAC): https://${opac_sub}.${dominio}\nAdministration: https://${staff_sub}.${dominio}\n\nMay take a few minutes for DNS to propagate.")" 12 78
+    else
+        msg_error "" "$(t "O serviço não ficou ativo. Veja: journalctl -u cloudflared -n 30" "The service is not active. Check: journalctl -u cloudflared -n 30")" 9 74
+    fi
+}
+
+# ======================================================================
+# TAILSCALE FUNNEL / TAILSCALE FUNNEL CONFIGURATION
+# ======================================================================
+mostrar_links_tailscale() {
+    local ts_hostname opac_ativo=false staff_ativo=false funnel_status texto
+
+    ts_hostname=$(tailscale status --json 2>/dev/null | grep -oP '"DNSName":\s*"\K[^"]+' | head -n 1 | sed 's/\.$//')
+
+    if [ -z "$ts_hostname" ]; then
+        msg_error "" "$(t "Não foi possível detectar o endereço do Tailscale. O servidor está autenticado?" "Could not detect the Tailscale address. Is the server authenticated?")" 9 70
+        return 1
+    fi
+
+    funnel_status=$(tailscale funnel status 2>&1)
+    echo "$funnel_status" | grep -q '127\.0\.0\.1:80\b' && opac_ativo=true
+    echo "$funnel_status" | grep -q '127\.0\.0\.1:8080\b' && staff_ativo=true
+
+    texto=$(t "SEU DOMÍNIO TAILSCALE:\nhttps://${ts_hostname}\n\n" "YOUR TAILSCALE DOMAIN:\nhttps://${ts_hostname}\n\n")
+
+    if [ "$opac_ativo" = true ]; then
+        texto+=$(t "✅ Catálogo (OPAC):  https://${ts_hostname}\n" "✅ Catalog (OPAC):   https://${ts_hostname}\n")
+    else
+        texto+=$(t "⬜ Catálogo (OPAC):  não publicado\n" "⬜ Catalog (OPAC):   not published\n")
+    fi
+
+    if [ "$staff_ativo" = true ]; then
+        texto+=$(t "✅ Administração:    https://${ts_hostname}:8443\n" "✅ Administration:   https://${ts_hostname}:8443\n")
+    else
+        texto+=$(t "⬜ Administração:    não publicada\n" "⬜ Administration:   not published\n")
+    fi
+
+    whiptail --title "$(t "Links Publicados" "Published Links")" --msgbox "$texto" 14 76
+}
+
+function_configure_tailscale() {
+    msg_info "Tailscale Funnel" \
+        "$(t "O Tailscale Funnel publica o Koha na internet automaticamente,\ncom domínio e HTTPS prontos, sem precisar de Cloudflare nem domínio próprio." "Tailscale Funnel publishes Koha to the internet automatically,\nwith domain and HTTPS ready, no Cloudflare or custom domain needed.")" 12 76
+
+    clear
+    display_explanation "Verificando instalação do Tailscale..." "Checking Tailscale installation..."
+
+    if ! command -v tailscale >/dev/null 2>&1; then
+        display_explanation "Instalando o Tailscale via curl..." "Installing Tailscale via curl..."
+        if ! curl -fsSL https://tailscale.com/install.sh | sh; then
+            msg_error "" "$(t "Falha ao instalar o Tailscale. Verifique sua conexão com a internet." "Failed to install Tailscale. Check your internet connection.")" 9 74
+            return 1
+        fi
+    fi
+
+    if ! tailscale status >/dev/null 2>&1; then
+        display_explanation "Iniciando a conexão com sua conta Tailscale..." "Initiating connection to your Tailscale account..."
+        echo -e "\e[1;33m$(t "Siga o link abaixo no seu navegador para autenticar este servidor:" "Follow the link below in your browser to authenticate this server:")\e[0m"
+        tailscale up
+        echo ""
+    fi
+
+    if ! tailscale status >/dev/null 2>&1; then
+        msg_error "" "$(t "O servidor não pôde ser autenticado no Tailscale. Tente novamente." "The server could not be authenticated on Tailscale. Try again.")" 9 70
+        return 1
+    fi
+
+    local ts_hostname
+    ts_hostname=$(tailscale status --json 2>/dev/null | grep -oP '"DNSName":\s*"\K[^"]+' | head -n 1 | sed 's/\.$//')
+    if [ -n "$ts_hostname" ]; then
+        msg_ok "$(t "Servidor conectado!\n\nSeu domínio será:\nhttps://${ts_hostname}" "Server connected!\n\nYour domain will be:\nhttps://${ts_hostname}")" 11 70
+    fi
+
+    while true; do
+        local choice
+        choice=$(whiptail --title "$(t "Gerenciador do Tailscale Funnel" "Tailscale Funnel Manager")" \
+            --cancel-button "$(t "Voltar" "Back")" \
+            --menu "$(t "O que deseja fazer?" "What do you want to do?")" 18 76 5 \
+            "1" "$(t "★ Publicar tudo automaticamente (OPAC + Staff)" "★ Publish everything automatically (OPAC + Staff)")" \
+            "2" "$(t "Publicar só o Catálogo Público (OPAC)" "Publish only Public Catalog (OPAC)")" \
+            "3" "$(t "Publicar só a Administração (Staff)" "Publish only Administration (Staff)")" \
+            "4" "$(t "Ver os links publicados agora" "View currently published links")" \
+            "5" "$(t "Desativar/Parar todos os Funnels ativos" "Stop all active Funnels")" \
+            3>&1 1>&2 2>&3) || break
+        [ -z "$choice" ] && break
+
+        case "$choice" in
+            1)
+                clear
+                display_explanation "Publicando Catálogo (OPAC, porta 80)..." "Publishing Catalog (OPAC, port 80)..."
+                local opac_ok=false staff_ok=false
+                tailscale funnel --bg 80 >/dev/null 2>&1 && opac_ok=true
+
+                if prompt_yes_no \
+                    "$(t "Publicar Staff também?" "Publish Staff too?")" \
+                    "$(t "ATENÇÃO: isso publica a administração do Koha na internet.\nSó continue se realmente precisa acessá-la remotamente.\n\nPublicar?" "WARNING: this publishes the Koha admin panel to the internet.\nOnly continue if you really need remote access to it.\n\nPublish?")" \
+                    12 74; then
+                    display_explanation "Publicando Administração (Staff, porta 8080)..." "Publishing Administration (Staff, port 8080)..."
+                    tailscale funnel --bg --https=8443 8080 >/dev/null 2>&1 && staff_ok=true
+                fi
+
+                if [ "$opac_ok" = true ]; then
+                    mostrar_links_tailscale
+                else
+                    msg_error "" "$(t "Falha ao publicar o OPAC. Verifique se o Funnel está habilitado no painel admin da sua conta Tailscale (Access Controls)." "Failed to publish OPAC. Check whether Funnel is enabled in your Tailscale admin panel (Access Controls).")" 12 76
+                fi
+                ;;
+            2)
+                clear
+                display_explanation "Ativando o Funnel para o Catálogo (Porta 80)..." "Enabling Funnel for Catalog (Port 80)..."
+                if tailscale funnel --bg 80; then
+                    mostrar_links_tailscale
+                else
+                    msg_error "" "$(t "Falha ao iniciar o Funnel na porta 80. Verifique se o recurso está ativado no painel admin da sua conta Tailscale." "Failed to start Funnel on port 80. Check if the feature is enabled in your Tailscale admin panel.")" 11 76
+                fi
+                ;;
+            3)
+                if ! prompt_yes_no \
+                    "$(t "Publicar Staff na internet" "Publish Staff to the Internet")" \
+                    "$(t "ATENÇÃO:\n\nIsso publica a interface administrativa do Koha pela internet.\n\nUse somente se você entende o risco e realmente precisa dessa exposição.\n\nContinuar?" "WARNING:\n\nThis publishes the Koha staff administration interface to the Internet.\n\nOnly continue if you understand the risk and really need this exposure.\n\nContinue?")" \
+                    15 78; then
+                    continue
+                fi
+                clear
+                display_explanation "Ativando o Funnel para a Administração (Porta 8080)..." "Enabling Funnel for Administration (Port 8080)..."
+                if tailscale funnel --bg --https=8443 8080; then
+                    mostrar_links_tailscale
+                else
+                    msg_error "" "$(t "Falha ao iniciar o Funnel na porta 8080. Verifique se o recurso está ativado no painel admin." "Failed to start Funnel on port 8080. Check if the feature is enabled in the admin panel.")" 11 76
+                fi
+                ;;
+            4)
+                clear
+                mostrar_links_tailscale
+                ;;
+            5)
+                clear
+                display_explanation "Desativando os Funnels ativos..." "Stopping active Funnels..."
+                tailscale funnel off >/dev/null 2>&1 || true
+                msg_ok "$(t "Todos os tunelamentos do Funnel foram desativados." "All Funnel tunnels have been turned off.")" 9 64
+                ;;
+        esac
+    done
+}
+
+# ======================================================================
+# GOOGLE SEARCH CONSOLE / INDEXAÇÃO DO OPAC
+# ======================================================================
+function_google_search_console() {
+    local opac_url=""
+    local sitemap_path="sitemapindex.xml"
+    local sitemap_url=""
+    local robots_url=""
+    local http_code=""
+    local sitemap_code=""
+    local robots_body=""
+    local meta_robots=""
+    local sitemap_script=""
+    local choice=""
+
+    clear
+    require_koha || return 0
+
+    if ! command -v curl >/dev/null 2>&1; then
+        msg_error "$(t "Google Search Console" "Google Search Console")" \
+            "$(t "O comando curl não está disponível.\n\nInstale as dependências do painel antes de continuar." "The curl command is not available.\n\nInstall the panel dependencies before continuing.")" 10 72
+        return 1
+    fi
+
+    opac_url=$(whiptail \
+        --title "$(t "Google Search Console — Endereço do OPAC" "Google Search Console — OPAC address")" \
+        --inputbox "$(t "Informe o endereço PÚBLICO completo do OPAC.\n\nExemplo:\nhttps://catalogo.exemplo.org\n\nNão informe localhost, 127.0.0.1 ou um IP privado." "Enter the complete PUBLIC OPAC address.\n\nExample:\nhttps://catalog.example.org\n\nDo not enter localhost, 127.0.0.1 or a private IP address.")" \
+        15 80 "https://" 3>&1 1>&2 2>&3) || return 0
+
+    opac_url="${opac_url%/}"
+    case "$opac_url" in
+        http://*|https://*) ;;
+        *)
+            msg_error "$(t "Endereço inválido" "Invalid address")" \
+                "$(t "Informe uma URL começando com http:// ou https://." "Enter a URL beginning with http:// or https://.")" 9 68
+            return 1
+            ;;
+    esac
+
+    sitemap_url="${opac_url}/${sitemap_path}"
+    robots_url="${opac_url}/robots.txt"
+
+    msg_info "$(t "Google Search Console — Assistente de Indexação" "Google Search Console — Indexing Assistant")" \
+        "$(t "Este assistente prepara e verifica o OPAC para o Google.\n\nO painel fará automaticamente:\n• verificar se o OPAC está acessível pela internet;\n• verificar robots.txt;\n• localizar o script oficial de sitemap do Koha;\n• gerar o sitemap quando possível;\n• verificar a preferência OpacMetaRobots;\n• verificar se o sitemap está acessível publicamente.\n\nO que você precisará fazer manualmente:\n• adicionar/verificar a propriedade no Google Search Console;\n• enviar o sitemap no Search Console;\n• solicitar indexação de páginas específicas.\n\nO painel NÃO solicita nem armazena sua senha Google." \
+        "This assistant prepares and checks the OPAC for Google.\n\nThe panel will automatically:\n• check whether the OPAC is publicly accessible;\n• check robots.txt;\n• locate Koha's official sitemap script;\n• generate the sitemap when possible;\n• check the OpacMetaRobots preference;\n• check whether the sitemap is publicly accessible.\n\nWhat you will need to do manually:\n• add/verify the property in Google Search Console;\n• submit the sitemap in Search Console;\n• request indexing for specific pages when necessary.\n\nThe panel does NOT request or store your Google password.")" 24 88
+
+    display_explanation "$(t "Verificando acesso público ao OPAC..." "Checking public OPAC access...")" \
+        "$(t "O Google precisa conseguir acessar o catálogo pela internet." "Google must be able to access the catalog from the internet.")"
+
+    http_code=$(curl -L -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 10 --max-time 30 "$opac_url" 2>/dev/null)
+
+    if [[ "$http_code" =~ ^[23][0-9][0-9]$ ]]; then
+        msg_ok "$(t "OPAC acessível.\n\nURL:\n$opac_url\n\nCódigo HTTP:\n$http_code" "OPAC accessible.\n\nURL:\n$opac_url\n\nHTTP status:\n$http_code")" 11 76
+    else
+        msg_error "$(t "O OPAC não respondeu corretamente pela internet." "The OPAC did not respond correctly from the internet.")" \
+            "$(t "URL:\n$opac_url\n\nHTTP:\n${http_code:-sem resposta}\n\nVerifique DNS, Cloudflare Tunnel, Apache, HTTPS e firewall antes de tentar a indexação." "URL:\n$opac_url\n\nHTTP:\n${http_code:-no response}\n\nCheck DNS, Cloudflare Tunnel, Apache, HTTPS and firewall before attempting indexing.")" 16 82
+
+        prompt_yes_no "$(t "Continuar?" "Continue?")" \
+            "$(t "O OPAC ainda não está respondendo corretamente.\n\nDeseja continuar com as verificações locais?" "The OPAC is not responding correctly yet.\n\nDo you want to continue with local checks?")" 11 74 || return 0
+    fi
+
+    if is_database_ready; then
+        display_explanation "$(t "Verificando OpacMetaRobots..." "Checking OpacMetaRobots...")" \
+            "$(t "Essa preferência pode permitir ou impedir a indexação do OPAC." "This preference can allow or prevent OPAC indexing.")"
+
+        meta_robots=$(run_sql "SELECT value FROM ${DB_NAME}.systempreferences WHERE variable='OpacMetaRobots' LIMIT 1;" 2>/dev/null || true)
+
+        if printf '%s' "$meta_robots" | grep -qi 'noindex'; then
+            msg_error "$(t "ATENÇÃO: o OPAC está configurado com NOINDEX." "WARNING: the OPAC is configured with NOINDEX.")" \
+                "$(t "Valor atual:\n$meta_robots\n\nEnquanto 'noindex' estiver configurado, o Google pode ser instruído a não indexar as páginas.\n\nPara corrigir manualmente:\n\nKoha Staff\n→ Administração\n→ Preferências do sistema\n→ OPAC\n→ OpacMetaRobots\n\nRemova a opção 'noindex' e salve.\nO painel NÃO altera isso automaticamente." "Current value:\n$meta_robots\n\nWhile 'noindex' is configured, Google may be instructed not to index the pages.\n\nTo fix it manually:\n\nKoha Staff\n→ Administration\n→ System preferences\n→ OPAC\n→ OpacMetaRobots\n\nRemove the 'noindex' option and save.\nThe panel does NOT change this automatically.")" 22 88
         else
-            msg_error "" "$(t "O serviço não ficou ativo. Veja: journalctl -u cloudflared -n 30" "The service is not active. Check: journalctl -u cloudflared -n 30")" 9 74
+            msg_ok "$(t "OpacMetaRobots não contém 'noindex'.\n\nValor atual:\n${meta_robots:-não definido}" "OpacMetaRobots does not contain 'noindex'.\n\nCurrent value:\n${meta_robots:-not defined}")" 12 78
+        fi
+    fi
+
+    sitemap_script=""
+    for candidate in /usr/share/koha/misc/cronjobs/sitemap.pl; do
+        if [ -f "$candidate" ]; then
+            sitemap_script="$candidate"
+            break
+        fi
+    done
+    if [ -z "$sitemap_script" ]; then
+        sitemap_script=$(find /usr/share/koha -type f -path '*/misc/cronjobs/sitemap.pl' 2>/dev/null | head -n 1 || true)
+    fi
+
+    if [ -n "$sitemap_script" ]; then
+        display_explanation "$(t "Gerando sitemap do Koha..." "Generating Koha sitemap...")" \
+            "$(t "O Koha possui um script próprio para geração dos sitemaps." "Koha has its own script for generating sitemaps.")"
+        if koha-shell "$INSTANCE" "/usr/bin/perl $sitemap_script" >/tmp/koha_google_sitemap.log 2>&1; then
+            log "Sitemap do Koha gerado com sucesso."
+        else
+            log "Aviso: não foi possível executar automaticamente o sitemap."
         fi
     else
-        msg_error "" "$(t "Falha ao instalar o serviço do túnel." "Failed to install the tunnel service.")" 8 66
+        log "Aviso: script sitemap.pl não encontrado."
     fi
+
+    display_explanation "$(t "Verificando o sitemap publicado..." "Checking the published sitemap...")" \
+        "$(t "Endereço testado:\n$sitemap_url" "Address being tested:\n$sitemap_url")"
+
+    sitemap_code=$(curl -L -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 10 --max-time 30 "$sitemap_url" 2>/dev/null)
+
+    if [[ "$sitemap_code" =~ ^2[0-9][0-9]$ ]]; then
+        msg_ok "$(t "Sitemap encontrado!\n\nURL:\n$sitemap_url\n\nHTTP:\n$sitemap_code" "Sitemap found!\n\nURL:\n$sitemap_url\n\nHTTP:\n$sitemap_code")" 12 82
+    else
+        msg_info "$(t "O sitemap não foi confirmado neste endereço." "The sitemap was not confirmed at this address.")" \
+            "$(t "$sitemap_url\n\nIsso não significa necessariamente que o Koha esteja com problema.\nPode ser necessário configurar/publicar o sitemap na raiz do OPAC ou confirmar o caminho utilizado pela instalação." "$sitemap_url\n\nThis does not necessarily mean that Koha has a problem.\nThe sitemap may need to be configured/published at the OPAC root, or the path used by the installation may need to be confirmed.")" 16 84
+    fi
+
+    robots_body=$(curl -L -k -sS --connect-timeout 10 --max-time 30 "$robots_url" 2>/dev/null || true)
+    if [ -n "$robots_body" ]; then
+        if printf '%s\n' "$robots_body" | grep -Fqi 'Sitemap:'; then
+            msg_ok "$(t "robots.txt encontrado e já possui uma linha Sitemap:" "robots.txt found and already contains a Sitemap: line.")" 10 82
+        else
+            msg_info "$(t "robots.txt encontrado, mas sem referência ao sitemap." "robots.txt found, but without a sitemap reference.")" \
+                "$(t "Recomendação:\n\nAdicionar uma linha semelhante a:\nSitemap: $sitemap_url\n\nA alteração deve ser feita na configuração correta do OPAC, e não em um arquivo aleatório do sistema." "Recommendation:\n\nAdd a line similar to:\nSitemap: $sitemap_url\n\nThe change should be made in the correct OPAC configuration, not in an arbitrary system file.")" 15 84
+        fi
+    else
+        msg_info "$(t "robots.txt não respondeu." "robots.txt did not respond.")" \
+            "$(t "É recomendável disponibilizar robots.txt corretamente no OPAC público." "It is recommended to make robots.txt correctly available on the public OPAC.")" 10 78
+    fi
+
+    choice=$(whiptail \
+        --title "$(t "Google Search Console — Próximos passos" "Google Search Console — Next steps")" \
+        --menu "$(t "A preparação automática terminou.\n\nEscolha o que deseja fazer:" "Automatic preparation is complete.\n\nChoose what you want to do:")" \
+        20 88 7 \
+        "1" "$(t "Abrir instruções para o Google Search Console" "Open Google Search Console instructions")" \
+        "2" "$(t "Verificação da propriedade — passo a passo" "Property verification — step by step")" \
+        "3" "$(t "Enviar sitemap — passo a passo" "Submit sitemap — step by step")" \
+        "4" "$(t "Solicitar indexação — passo a passo" "Request indexing — step by step")" \
+        "5" "$(t "Executar as verificações novamente" "Run the checks again")" \
+        "6" "$(t "Links oficiais do Google" "Official Google links")" \
+        "7" "$(t "Voltar" "Back")" 3>&1 1>&2 2>&3) || return 0
+
+    case "$choice" in
+        1)
+            msg_info "$(t "GOOGLE SEARCH CONSOLE" "GOOGLE SEARCH CONSOLE")" \
+                "$(t "Abra no computador:\nhttps://search.google.com/search-console\n\nDepois adicione a propriedade correspondente ao endereço público do OPAC:\n$opac_url" "Open on your computer:\nhttps://search.google.com/search-console\n\nThen add the property corresponding to the public OPAC address:\n$opac_url")" 16 84
+            ;;
+        2)
+            msg_info "$(t "VERIFICAÇÃO DA PROPRIEDADE — FAÇA MANUALMENTE" "PROPERTY VERIFICATION — DO THIS MANUALLY")" \
+                "$(t "1. Abra:\nhttps://search.google.com/search-console\n\n2. Clique em 'Adicionar propriedade'.\n\n3. Escolha 'Prefixo do URL'.\n\n4. Cole exatamente:\n$opac_url\n\n5. O Google mostrará os métodos disponíveis para verificar a propriedade.\nUma opção é a verificação por DNS, realizada no provedor do domínio.\nOutra opção é utilizar arquivo HTML ou meta tag, quando disponível.\n\nIMPORTANTE:\nSe o domínio for da prefeitura ou de outra instituição, a alteração de DNS poderá precisar ser feita pelo responsável de TI.\nO painel não precisa da sua senha Google." "1. Open:\nhttps://search.google.com/search-console\n\n2. Click 'Add property'.\n\n3. Choose 'URL prefix'.\n\n4. Paste exactly:\n$opac_url\n\n5. Google will show the available verification methods.\nOne option is DNS verification, performed at the domain provider.\nAnother option is HTML file or meta tag verification, when available.\n\nIMPORTANT:\nIf the domain belongs to a municipality or another institution, DNS changes may need to be performed by the IT administrator.\nThe panel does not need your Google password.")" 27 92
+            ;;
+        3)
+            msg_info "$(t "ENVIAR O SITEMAP — FAÇA MANUALMENTE" "SUBMIT THE SITEMAP — DO THIS MANUALLY")" \
+                "$(t "Depois que a propriedade estiver verificada:\n\n1. Abra:\nhttps://search.google.com/search-console\n\n2. Selecione:\n$opac_url\n\n3. No menu lateral, abra 'Sitemaps'.\n\n4. No campo de sitemap, informe:\n$sitemap_path\n\n5. Clique em 'Enviar'.\n\nO Google passará a conhecer a localização do sitemap.\n\nATENÇÃO:\nEnviar um sitemap não garante que todas as páginas serão indexadas." "After the property has been verified:\n\n1. Open:\nhttps://search.google.com/search-console\n\n2. Select:\n$opac_url\n\n3. Open 'Sitemaps' in the left menu.\n\n4. Enter:\n$sitemap_path\n\n5. Click 'Submit'.\n\nGoogle will then know where the sitemap is located.\n\nWARNING:\nSubmitting a sitemap does not guarantee that every page will be indexed.")" 22 88
+            ;;
+        4)
+            msg_info "$(t "SOLICITAR INDEXAÇÃO — FAÇA MANUALMENTE" "REQUEST INDEXING — DO THIS MANUALLY")" \
+                "$(t "Para testar o endereço principal do catálogo:\n\n1. Abra o Search Console.\n2. Selecione sua propriedade.\n3. Use a ferramenta 'Inspeção de URL'.\n4. Cole:\n$opac_url\n5. Aguarde a análise.\n6. Se estiver disponível, use 'Solicitar indexação'.\n\nNão é necessário solicitar cada livro individualmente.\nO sitemap é o método apropriado para informar ao Google um conjunto grande de URLs.\nSolicitar indexação também não garante indexação imediata." "To test the main catalog address:\n\n1. Open Search Console.\n2. Select your property.\n3. Use 'URL Inspection'.\n4. Paste:\n$opac_url\n5. Wait for the analysis.\n6. If available, use 'Request indexing'.\n\nYou do not need to request every book individually.\nA sitemap is the appropriate method for informing Google about a large set of URLs.\nA request for indexing also does not guarantee immediate indexing.")" 23 88
+            ;;
+        5)
+            function_google_search_console
+            return $?
+            ;;
+        6)
+            msg_info "$(t "LINKS OFICIAIS" "OFFICIAL LINKS")" \
+                "$(t "Google Search Console:\nhttps://search.google.com/search-console\n\nDocumentação oficial sobre sitemaps:\nhttps://developers.google.com/search/docs/crawling-indexing/sitemaps/overview\n\nDocumentação oficial sobre indexação:\nhttps://developers.google.com/search/docs/crawling-indexing/overview" "Google Search Console:\nhttps://search.google.com/search-console\n\nOfficial sitemap documentation:\nhttps://developers.google.com/search/docs/crawling-indexing/sitemaps/overview\n\nOfficial indexing documentation:\nhttps://developers.google.com/search/docs/crawling-indexing/overview")" 19 88
+            ;;
+        7)
+            return 0
+            ;;
+    esac
+
+    msg_info "$(t "CHECKLIST FINAL — GOOGLE" "FINAL GOOGLE CHECKLIST")" \
+        "$(t "AUTOMÁTICO PELO PAINEL:\n\n[✓] OPAC testado\n[✓] Configuração OpacMetaRobots verificada\n[✓] Sitemap do Koha localizado/gerado quando possível\n[✓] Sitemap público testado\n[✓] robots.txt testado\n\nMANUALMENTE NO GOOGLE:\n\n[ ] Propriedade adicionada\n[ ] Propriedade verificada\n[ ] Sitemap enviado\n[ ] Página principal testada na Inspeção de URL\n[ ] Solicitação de indexação feita, se necessário\n\nIMPORTANTE:\nO Search Console ajuda o Google a descobrir o catálogo, mas não garante que todas as páginas sejam indexadas ou que apareçam imediatamente nos resultados." "AUTOMATICALLY BY THE PANEL:\n\n[✓] OPAC checked\n[✓] OpacMetaRobots checked\n[✓] Koha sitemap located/generated when possible\n[✓] Public sitemap tested\n[✓] robots.txt tested\n\nMANUALLY IN GOOGLE:\n\n[ ] Property added\n[ ] Property verified\n[ ] Sitemap submitted\n[ ] Homepage tested with URL Inspection\n[ ] Indexing requested if necessary\n\nIMPORTANT:\nSearch Console helps Google discover the catalog, but it does not guarantee that every page will be indexed or appear immediately in search results.")" 25 92
+
+    log "Assistente Google Search Console executado para OPAC: $opac_url"
 }
 
 # ======================================================================
@@ -2999,77 +3360,156 @@ while true; do
     restore_apt_timers
     export NCURSES_NO_UTF8_ACS=1
     
-    OPTION=$(whiptail --title "Koha Easy Install & Tools v${PANEL_VERSION} - $(t "Painel de Controle" "Control Dashboard")" \
+    MAIN_OPT=$(whiptail --title "Koha Easy Install & Tools v${PANEL_VERSION} - $(t "Painel de Controle" "Control Dashboard")" \
         --cancel-button "$(t "Sair" "Exit")" \
-        --menu "$(t "Escolha uma opção:" "Choose an action:")" 25 82 16 \
-        "1"  "$(t "Instalar o servidor Koha" "Install the Koha server")" \
-        "2"  "$(t "Ver credenciais de acesso" "View access credentials")" \
-        "3"  "$(t "Restaurar acervo de um backup" "Restore catalog from a backup")" \
-        "4"  "$(t "Gerar backup manual local agora" "Generate manual local backup now")" \
-        "5"  "$(t "Enviar backup via SCP manual agora" "Send manual SCP backup now")" \
-        "6"  "$(t "Testar o último backup" "Test the latest backup")" \
-        "7"  "$(t "Instalar idiomas do Koha" "Install Koha languages")" \
-        "8"  "$(t "Alternar motor de busca (Zebra/ES)" "Toggle search engine (Zebra/ES)")" \
-        "9"  "$(t "Reparar / reconstruir indexação" "Repair / rebuild indexing")" \
-        "10" "$(t "Dimensionar o servidor (memória)" "Server sizing (memory)")" \
-        "11" "$(t "Configurar backup em nuvem (Rclone)" "Set up cloud backup (Rclone)")" \
-        "12" "$(t "Configurar backup automático via SCP" "Set up automatic SCP backup")" \
-        "13" "$(t "Tarefas agendadas (horários)" "Scheduled tasks (times)")" \
-        "14" "$(t "Configurar e-mails e avisos" "Set up email notices")" \
-        "15" "$(t "Criar superbibliotecário" "Create a super librarian")" \
-        "16" "$(t "Acesso externo (Cloudflare Tunnel)" "External access (Cloudflare Tunnel)")" \
-        "17" "$(t "Certificado SSL gratuito" "Free SSL certificate")" \
-        "18" "$(t "Ativar SIP2 e Z39.50" "Enable SIP2 and Z39.50")" \
-        "19" "$(t "Relógio e fuso horário" "Clock and timezone")" \
-        "20" "$(t "Central de segurança" "Security center")" \
-        "21" "$(t "Atualizar sistema e schemas" "Update system and schemas")" \
-        "22" "$(t "Validar o sistema completo" "Full system validation")" \
-        "23" "$(t "Status detalhado" "Detailed status")" \
-        "24" "$(t "Explorador de Arquivos (Midnight Commander)" "File Explorer (Midnight Commander)")" \
-        "25" "$(t "Navegador Web de Terminal (Links)" "Terminal Web Browser (Links)")" \
-        "26" "$(t "Monitoramento de Recursos (Htop/Nethogs)" "Resource Monitoring (Htop/Nethogs)")" \
-        "27" "$(t "Auditoria de Logs em Tempo Real" "Real-Time Log Auditing")" \
-        "28" "$(t "Atualizar este painel" "Update this panel")" \
-        "29" "$(t "Reiniciar o servidor" "Reboot the server")" \
-        "30" "$(t "Sobre o programa (GitHub / Apoio)" "About this program (GitHub / Support)")" \
-        "31" "$(t "Sair" "Exit")" 3>&1 1>&2 2>&3) || { clear; rm -f "$PANEL_LOCK_FILE"; exit 0; }
+        --menu "$(t "Selecione uma categoria:" "Select a category:")" 22 76 11 \
+        "1"  "$(t "🚀 Instalação e Configuração Base" "🚀 Installation & Base Config")" \
+        "2"  "$(t "🔐 Segurança e Credenciais" "🔐 Security & Credentials")" \
+        "3"  "$(t "💾 Backup Manual e Restauração" "💾 Manual Backup & Restore")" \
+        "4"  "$(t "☁️ Automação de Backups (Nuvem/SCP)" "☁️ Backup Automation (Cloud/SCP)")" \
+        "5"  "$(t "🔍 Motor de Busca e Indexação" "🔍 Search Engine & Indexing")" \
+        "6"  "$(t "🌐 Rede, Túneis e SSL" "🌐 Network, Tunnels & SSL")" \
+        "7"  "$(t "🤖 Integrações e Interoperabilidade" "🤖 Integrations & Interoperability")" \
+        "8"  "$(t "🛠️ Ferramentas e Diagnóstico" "🛠️ Tools & Diagnostics")" \
+        "9"  "$(t "⚙️ Manutenção do Sistema" "⚙️ System Maintenance")" \
+        "10" "$(t "🔄 Atualização e Reboot" "🔄 Update & Reboot")" \
+        "11" "$(t "ℹ️ Sobre / Sair" "ℹ️ About / Exit")" 3>&1 1>&2 2>&3) || { clear; rm -f "$PANEL_LOCK_FILE"; exit 0; }
 
-    [ -z "$OPTION" ] && { clear; rm -f "$PANEL_LOCK_FILE"; exit 0; }
-
-    case "$OPTION" in
-        1)  function_install_koha ;;
-        2)  function_view_credentials ;;
-        3)  function_restore_database ;;
-        4)  function_manual_backup ;;
-        5)  function_send_manual_scp_backup ;;
-        6)  function_test_backup ;;
-        7)  function_install_languages ;;
-        8)  function_toggle_search_engine ;;
-        9)  function_repair_indexing ;;
-        10) function_size_server ;;
-        11) function_configure_rclone ;;
-        12) function_configure_automatic_scp_backup ;;
-        13) function_manage_crons ;;
-        14) function_configure_emails ;;
-        15) function_create_superlibrarian ;;
-        16) function_configure_cloudflare ;;
-        17) function_configure_ssl ;;
-        18) function_interoperability ;;
-        19) function_configure_clock ;;
-        20) function_security_center ;;
-        21) function_update_system ;;
-        22) function_validate_system ;;
-        23) function_detailed_status ;;
-        24) function_run_mc ;;
-        25) function_run_links ;;
-        26) function_run_monitor ;;
-        27) function_view_logs ;;
-        28) function_autoupdate ;;
-        29) function_reboot_server ;;
-        30) function_about ;;
-        31) clear; rm -f "$PANEL_LOCK_FILE"; exit 0 ;;
+    case "$MAIN_OPT" in
+        1)
+            SUB_OPT=$(whiptail --title "$(t "Instalação e Configuração Base" "Installation & Base Config")" --cancel-button "$(t "Voltar" "Back")" \
+                --menu "$(t "Escolha uma opção:" "Choose an option:")" 18 76 4 \
+                "1" "$(t "Instalar o servidor Koha" "Install the Koha server")" \
+                "2" "$(t "Instalar idiomas do Koha" "Install Koha languages")" \
+                "3" "$(t "Dimensionar o servidor (memória)" "Server sizing (memory)")" \
+                "4" "$(t "Relógio e fuso horário" "Clock and timezone")" 3>&1 1>&2 2>&3) || continue
+            case "$SUB_OPT" in
+                1) function_install_koha ;;
+                2) function_install_languages ;;
+                3) function_size_server ;;
+                4) function_configure_clock ;;
+            esac
+            ;;
+        2)
+            SUB_OPT=$(whiptail --title "$(t "Segurança e Credenciais" "Security & Credentials")" --cancel-button "$(t "Voltar" "Back")" \
+                --menu "$(t "Escolha uma opção:" "Choose an option:")" 17 76 3 \
+                "1" "$(t "Ver credenciais de acesso" "View access credentials")" \
+                "2" "$(t "Criar superbibliotecário" "Create a super librarian")" \
+                "3" "$(t "Central de segurança (Fail2ban, Senha, UFW)" "Security center (Fail2ban, Password, UFW)")" 3>&1 1>&2 2>&3) || continue
+            case "$SUB_OPT" in
+                1) function_view_credentials ;;
+                2) function_create_superlibrarian ;;
+                3) function_security_center ;;
+            esac
+            ;;
+        3)
+            SUB_OPT=$(whiptail --title "$(t "Backup Manual e Restauração" "Manual Backup & Restore")" --cancel-button "$(t "Voltar" "Back")" \
+                --menu "$(t "Escolha uma opção:" "Choose an option:")" 18 76 4 \
+                "1" "$(t "Gerar backup manual local agora" "Generate manual local backup now")" \
+                "2" "$(t "Enviar backup via SCP manual agora" "Send manual SCP backup now")" \
+                "3" "$(t "Restaurar acervo de um backup" "Restore catalog from a backup")" \
+                "4" "$(t "Testar o último backup automático" "Test the latest automatic backup")" 3>&1 1>&2 2>&3) || continue
+            case "$SUB_OPT" in
+                1) function_manual_backup ;;
+                2) function_send_manual_scp_backup ;;
+                3) function_restore_database ;;
+                4) function_test_backup ;;
+            esac
+            ;;
+        4)
+            SUB_OPT=$(whiptail --title "$(t "Automação de Backups" "Backup Automation")" --cancel-button "$(t "Voltar" "Back")" \
+                --menu "$(t "Escolha uma opção:" "Choose an option:")" 16 76 2 \
+                "1" "$(t "Configurar backup em nuvem (Rclone)" "Set up cloud backup (Rclone)")" \
+                "2" "$(t "Configurar backup automático via SCP" "Set up automatic SCP backup")" 3>&1 1>&2 2>&3) || continue
+            case "$SUB_OPT" in
+                1) function_configure_rclone ;;
+                2) function_configure_automatic_scp_backup ;;
+            esac
+            ;;
+        5)
+            SUB_OPT=$(whiptail --title "$(t "Motor de Busca e Indexação" "Search Engine & Indexing")" --cancel-button "$(t "Voltar" "Back")" \
+                --menu "$(t "Escolha uma opção:" "Choose an option:")" 16 76 2 \
+                "1" "$(t "Alternar motor de busca (Zebra ⇄ Elasticsearch)" "Toggle search engine (Zebra ⇄ Elasticsearch)")" \
+                "2" "$(t "Reparar / reconstruir indexação" "Repair / rebuild indexing")" 3>&1 1>&2 2>&3) || continue
+            case "$SUB_OPT" in
+                1) function_toggle_search_engine ;;
+                2) function_repair_indexing ;;
+            esac
+            ;;
+        6)
+            SUB_OPT=$(whiptail --title "$(t "Rede, Túneis e SSL" "Network, Tunnels & SSL")" --cancel-button "$(t "Voltar" "Back")" \
+                --menu "$(t "Escolha uma opção:" "Choose an option:")" 17 76 3 \
+                "1" "$(t "Acesso externo OPAC/Staff (Cloudflare Tunnel)" "External OPAC/Staff access (Cloudflare Tunnel)")" \
+                "2" "$(t "Acesso privado VPN / Funnel (Tailscale)" "Private VPN access / Funnel (Tailscale)")" \
+                "3" "$(t "Certificado SSL gratuito (Certbot/Apache)" "Free SSL certificate (Certbot/Apache)")" 3>&1 1>&2 2>&3) || continue
+            case "$SUB_OPT" in
+                1) function_configure_cloudflare ;;
+                2) function_configure_tailscale ;;
+                3) function_configure_ssl ;;
+            esac
+            ;;
+        7)
+            SUB_OPT=$(whiptail --title "$(t "Integrações e Interoperabilidade" "Integrations & Interoperability")" --cancel-button "$(t "Voltar" "Back")" \
+                --menu "$(t "Escolha uma opção:" "Choose an option:")" 17 76 3 \
+                "1" "$(t "Configurar e-mails e avisos de cobrança" "Set up email and overdue notices")" \
+                "2" "$(t "Assistente do Google Search Console" "Google Search Console Assistant")" \
+                "3" "$(t "Ativar SIP2 e Z39.50" "Enable SIP2 and Z39.50")" 3>&1 1>&2 2>&3) || continue
+            case "$SUB_OPT" in
+                1) function_configure_emails ;;
+                2) function_google_search_console ;;
+                3) function_interoperability ;;
+            esac
+            ;;
+        8)
+            SUB_OPT=$(whiptail --title "$(t "Ferramentas e Diagnóstico" "Tools & Diagnostics")" --cancel-button "$(t "Voltar" "Back")" \
+                --menu "$(t "Escolha uma opção:" "Choose an option:")" 19 76 5 \
+                "1" "$(t "Status detalhado do Servidor e Koha" "Detailed Server and Koha status")" \
+                "2" "$(t "Auditoria de Logs do Apache em Tempo Real" "Real-Time Apache Log Auditing")" \
+                "3" "$(t "Monitoramento de Recursos (Htop / Nethogs)" "Resource Monitoring (Htop / Nethogs)")" \
+                "4" "$(t "Navegador Web de Terminal (Links)" "Terminal Web Browser (Links)")" \
+                "5" "$(t "Explorador de Arquivos CLI (Midnight Commander)" "CLI File Explorer (Midnight Commander)")" 3>&1 1>&2 2>&3) || continue
+            case "$SUB_OPT" in
+                1) function_detailed_status ;;
+                2) function_view_logs ;;
+                3) function_run_monitor ;;
+                4) function_run_links ;;
+                5) function_run_mc ;;
+            esac
+            ;;
+        9)
+            SUB_OPT=$(whiptail --title "$(t "Manutenção do Sistema" "System Maintenance")" --cancel-button "$(t "Voltar" "Back")" \
+                --menu "$(t "Escolha uma opção:" "Choose an option:")" 17 76 3 \
+                "1" "$(t "Atualizar sistema e schemas do banco" "Update system and database schemas")" \
+                "2" "$(t "Validar o sistema completo (Health Check)" "Full system validation (Health Check)")" \
+                "3" "$(t "Gerenciar tarefas agendadas (Cron)" "Manage scheduled tasks (Cron)")" 3>&1 1>&2 2>&3) || continue
+            case "$SUB_OPT" in
+                1) function_update_system ;;
+                2) function_validate_system ;;
+                3) function_manage_crons ;;
+            esac
+            ;;
+        10)
+            SUB_OPT=$(whiptail --title "$(t "Atualização e Reboot" "Update & Reboot")" --cancel-button "$(t "Voltar" "Back")" \
+                --menu "$(t "Escolha uma opção:" "Choose an option:")" 16 76 2 \
+                "1" "$(t "Atualizar este painel via GitHub" "Update this panel via GitHub")" \
+                "2" "$(t "Reiniciar o servidor" "Reboot the server")" 3>&1 1>&2 2>&3) || continue
+            case "$SUB_OPT" in
+                1) function_autoupdate ;;
+                2) function_reboot_server ;;
+            esac
+            ;;
+        11)
+            SUB_OPT=$(whiptail --title "$(t "Sobre / Sair" "About / Exit")" --cancel-button "$(t "Voltar" "Back")" \
+                --menu "$(t "Escolha uma opção:" "Choose an option:")" 16 76 2 \
+                "1" "$(t "Sobre o programa (GitHub / Apoio)" "About this program (GitHub / Support)")" \
+                "2" "$(t "Sair do Painel" "Exit Panel")" 3>&1 1>&2 2>&3) || continue
+            case "$SUB_OPT" in
+                1) function_about ;;
+                2) clear; rm -f "$PANEL_LOCK_FILE"; exit 0 ;;
+            esac
+            ;;
     esac
-    
     clear
 done
+
 
