@@ -2827,12 +2827,12 @@ function_google_search_console() {
         fi
     fi
 
-    sitemap_script=""
-    for candidate in /usr/share/koha/misc/cronjobs/sitemap.pl; do
-        if [ -f "$candidate" ]; then
-            sitemap_script="$candidate"
-            break
-        fi
+sitemap_script=""
+    if [ -f "/usr/share/koha/misc/cronjobs/sitemap.pl" ]; then
+        sitemap_script="/usr/share/koha/misc/cronjobs/sitemap.pl"
+    else
+        sitemap_script=$(find /usr/share/koha -type f -path '*/misc/cronjobs/sitemap.pl' 2>/dev/null | head -n 1 || true)
+    fi
     done
     if [ -z "$sitemap_script" ]; then
         sitemap_script=$(find /usr/share/koha -type f -path '*/misc/cronjobs/sitemap.pl' 2>/dev/null | head -n 1 || true)
@@ -2946,8 +2946,8 @@ function_configure_ssl() {
         msg_error "" "$(t "O Apache ficou com configuração inválida após o Certbot. Não vou recarregar o serviço." "Apache configuration is invalid after Certbot. The service will not be reloaded.")" 10 76
         return 1
     fi
-    if ! systemctl reload apache2 >/dev/null 2>&1; then
-        msg_error "" "$(t "O certificado foi configurado, mas o Apache não aceitou o reload. Verifique o status do serviço." "The certificate was configured, but Apache rejected the reload. Check the service status.")" 10 76
+if ! systemctl restart apache2 >/dev/null 2>&1; then
+        msg_error "" "$(t "O certificado foi configurado, mas o Apache falhou ao reiniciar. Verifique o status do serviço." "The certificate was configured, but Apache failed to restart. Check the service status.")" 10 76
         return 1
     fi
     msg_ok "$(t "HTTPS configurado com sucesso. O Certbot manterá a renovação automática." "HTTPS configured successfully. Certbot will handle automatic renewal.")" 9 72
