@@ -2828,16 +2828,11 @@ function_google_search_console() {
     fi
 
 sitemap_script=""
-    if [ -f "/usr/share/koha/misc/cronjobs/sitemap.pl" ]; then
-        sitemap_script="/usr/share/koha/misc/cronjobs/sitemap.pl"
-    else
-        sitemap_script=$(find /usr/share/koha -type f -path '*/misc/cronjobs/sitemap.pl' 2>/dev/null | head -n 1 || true)
-    fi
-    done
-    if [ -z "$sitemap_script" ]; then
-        sitemap_script=$(find /usr/share/koha -type f -path '*/misc/cronjobs/sitemap.pl' 2>/dev/null | head -n 1 || true)
-    fi
-
+if [ -f "/usr/share/koha/misc/cronjobs/sitemap.pl" ]; then
+    sitemap_script="/usr/share/koha/misc/cronjobs/sitemap.pl"
+else
+    sitemap_script=$(find /usr/share/koha -type f -path '*/misc/cronjobs/sitemap.pl' 2>/dev/null | head -n 1 || true)
+fi
     if [ -n "$sitemap_script" ]; then
         display_explanation "$(t "Gerando sitemap do Koha..." "Generating Koha sitemap...")" \
             "$(t "O Koha possui um script próprio para geração dos sitemaps." "Koha has its own script for generating sitemaps.")"
