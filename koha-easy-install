@@ -42,7 +42,7 @@ REAL_HOME="$(getent passwd "$REAL_USER" 2>/dev/null | cut -d: -f6)"
 # ======================================================================
 case "${LANG:-}${LC_ALL:-}" in
     pt*|*pt_BR*) SYS_LANG="pt" ;;
-    *)          SYS_LANG="en" ;;
+    *)           SYS_LANG="en" ;;
 esac
 
 t() { if [ "$SYS_LANG" = "pt" ]; then printf '%b' "$1"; else printf '%b' "$2"; fi; }
@@ -94,8 +94,9 @@ log() { printf '%s | %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$RUN_LOG" 2>/
 log "===== painel iniciado (v$PANEL_VERSION, usuario=$REAL_USER) ====="
 
 # ======================================================================
-# DEPENDÊNCIAS MÍNIMAS DO PRÓPRIO PAINEL (COM DIALOG)
+# DEPENDÊNCIAS MÍNIMAS DO PRÓPRIO PAINEL / PANEL DEPENDENCIES
 # ======================================================================
+# Evita corrida com apt-daily durante a instalação das dependências do painel.
 systemctl stop apt-daily.timer apt-daily-upgrade.timer >/dev/null 2>&1 || true
 if command -v fuser >/dev/null 2>&1; then
     initial_wait=0
@@ -111,7 +112,7 @@ if command -v fuser >/dev/null 2>&1; then
         fi
     done
 fi
-for dep in dialog curl python3 unzip psmisc; do
+for dep in whiptail curl python3 unzip psmisc; do
     if ! command -v "$dep" >/dev/null 2>&1; then
         echo "$(t "Instalando dependência do painel: $dep" "Installing panel dependency: $dep")"
         DEBIAN_FRONTEND=noninteractive apt-get install -y "$dep" >/dev/null 2>&1 || {
@@ -154,51 +155,25 @@ display_explanation() {
     log "ETAPA: $msg"
 }
 
-msg_info() {
-    dialog --title "$1" --msgbox "$2" "${3:-12}" "${4:-74}" 2>/dev/null || true
-}
-msg_error() {
-    log "ERRO: $2"
-    dialog --title "$(t "Erro" "Error")" --msgbox "$2" "${3:-14}" "${4:-78}" 2>/dev/null || true
-}
-msg_ok() {
-    dialog --title "$(t "Sucesso" "Success")" --msgbox "$1" "${2:-10}" "${3:-74}" 2>/dev/null || true
-}
-prompt_yes_no() {
-    dialog --title "$1" --yesno "$2" "${3:-12}" "${4:-74}" 2>/dev/null
-}
+msg_info()  { whiptail --title "$1" --msgbox "$2" "${3:-12}" "${4:-74}" 2>/dev/null || true; }
+msg_error() { log "ERRO: $2"; whiptail --title "$(t "Erro" "Error")" --msgbox "$2" "${3:-14}" "${4:-78}" 2>/dev/null || true; }
+msg_ok()    { whiptail --title "$(t "Sucesso" "Success")" --msgbox "$1" "${2:-10}" "${3:-74}" 2>/dev/null || true; }
+prompt_yes_no() { whiptail --title "$1" --yesno "$2" "${3:-12}" "${4:-74}" 2>/dev/null; }
 
+# ---- COLE AQUI A NOVA FUNÇÃO DE APOIO A ERROS VISUAIS ----
 run_with_dialog() {
     local title="$1"
     local desc="$2"
-    local log_temp="/tmp/koha_action_err.log"
-    local rc
-    local err_msg
     shift 2
+    local log_temp="/tmp/koha_action_err.log"
 
-    if [ "$#" -eq 0 ]; then
-        msg_error "$title" \
-            "$(t "Nenhum comando foi informado para: $desc" "No command was supplied for: $desc")" \
-            10 74
-        return 2
-    fi
-
-    : > "$log_temp"
-    "$@" >"$log_temp" 2>&1
-    rc=$?
-
-    if [ "$rc" -ne 0 ]; then
-        err_msg=$(tail -n 20 "$log_temp" 2>/dev/null)
-        msg_error "$title" \
-            "$(t "Falha em: $desc\n\nCódigo de saída: $rc\n\nDetalhes:\n$err_msg" \
-                "Failed during: $desc\n\nExit code: $rc\n\nDetails:\n$err_msg")" \
-            20 82
-        log "FALHA: $desc (rc=$rc)"
-        log "Detalhes: $err_msg"
+    if ! "$@" > "$log_temp" 2>&1; then
+        local err_msg
+        err_msg=$(tail -n 15 "$log_temp")
+        msg_error "$title" "$(t "Falha em: $desc\n\nDetalhes:\n$err_msg" "Failed during: $desc\n\nDetails:\n$err_msg")" 18 78
         rm -f "$log_temp"
-        return "$rc"
+        return 1
     fi
-
     rm -f "$log_temp"
     return 0
 }
@@ -238,7 +213,7 @@ is_database_ready() {
 
 require_koha() {
     if ! is_koha_installed; then
-        msg_error "" "$(t "O Koha ainda não foi instalado.\nUse "Instalar servidor Koha" no painel principal." "Koha is not installed yet.\nUse "Install Koha server" in the main panel.")" 9 64
+        msg_error "" "$(t "O Koha ainda não foi instalado.\nUse a opção 1 do painel." "Koha is not installed yet.\nUse option 1 in the panel.")" 9 64
         return 1
     fi
     return 0
@@ -259,15 +234,6 @@ get_database_password() {
 }
 
 run_sql() { mysql -N -B -e "$1" 2>/dev/null; }
-run_sql_checked() {
-    local query="$1"
-    local result
-    local rc
-    result=$(mysql -N -B -e "$query" 2>/dev/null)
-    rc=$?
-    [ "$rc" -eq 0 ] || return "$rc"
-    printf '%s' "$result"
-}
 
 sql_escape_literal() {
     # Escapa \ e ' para literais SQL no modo padrão do MariaDB/MySQL.
@@ -419,7 +385,7 @@ select_file() {
 
         [ ${#items[@]} -eq 0 ] && items+=(".." "$(t "[Vazio - Voltar]" "[Empty - Back]")")
 
-        choice=$(dialog --title "$(t "Explorador de Arquivos" "File Explorer")" \
+        choice=$(whiptail --title "$(t "Explorador de Arquivos" "File Explorer")" \
             --cancel-button "$(t "Voltar" "Back")" \
             --menu "$(t "Pasta atual:" "Current folder:") $current\n\n$(t "Escolha o backup (.sql ou .sql.gz):" "Pick the backup (.sql or .sql.gz):")" \
             22 76 12 "${items[@]}" 3>&1 1>&2 2>&3) || return 1
@@ -447,7 +413,7 @@ select_directory() {
             [ -n "$d" ] && dirs+=("$d" "$(t "[Pasta]" "[Folder]")")
         done < <(find "$current" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort)
 
-        choice=$(dialog --title "$(t "Seletor de Pasta" "Folder Picker")" \
+        choice=$(whiptail --title "$(t "Seletor de Pasta" "Folder Picker")" \
             --cancel-button "$(t "Voltar" "Back")" \
             --menu "$(t "Pasta atual:" "Current folder:") $current" 22 76 12 "${dirs[@]}" 3>&1 1>&2 2>&3) || return 1
         [ -z "$choice" ] && return 1
@@ -476,16 +442,12 @@ v_reset() {
         echo "KOHA EASY INSTALL & Tools - RELATORIO DE VALIDACAO / VALIDATION REPORT"
         echo "Contexto/Context: ${1:-geral}"
         echo "Data/Date: $(date '+%Y-%m-%d %H:%M:%S %Z')"
-        echo "Host: $(hostname)    Painel: v${PANEL_VERSION}"
+        echo "Host: $(hostname)   Painel: v${PANEL_VERSION}"
         echo "======================================================================"
     } > "$VALIDATION_LOG"
 }
 v_ok()   { V_OK=$((V_OK+1));     printf '[ OK ] %s\n' "$1" | tee -a "$VALIDATION_LOG"; }
-v_warn() { 
-    V_WARN=$((V_WARN+1))
-    local msg; msg="$(t "[AVISO] $1" "[WARN] $1")"
-    printf '%s\n' "$msg" | tee -a "$VALIDATION_LOG"
-}
+v_warn() { V_WARN=$((V_WARN+1)); printf '[AVISO] %s\n' "$1" | tee -a "$VALIDATION_LOG"; }
 v_fail() { V_FAIL=$((V_FAIL+1)); printf '[FALHA] %s\n' "$1" | tee -a "$VALIDATION_LOG"; }
 v_info() { printf '[INFO] %s\n' "$1" | tee -a "$VALIDATION_LOG"; }
 
@@ -774,7 +736,7 @@ free_disk=$(get_free_space_mb /)
 
 show_validation_report() {
     [ -f "$VALIDATION_LOG" ] || { msg_info "$(t "Validação" "Validation")" "$(t "Nenhum relatório gerado ainda." "No report generated yet.")" 8 60; return; }
-    dialog --title "$(t "Relatório" "Report")" --scrolltext --textbox "$VALIDATION_LOG" 30 100 2>/dev/null || true
+    whiptail --title "$(t "Relatório" "Report")" --scrolltext --textbox "$VALIDATION_LOG" 30 100 2>/dev/null || true
 }
 
 # ======================================================================
@@ -854,42 +816,16 @@ sys.exit(1)
 PYEOF
 }
 
-set_jobs_notification_method() {
-    local method="$1"
-    case "$method" in
-        STOMP|polling) ;;
-        *) return 1 ;;
-    esac
-    mysql -e "
-        UPDATE ${DB_NAME}.systempreferences
-        SET value='${method}'
-        WHERE variable='JobsNotificationMethod';
-    " >/dev/null 2>&1
-}
-
 prepare_koha_broker() {
     if dpkg -s rabbitmq-server >/dev/null 2>&1; then
-        if ! rabbitmq-plugins enable rabbitmq_stomp >/dev/null 2>&1; then
-            log "RabbitMQ instalado, mas não foi possível habilitar rabbitmq_stomp."
-        elif ! systemctl enable --now rabbitmq-server >/dev/null 2>&1; then
-            log "RabbitMQ instalado, mas não foi possível iniciar o serviço."
-        elif ! ss -lnt 2>/dev/null | grep -q ':61613'; then
-            log "RabbitMQ iniciou, mas a porta STOMP 61613 não está em escuta."
-        elif ! set_jobs_notification_method "STOMP"; then
-            log "RabbitMQ/STOMP disponível, mas não foi possível configurar JobsNotificationMethod."
-        else
-            log "JobsNotificationMethod configurado como STOMP."
-            return 0
-        fi
-    fi
-
-    if set_jobs_notification_method "polling"; then
-        log "JobsNotificationMethod configurado como polling."
+        rabbitmq-plugins enable rabbitmq_stomp >/dev/null 2>&1 || return 1
+        systemctl enable --now rabbitmq-server >/dev/null 2>&1 || return 1
+        mysql -e "UPDATE ${DB_NAME}.systempreferences SET value='STOMP' WHERE variable='JobsNotificationMethod';" >/dev/null 2>&1 || return 1
         return 0
     fi
-
-    log "FALHA: não foi possível configurar STOMP nem polling."
-    return 1
+    # RabbitMQ is optional; with polling Koha can consume background jobs from the database.
+    mysql -e "UPDATE ${DB_NAME}.systempreferences SET value='polling' WHERE variable='JobsNotificationMethod';" >/dev/null 2>&1 || return 1
+    return 0
 }
 
 get_jobs_notification_method() {
@@ -1004,15 +940,8 @@ if [ "\$INDEXER_UP" != "sim" ]; then
     exit 0
 fi
 
-PEND_ERR="/run/koha-easy-install/es-watchdog-sql.err"
-PEND="\$(mysql -Nse "SELECT COUNT(*) FROM \${DB}.background_jobs WHERE type='update_elastic_index' AND status IN ('new','started') AND enqueued_on < DATE_SUB(NOW(), INTERVAL 5 MINUTE);" 2>"\$PEND_ERR")"
-PEND_RC=\$?
-if [ "\$PEND_RC" -ne 0 ] || ! [[ "\$PEND" =~ ^[0-9]+$ ]]; then
-    logger -t koha-es-watchdog "Não foi possível consultar background_jobs; nenhuma decisão de reinício será tomada nesta rodada"
-    [ -s "\$PEND_ERR" ] && logger -t koha-es-watchdog "\$(tail -n 5 "\$PEND_ERR" 2>/dev/null)"
-    exit 0
-fi
-if [ "\$PEND" -gt 0 ]; then
+PEND=\$(mysql -Nse "SELECT COUNT(*) FROM \${DB}.background_jobs WHERE type='update_elastic_index' AND status IN ('new','started') AND enqueued_on < DATE_SUB(NOW(), INTERVAL 5 MINUTE);" 2>/dev/null || echo 0)
+if [ "\${PEND:-0}" -gt 0 ] 2>/dev/null; then
     logger -t koha-es-watchdog "\$PEND job(s) de Elasticsearch presos há mais de 5 minutos; reiniciando \$UNIT"
     if systemctl restart "\$UNIT" >/dev/null 2>&1; then
         sleep 2
@@ -1089,12 +1018,11 @@ is_koha_zebra_running() {
 
 get_pending_es_jobs() {
     local n
-    n=$(run_sql_checked "SELECT COUNT(*) FROM ${DB_NAME}.background_jobs WHERE type='update_elastic_index' AND status IN ('new','started');") || return 1
-    [[ "$n" =~ ^[0-9]+$ ]] || return 2
-    printf '%s' "$n"
+    n=$(run_sql "SELECT COUNT(*) FROM ${DB_NAME}.background_jobs WHERE type='update_elastic_index' AND status IN ('new','started');")
+    printf '%s' "${n:-0}"
 }
 get_total_es_documents() { curl -sS --max-time 5 "http://127.0.0.1:9200/${DB_NAME}_biblios/_count" 2>/dev/null | grep -oP '"count"\s*:\s*\K[0-9]+' | head -n1; }
-get_total_biblios()      { run_sql_checked "SELECT COUNT(*) FROM ${DB_NAME}.biblio;"; }
+get_total_biblios()      { run_sql "SELECT COUNT(*) FROM ${DB_NAME}.biblio;"; }
 
 force_stop_koha_zebra() {
     local pidfile="/var/run/koha/${INSTANCE}/zebrasrv.pid" pid comm uid
@@ -1258,16 +1186,13 @@ validate_elasticsearch() {
             ;;
     esac
 
-    if pend=$(get_pending_es_jobs); then
-        if [ "$pend" -eq 0 ] 2>/dev/null; then
-            v_ok "Fila: $(t "nenhum job de indexação pendente" "no pending indexing jobs")."
-        elif [ "$pend" -le 20 ] 2>/dev/null; then
-            v_warn "Fila: $pend $(t "job(s) pendente(s)" "pending job(s)")."
-        else
-            v_fail "Fila: $pend $(t "jobs pendentes - o indexador não está consumindo" "pending jobs - the indexer is not consuming")."
-        fi
+    pend=$(get_pending_es_jobs)
+    if [ "${pend:-0}" -eq 0 ] 2>/dev/null; then
+        v_ok "Fila: $(t "nenhum job de indexação pendente" "no pending indexing jobs")."
+    elif [ "${pend:-0}" -le 20 ] 2>/dev/null; then
+        v_warn "Fila: $pend $(t "job(s) pendente(s)" "pending job(s)")."
     else
-        v_warn "Fila: $(t "não foi possível consultar background_jobs" "could not query background_jobs")."
+        v_fail "Fila: $pend $(t "jobs pendentes - o indexador não está consumindo" "pending jobs - the indexer is not consuming")."
     fi
 
     bibs=$(get_total_biblios); docs=$(get_total_es_documents)
@@ -1530,32 +1455,8 @@ write_cron_zebra() {
 configure_firewall() {
     command -v ufw >/dev/null 2>&1 || return 0
     local p
-
-    for p in $(get_ssh_ports); do
-        validate_port_number "$p" && ufw allow "${p}/tcp" >/dev/null 2>&1 || true
-    done
-
-    # Público por padrão: OPAC e HTTPS.
-    for p in 80 443; do
-        ufw allow "${p}/tcp" >/dev/null 2>&1 || true
-    done
-
-    # Mantido por compatibilidade com o fluxo de autenticação OAuth/Rclone do projeto.
-    ufw allow 53682/tcp >/dev/null 2>&1 || true
-
-    # Não abrir interfaces administrativas/interoperabilidade globalmente por padrão.
-    ufw delete allow 8080/tcp >/dev/null 2>&1 || true
-    ufw delete deny 8080/tcp >/dev/null 2>&1 || true
-    ufw delete allow 587/tcp >/dev/null 2>&1 || true
-    ufw delete allow 6001/tcp >/dev/null 2>&1 || true
-    ufw delete allow 2100/tcp >/dev/null 2>&1 || true
-
-    # Staff: somente localhost e redes privadas por padrão.
-    ufw allow from 127.0.0.1 to any port 8080 proto tcp >/dev/null 2>&1 || true
-    ufw allow from 10.0.0.0/8 to any port 8080 proto tcp >/dev/null 2>&1 || true
-    ufw allow from 172.16.0.0/12 to any port 8080 proto tcp >/dev/null 2>&1 || true
-    ufw allow from 192.168.0.0/16 to any port 8080 proto tcp >/dev/null 2>&1 || true
-
+    for p in $(get_ssh_ports); do ufw allow "${p}/tcp" >/dev/null 2>&1; done
+    for p in 80 443 8080 587 53682; do ufw allow "${p}/tcp" >/dev/null 2>&1; done
     if ! ufw --force enable >/dev/null 2>&1; then
         log "UFW nao pode ser ativado (provavel WSL/container)"
     fi
@@ -1574,7 +1475,7 @@ write_banner() {
               //================================================\\\\
              //         .-----------------------------.          \\\\
             //          |   K O H A   L I B R A R Y   |            \\\\
-          //       .----'-----------------------------'----.        \\\\
+          //      .----'-----------------------------'----.        \\\\
         _//_======[     PUBLIC CATALOG & AUTOMATION SUITE   ]======_\\\\_
        |____|____________________________________________________|_____|
         |--|  PAINEL DE CONTROLE / CONTROL DASHBOARD:             |--|
@@ -1582,9 +1483,9 @@ write_banner() {
         |  |  ==================================================  |  |
         |  |  ENDEREÇOS / URLS:                                   |  |
         |  |  - Staff (Intranet): $(printf "\%-31s" "$url_staff") |  |
-        |  |  - OPAC (Public):    $(printf "\%-31s" "$url_opac")  |  |
+        |  |  - OPAC (Public):    $(printf "\%-31s" "$url_opac") |  |
         |  |  --------------------------------------------------  |  |
-        |  |  - Usuário/User:     $(printf "\%-31s" "$user")      |  |
+        |  |  - Usuário/User:     $(printf "\%-31s" "$user") |  |
         |  |  - Senha/Pass:       cat /root/credenciais_koha.txt  |  |
         |  |======================================================|  |
        /===/=======================================================\\==\\
@@ -1687,7 +1588,7 @@ function_install_koha() {
             "$(t "Já existe uma instalação do Koha nesta máquina.\n\nREINSTALAR APAGA o banco ${DB_NAME} e toda a configuração.\nIsso NÃO pode ser desfeito por este script.\n\nQuer continuar para a confirmação final?" "A Koha installation already exists.\n\nREINSTALLING DELETES the ${DB_NAME} database and all configuration.\nThis CANNOT be undone by this script.\n\nContinue to the final confirmation?")" 16 76 || return 0
 
         local confirm
-        confirm=$(dialog --title "$(t "CONFIRMAÇÃO FINAL" "FINAL CONFIRMATION")" --inputbox \
+        confirm=$(whiptail --title "$(t "CONFIRMAÇÃO FINAL" "FINAL CONFIRMATION")" --inputbox \
             "$(t "Digite exatamente a palavra abaixo para apagar tudo:\n\nREINSTALAR" "Type exactly the word below to erase everything:\n\nREINSTALL")" 12 66 3>&1 1>&2 2>&3) || return 0
         if [ "$confirm" != "$(t "REINSTALAR" "REINSTALL")" ]; then
             msg_info "$(t "Cancelado" "Cancelled")" "$(t "Confirmação incorreta. Nada foi apagado." "Wrong confirmation. Nothing was deleted.")" 8 62
@@ -1844,7 +1745,7 @@ define_koha_sites_conf() {
 choose_timezone() {
     local current choice
     current=$(timedatectl show -p Timezone --value 2>/dev/null)
-    choice=$(dialog --title "$(t "Fuso Horário" "Timezone")" \
+    choice=$(whiptail --title "$(t "Fuso Horário" "Timezone")" \
         --cancel-button "$(t "Manter" "Keep")" \
         --menu "$(t "Atual:" "Current:") ${current:-UTC}\n\n$(t "Escolha o fuso do servidor:" "Choose the server timezone:")" 20 72 9 \
         "America/Sao_Paulo"  "Brasil - Brasilia/SP/RJ/PR/SC/RS/MG" \
@@ -1878,291 +1779,15 @@ function_view_credentials() {
 # ======================================================================
 # 3. RESTAURAR BANCO / RESTORE DATABASE
 # ======================================================================
-backup_database_for_rollback() {
-    local destination="$1"
-    local exists
-
-    mkdir -p "$(dirname "$destination")" || return 1
-    exists=$(run_sql_checked "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name='${DB_NAME}';") || return 1
-    [ "$exists" = "1" ] || return 2
-
-    display_explanation "Criando backup de segurança do banco atual..." "Creating a safety backup of the current database..."
-    if ! mysqldump --single-transaction --quick --routines --triggers \
-        --default-character-set=utf8mb4 "$DB_NAME" 2>>"$RUN_LOG" | gzip >"$destination"; then
-        rm -f "$destination"
-        return 1
-    fi
-    gzip -t "$destination" >/dev/null 2>&1 || { rm -f "$destination"; return 1; }
-    if ! ( set +o pipefail; gzip -dc -- "$destination" 2>/dev/null | grep -iE 'CREATE TABLE|INSERT INTO' >/dev/null ); then
-        rm -f "$destination"
-        return 1
-    fi
-
-    log "Backup de rollback criado: $destination"
-    return 0
-}
-
-rollback_database_from_backup() {
-    local backup="$1"
-    local pass
-    local db_pass_sql
-
-    [ -s "$backup" ] || return 1
-    gzip -t "$backup" >/dev/null 2>&1 || return 1
-
-    pass=$(get_database_password) || return 1
-    [ -n "$pass" ] || return 1
-    db_pass_sql=$(sql_escape_literal "$pass")
-
-    log "Iniciando rollback do banco a partir de: $backup"
-    mysql -e "
-        DROP DATABASE IF EXISTS ${DB_NAME};
-        CREATE DATABASE ${DB_NAME} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-        CREATE USER IF NOT EXISTS '${DB_NAME}'@'localhost' IDENTIFIED BY '${db_pass_sql}';
-        ALTER USER '${DB_NAME}'@'localhost' IDENTIFIED BY '${db_pass_sql}';
-        GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_NAME}'@'localhost';
-        FLUSH PRIVILEGES;
-    " >/dev/null 2>&1 || return 1
-
-    if ! gzip -dc -- "$backup" | mysql --default-character-set=utf8mb4 "$DB_NAME" >/dev/null 2>&1; then
-        log "FALHA: importação do backup de rollback falhou."
-        return 1
-    fi
-
-    log "Rollback do banco concluído."
-    return 0
-}
-
-restore_engine_after_database_rollback() {
-    local old_engine="$1"
-
-    if [ "$old_engine" = "Elasticsearch" ]; then
-        set_xml_elasticsearch inserir >/dev/null 2>&1 || true
-        set_search_engine "Elasticsearch" >/dev/null 2>&1 || true
-        prepare_koha_broker >/dev/null 2>&1 || true
-        systemctl restart elasticsearch >/dev/null 2>&1 || true
-        systemctl restart memcached koha-common >/dev/null 2>&1 || true
-        manage_koha_indexers start >/dev/null 2>&1 || true
-    else
-        set_xml_elasticsearch remover >/dev/null 2>&1 || true
-        set_search_engine "Zebra" >/dev/null 2>&1 || true
-        manage_koha_indexers stop >/dev/null 2>&1 || true
-        systemctl disable --now elasticsearch >/dev/null 2>&1 || true
-        write_cron_zebra
-        systemctl enable --now "koha-zebra-daemon@${INSTANCE}" >/dev/null 2>&1 || true
-        systemctl restart "koha-zebra-daemon@${INSTANCE}" >/dev/null 2>&1 || true
-    fi
-    koha-plack --restart "$INSTANCE" >/dev/null 2>&1 || true
-}
-
-import_sql_backup() {
-    local file="$1"
-    if [[ "$file" == *.gz ]]; then
-        gzip -dc -- "$file" | mysql --default-character-set=utf8mb4 "$DB_NAME"
-    else
-        mysql --default-character-set=utf8mb4 "$DB_NAME" < "$file"
-    fi
-}
-
 function_restore_database() {
     require_koha || return 0
 
-msg_info "$(t "Origem do Arquivo" "File Source")" \
-        "$(t "COMO ENVIAR O BACKUP PARA O SERVIDOR:\n\nOPÇÃO 1 — Windows (Arrastar e Soltar):\n1. No Bloco de Notas, cole o código abaixo e salve na Área de Trabalho como 'Enviar_Backup.bat':\n\n@echo off\nchcp 65001 >nul\nscp \"%~1\" ${REAL_USER}@$(get_server_ip):${REAL_HOME}/\npause\n\n2. Depois, basta ARRASTAR o arquivo .sql em cima desse ícone.\n\nOPÇÃO 2 — Linux, macOS ou Terminal Direto:\n    scp \"caminho_do_arquivo.sql\" ${REAL_USER}@$(get_server_ip):${REAL_HOME}/\n\nOPÇÃO 3 — Pendrive/USB: conecte no servidor e verifique em /media ou /mnt" "HOW TO SEND THE BACKUP TO THE SERVER:\n\nOPTION 1 — Windows (Drag and Drop):\n1. In Notepad, paste the code below and save on Desktop as 'Enviar_Backup.bat':\n\n@echo off\nchcp 65001 >nul\nscp \"%~1\" ${REAL_USER}@$(get_server_ip):${REAL_HOME}/\npause\n\n2. Then, just DRAG the .sql file onto that icon.\n\nOPTION 2 — Linux, macOS or Direct Terminal:\n    scp \"path_to_file.sql\" ${REAL_USER}@$(get_server_ip):${REAL_HOME}/\n\nOPTION 3 — USB drive: plug into server and check /media or /mnt")" 28 82
+    msg_info "$(t "Origem do Arquivo" "File Source")" \
+        "$(t "COMO ENVIAR O BACKUP PARA O SERVIDOR:\n\nOPÇÃO 1 — Windows (Arrastar e Soltar):\n1. No Bloco de Notas, cole o código abaixo e salve na Área de Trabalho como 'Enviar_Backup.bat':\n    @echo off\n    chcp 65001 >nul\n    scp \"%~1\" ${REAL_USER}@$(get_server_ip):${REAL_HOME}/\n    pause\n2. Depois, basta ARRASTAR o arquivo .sql em cima desse ícone.\n\nOPÇÃO 2 — Linux, macOS ou Terminal Direto:\n    scp \"caminho_do_arquivo.sql\" ${REAL_USER}@$(get_server_ip):${REAL_HOME}/\n\nOPÇÃO 3 — Pendrive/USB: conecte no servidor e verifique em /media ou /mnt\n\n(Na próxima tela, navegue até a pasta e selecione o arquivo importado.)" "HOW TO SEND THE BACKUP TO THE SERVER:\n\nOPTION 1 — Windows (Drag and Drop):\n1. In Notepad, paste the code below and save on Desktop as 'Enviar_Backup.bat':\n    @echo off\n    chcp 65001 >nul\n    scp \"%~1\" ${REAL_USER}@$(get_server_ip):${REAL_HOME}/\n    pause\n2. Then, just DRAG the .sql file onto that icon.\n\nOPTION 2 — Linux, macOS or Direct Terminal:\n    scp \"path_to_file.sql\" ${REAL_USER}@$(get_server_ip):${REAL_HOME}/\n\nOPTION 3 — USB drive: plug into server and check /media or /mnt\n\n(On the next screen, browse to the folder and select the file.)")" 28 82
+
     local file
     file=$(select_file "$REAL_HOME") || return 0
     [ -z "$file" ] && return 0
-
-    display_explanation "Conferindo o arquivo de backup..." "Checking the backup file..."
-    if [[ "$file" == *.gz ]]; then
-        if ! gzip -t "$file" 2>/dev/null; then
-            msg_error "" "$(t "O arquivo está corrompido (falhou no teste do gzip).\nNada foi alterado." "The file is corrupt (failed the gzip test).\nNothing was changed.")" 9 70
-            return 0
-        fi
-        if ! ( set +o pipefail; gzip -dc -- "$file" 2>/dev/null | head -c 200000 | grep -qi 'CREATE TABLE' ); then
-            prompt_yes_no "$(t "Arquivo suspeito" "Suspicious file")" "$(t "Não encontrei comandos SQL no início do arquivo.\nEle pode não ser um backup do Koha.\n\nContinuar mesmo assim?" "No SQL statements found at the start of the file.\nIt may not be a Koha backup.\n\nContinue anyway?")" 11 72 || return 0
-        fi
-    else
-        if ! head -c 200000 "$file" | grep -qi 'CREATE TABLE'; then
-            prompt_yes_no "$(t "Arquivo suspeito" "Suspicious file")" "$(t "Não encontrei comandos SQL no início do arquivo.\n\nContinuar mesmo assim?" "No SQL statements found at the start of the file.\n\nContinue anyway?")" 10 72 || return 0
-        fi
-    fi
-
-    prompt_yes_no "$(t "Confirmar Restauração" "Confirm Restore")" \
-        "$(t "Arquivo:\n$file\n\nATENÇÃO: o acervo atual será SUBSTITUÍDO.\n\nAntes disso, o instalador criará automaticamente um backup de segurança para rollback.\n\nContinuar?" "File:\n$file\n\nWARNING: the current catalog will be REPLACED.\n\nBefore that, the installer will automatically create a safety backup for rollback.\n\nContinue?")" 15 78 || return 0
-
-    clear
-    if ! backup_lock_acquire; then
-        msg_error "" "$(t "Outro backup ou restauração já está em andamento.\nNada foi alterado." "Another backup or restore is already running.\nNothing was changed.")" 10 72
-        return 0
-    fi
-
-    local configured_db_pass db_pass_sql
-    local rollback_file="${DIR_SQL}/PRE-RESTORE_${DB_NAME}_$(date +%Y%m%d-%H%M%S).sql.gz"
-    local old_engine="Zebra"
-    local tables="0"
-    local ok="yes"
-    local rollback_ok="no"
-    local rebuild_ok="yes"
-    local cut_time
-
-    old_engine=$(get_search_engine)
-    [ "$old_engine" = "Elasticsearch" ] || old_engine="Zebra"
-
-    if ! backup_database_for_rollback "$rollback_file"; then
-        backup_lock_release
-        msg_error "" "$(t "Não foi possível criar o backup automático de segurança do banco atual.\nA restauração foi cancelada e nada foi substituído." "Could not create the automatic safety backup of the current database.\nThe restore was cancelled and nothing was replaced.")" 11 78
-        return 1
-    fi
-
-    manage_koha_indexers stop
-    systemctl stop "koha-zebra-daemon@${INSTANCE}" >/dev/null 2>&1 || true
-
-    configured_db_pass=$(get_database_password)
-    if [ -z "$configured_db_pass" ]; then
-        configured_db_pass=$(python3 -c 'import secrets,string; print("".join(secrets.choice(string.ascii_letters+string.digits) for _ in range(32)))')
-        msg_info "$(t "Senha do banco" "Database password")" "$(t "A senha existente não foi encontrada no koha-conf.xml. Será gerada uma nova e usada no Koha." "The existing database password was not found in koha-conf.xml. A new password will be generated and used by Koha.")" 10 74
-    fi
-    db_pass_sql=$(sql_escape_literal "$configured_db_pass")
-
-    display_explanation "Recriando o banco com charset utf8mb4..." "Recreating the database with utf8mb4 charset..."
-    if ! mysql -e "DROP DATABASE IF EXISTS ${DB_NAME};
-            CREATE DATABASE ${DB_NAME} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-            CREATE USER IF NOT EXISTS '${DB_NAME}'@'localhost' IDENTIFIED BY '${db_pass_sql}';
-            ALTER USER '${DB_NAME}'@'localhost' IDENTIFIED BY '${db_pass_sql}';
-            GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_NAME}'@'localhost';
-            FLUSH PRIVILEGES;"; then
-        if rollback_database_from_backup "$rollback_file"; then
-            restore_engine_after_database_rollback "$old_engine"
-            backup_lock_release
-            msg_error "" "$(t "Não foi possível recriar o banco de dados.\n\nO banco anterior foi restaurado automaticamente.\nBackup de segurança mantido em:\n$rollback_file" "Could not recreate the database.\n\nThe previous database was restored automatically.\nSafety backup kept at:\n$rollback_file")" 14 80
-        else
-            backup_lock_release
-            msg_error "" "$(t "Não foi possível recriar o banco de dados e o rollback automático falhou.\n\nNÃO faça novas alterações no banco.\nBackup de segurança disponível em:\n$rollback_file" "Could not recreate the database and automatic rollback failed.\n\nDO NOT make further database changes.\nSafety backup available at:\n$rollback_file")" 15 80
-        fi
-        return 1
-    fi
-
-    local xml_backup=""
-    if [ -n "$configured_db_pass" ] && ! grep -q "<pass>${configured_db_pass}</pass>" "$KOHA_CONF" 2>/dev/null; then
-        xml_backup="${KOHA_CONF}.bak-$(date +%Y%m%d-%H%M%S)"
-        if ! cp -p "$KOHA_CONF" "$xml_backup"; then
-            if rollback_database_from_backup "$rollback_file"; then
-                restore_engine_after_database_rollback "$old_engine"
-                backup_lock_release
-                msg_error "" "$(t "Não foi possível criar o backup do koha-conf.xml.\n\nO banco anterior foi restaurado automaticamente." "Could not create a backup of koha-conf.xml.\n\nThe previous database was restored automatically.")" 12 78
-            else
-                backup_lock_release
-                msg_error "" "$(t "Não foi possível criar o backup do koha-conf.xml e o rollback do banco falhou.\n\nBackup SQL disponível em:\n$rollback_file" "Could not back up koha-conf.xml and database rollback failed.\n\nSQL safety backup available at:\n$rollback_file")" 13 80
-            fi
-            return 1
-        fi
-        sed -i "s|<pass>[^<]*</pass>|<pass>${configured_db_pass}</pass>|g" "$KOHA_CONF"
-        if command -v xmllint >/dev/null 2>&1 && ! xmllint --noout "$KOHA_CONF" >/dev/null 2>&1; then
-            cp -p "$xml_backup" "$KOHA_CONF" 2>/dev/null || true
-            if rollback_database_from_backup "$rollback_file"; then
-                restore_engine_after_database_rollback "$old_engine"
-                backup_lock_release
-                msg_error "" "$(t "Não foi possível atualizar o koha-conf.xml.\n\nO banco anterior foi restaurado automaticamente." "Could not update koha-conf.xml.\n\nThe previous database was restored automatically.")" 12 76
-            else
-                backup_lock_release
-                msg_error "" "$(t "Não foi possível atualizar o koha-conf.xml e o rollback do banco falhou.\n\nBackup de segurança disponível em:\n$rollback_file" "Could not update koha-conf.xml and the database rollback failed.\n\nSafety backup available at:\n$rollback_file")" 13 78
-            fi
-            return 1
-        fi
-        if [ -f /root/credenciais_koha.txt ]; then
-            sed -i "s|Senha    / Password    : .*|Senha    / Password    : ${configured_db_pass}|" /root/credenciais_koha.txt 2>/dev/null || true
-        fi
-    fi
-
-    display_explanation "Importando o acervo (pode demorar vários minutos)..." "Importing the catalog (may take several minutes)..."
-    if ! run_with_dialog "$(t "Erro na Importação" "Import Error")" \
-        "$(t "importação do backup SQL" "SQL backup import")" \
-        import_sql_backup "$file"; then
-        ok="no"
-    fi
-
-    tables=$(run_sql_checked "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${DB_NAME}';" 2>/dev/null || printf '0')
-    if [ "$ok" = "no" ] || ! [[ "$tables" =~ ^[0-9]+$ ]] || [ "$tables" -lt 50 ]; then
-        log "Falha na restauração: import_ok=$ok, tables=${tables:-0}. Tentando rollback."
-        if rollback_database_from_backup "$rollback_file"; then
-            rollback_ok="yes"
-            restore_engine_after_database_rollback "$old_engine"
-        fi
-        backup_lock_release
-        if [ "$rollback_ok" = "yes" ]; then
-            msg_error "" "$(t "A importação falhou ou produziu um banco incompleto.\n\nO banco anterior foi restaurado automaticamente.\nBackup de segurança mantido em:\n$rollback_file" "The import failed or produced an incomplete database.\n\nThe previous database was restored automatically.\nSafety backup kept at:\n$rollback_file")" 14 80
-        else
-            msg_error "" "$(t "A restauração falhou e o rollback automático também falhou.\n\nNÃO faça novas alterações no banco.\nBackup de segurança disponível em:\n$rollback_file" "The restore failed and the automatic rollback also failed.\n\nDO NOT make further database changes.\nSafety backup available at:\n$rollback_file")" 15 80
-        fi
-        return 1
-    fi
-
-    display_explanation "Atualizando o schema para a versão instalada do Koha..." "Upgrading the schema to the installed Koha version..."
-    systemctl restart memcached >/dev/null 2>&1 || true
-    if ! koha-upgrade-schema "$INSTANCE"; then
-        log "Falha no koha-upgrade-schema. Tentando rollback para $rollback_file"
-        if rollback_database_from_backup "$rollback_file"; then
-            rollback_ok="yes"
-            restore_engine_after_database_rollback "$old_engine"
-        fi
-        backup_lock_release
-        if [ "$rollback_ok" = "yes" ]; then
-            msg_error "" "$(t "A migração do schema falhou.\n\nO banco anterior foi restaurado automaticamente.\nBackup de segurança mantido em:\n$rollback_file" "Schema migration failed.\n\nThe previous database was restored automatically.\nSafety backup kept at:\n$rollback_file")" 14 80
-        else
-            msg_error "" "$(t "A migração do schema falhou e o rollback automático também falhou.\n\nO backup de segurança permanece em:\n$rollback_file" "Schema migration failed and automatic rollback also failed.\n\nThe safety backup remains at:\n$rollback_file")" 13 80
-        fi
-        return 1
-    fi
-
-    display_explanation "Sincronizando o motor de busca..." "Synchronizing the search engine..."
-    local engine="Zebra"
-    if dpkg -s koha-elasticsearch >/dev/null 2>&1 && is_koha_es_active_in_xml; then
-        engine="Elasticsearch"
-    fi
-    if ! set_search_engine "$engine"; then
-        if rollback_database_from_backup "$rollback_file"; then
-            restore_engine_after_database_rollback "$old_engine"
-        fi
-        backup_lock_release
-        msg_error "" "$(t "Não consegui definir o motor de busca após a restauração.\nO backup de segurança permanece em:\n$rollback_file" "Could not set the search engine after restore.\nThe safety backup remains at:\n$rollback_file")" 11 78
-        return 1
-    fi
-    systemctl restart memcached >/dev/null 2>&1 || true
-
-    cut_time=$(date '+%Y-%m-%d %H:%M:%S')
-    if [ "$engine" = "Elasticsearch" ]; then
-        if ! prepare_koha_broker; then
-            rollback_database_from_backup "$rollback_file" >/dev/null 2>&1 && restore_engine_after_database_rollback "$old_engine"
-            backup_lock_release
-            msg_error "" "$(t "Não foi possível configurar a mensageria do Koha para o Elasticsearch.\nA restauração foi desfeita quando possível.\n\nBackup: $rollback_file" "Could not configure Koha job messaging for Elasticsearch.\nThe restore was rolled back when possible.\n\nBackup: $rollback_file")" 13 80
-            return 1
-        fi
-        systemctl restart koha-common >/dev/null 2>&1 || true
-        if ! manage_koha_indexers start; then rebuild_ok="no"; fi
-        if [ "$rebuild_ok" = "yes" ] && ! rebuild_koha_elasticsearch "$cut_time"; then rebuild_ok="no"; fi
-    else
-        systemctl enable --now "koha-zebra-daemon@${INSTANCE}" >/dev/null 2>&1 || true
-        systemctl restart "koha-zebra-daemon@${INSTANCE}" >/dev/null 2>&1 || true
-        write_cron_zebra
-        if ! koha-rebuild-zebra -f -v -b -a "$INSTANCE"; then rebuild_ok="no"; fi
-    fi
-
-    backup_lock_release
-    systemctl restart memcached >/dev/null 2>&1 || true
-    koha-plack --restart "$INSTANCE" >/dev/null 2>&1 || true
-
-    validate_complete_system "restauração do banco"
-    log "restauracao concluida a partir de $file (motor=$engine rebuild=$rebuild_ok rollback_point=$rollback_file)"
-
-    if [ "$rebuild_ok" = "no" ]; then
-        msg_error "" "$(t "O banco foi restaurado, mas a reconstrução do índice falhou.\n\nUse a Central de Busca e Indexação para reparar o índice.\n\nPonto de rollback disponível em:\n$rollback_file" "The database was restored, but index rebuilding failed.\n\nUse the Search & Indexing Center to repair the index.\n\nRollback point available at:\n$rollback_file")" 13 80
-        return 1
-    fi
-
-    msg_ok "$(t "Acervo restaurado e indexado com sucesso!\n\nMotor de busca: ${engine}\nTabelas: ${tables}\n\nPonto de segurança mantido em:\n${rollback_file}" "Catalog restored and indexed successfully!\n\nSearch engine: ${engine}\nTables: ${tables}\n\nSafety point kept at:\n${rollback_file}")" 14 80
-    return 0
-}
 
 # ======================================================================
 # 4. BACKUP MANUAL LOCAL / MANUAL LOCAL BACKUP
@@ -2218,14 +1843,14 @@ function_send_manual_scp_backup() {
 "$(t "Execute no terminal/PowerShell da máquina de DESTINO:\n\nWindows (PowerShell):\nWrite-Host \"IP: \$((Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Get-NetIPAddress -AddressFamily IPv4).IPAddress) | Usuario: \$env:USERNAME\"\n\nLinux:\necho \"IP: \$(ip route get 1.1.1.1 2>/dev/null | awk '{print \$7; exit}') | Usuario: \$(whoami)\"\n\nmacOS:\necho \"IP: \$(ipconfig getifaddr \$(route -n get default 2>/dev/null | awk '/interface:/{print \$2}')) | Usuario: \$(whoami)\"" \
 "Run in the DESTINATION machine terminal/PowerShell:\n\nWindows (PowerShell):\nWrite-Host \"IP: \$((Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Get-NetIPAddress -AddressFamily IPv4).IPAddress) | User: \$env:USERNAME\"\n\nLinux:\necho \"IP: \$(ip route get 1.1.1.1 2>/dev/null | awk '{print \$7; exit}') | User: \$(whoami)\"\n\nmacOS:\necho \"IP: \$(ipconfig getifaddr \$(route -n get default 2>/dev/null | awk '/interface:/{print \$2}')) | User: \$(whoami)\"")" 24 90
 
-        host=$(dialog --title "$(t "Enviar Backup via SCP" "Send Backup via SCP")" \
+        host=$(whiptail --title "$(t "Enviar Backup via SCP" "Send Backup via SCP")" \
             --inputbox "$(t "Endereço (IP ou domínio) do destino:" "Address (IP or hostname) of the destination:")" 10 70 3>&1 1>&2 2>&3) || return 0
         [ -z "$host" ] && return 0
-        user=$(dialog --title "$(t "Usuário" "Username")" --inputbox "$(t "Usuário SSH:" "SSH username:")" 9 60 "$REAL_USER" 3>&1 1>&2 2>&3) || return 0
+        user=$(whiptail --title "$(t "Usuário" "Username")" --inputbox "$(t "Usuário SSH:" "SSH username:")" 9 60 "$REAL_USER" 3>&1 1>&2 2>&3) || return 0
         [ -z "$user" ] && return 0
-        port=$(dialog --title "Porta SSH / SSH Port" --inputbox "$(t "Porta SSH:" "SSH port:")" 9 60 "22" 3>&1 1>&2 2>&3) || return 0
+        port=$(whiptail --title "Porta SSH / SSH Port" --inputbox "$(t "Porta SSH:" "SSH port:")" 9 60 "22" 3>&1 1>&2 2>&3) || return 0
         [ -z "$port" ] && port="22"
-        folder=$(dialog --title "$(t "Pasta de Destino" "Destination Folder")" --inputbox "$(t "Pasta no destino (deve existir):" "Folder on the destination (must exist):")" 10 70 "/home/${user}/Desktop" 3>&1 1>&2 2>&3) || return 0
+        folder=$(whiptail --title "$(t "Pasta de Destino" "Destination Folder")" --inputbox "$(t "Pasta no destino (deve existir):" "Folder on the destination (must exist):")" 10 70 "/home/${user}/Desktop" 3>&1 1>&2 2>&3) || return 0
         [ -z "$folder" ] && return 0
         key=""
     fi
@@ -2274,7 +1899,7 @@ function_validate_repair_database() {
 
     while true; do
         local sub_choice
-        sub_choice=$(dialog --title "$(t "Centro de Diagnóstico e Reparo de Dados" "Data Diagnostics & Repair Center")" \
+        sub_choice=$(whiptail --title "$(t "Centro de Diagnóstico e Reparo de Dados" "Data Diagnostics & Repair Center")" \
         --menu "$(t "Selecione a ferramenta de manutenção desejada:" "Select the desired maintenance tool:")" 18 78 4 \
         "1" "$(t "Validar e testar o último backup existente (Dry-Run)" "Validate and test latest existing backup (Dry-Run)")" \
         "2" "$(t "Checar integridade estrutural das tabelas (CHECK)" "Check structural table integrity (CHECK)")" \
@@ -2304,7 +1929,7 @@ function_validate_repair_database() {
                     mysqlcheck --check --databases "$DB_NAME" || check_rc=$?
                 } > "$check_log" 2>&1
                 backup_lock_release
-                dialog --title "$(t "Resultado da Checagem" "Check Result")" --scrolltext --textbox "$check_log" 20 80 2>/dev/null || true
+                whiptail --title "$(t "Resultado da Checagem" "Check Result")" --scrolltext --textbox "$check_log" 20 80 2>/dev/null || true
                 if [ "$check_rc" -eq 0 ]; then
                     msg_ok "$(t "Checagem de integridade concluída sem erros." "Integrity check completed without errors.")" 8 58
                 else
@@ -2328,7 +1953,7 @@ ${check_log}")" 10 74
                     mysqlcheck --analyze --databases "$DB_NAME" || analyze_rc=$?
                 } > "$analyze_log" 2>&1
                 backup_lock_release
-                dialog --title "$(t "Relatório de Diagnóstico" "Diagnostics Report")" --scrolltext --textbox "$analyze_log" 20 80 2>/dev/null || true
+                whiptail --title "$(t "Relatório de Diagnóstico" "Diagnostics Report")" --scrolltext --textbox "$analyze_log" 20 80 2>/dev/null || true
                 if [ "$analyze_rc" -eq 0 ]; then
                     msg_ok "$(t "Diagnóstico de estatísticas concluído sem erros." "Statistics diagnostics completed without errors.")" 8 62
                 else
@@ -2373,7 +1998,7 @@ ${analyze_log}")" 10 74
                 backup_lock_release
                 systemctl restart memcached >/dev/null 2>&1 || true
 
-                dialog --title "$(t "Relatório de Manutenção e Reparo" "Maintenance & Repair Report")" --scrolltext --textbox "$repair_log" 22 84 2>/dev/null || true
+                whiptail --title "$(t "Relatório de Manutenção e Reparo" "Maintenance & Repair Report")" --scrolltext --textbox "$repair_log" 22 84 2>/dev/null || true
                 if [ "$repair_rc" -eq 0 ]; then
                     msg_ok "$(t "Procedimento de reparo e otimização concluído sem erros." "Repair and optimization procedure completed without errors.")" 10 72
                 else
@@ -2455,7 +2080,7 @@ function_install_languages() {
         code="${pair%%:*}"; name="${pair#*:}"
         items+=("$code" "$name")
     done
-    choice=$(dialog --title "$(t "Idiomas do Koha" "Koha Languages")" \
+    choice=$(whiptail --title "$(t "Idiomas do Koha" "Koha Languages")" \
         --cancel-button "$(t "Voltar" "Back")" \
         --menu "$(t "Escolha o pacote de idioma para instalar:" "Choose the language pack to install:")" 22 72 13 "${items[@]}" 3>&1 1>&2 2>&3) || return 0
     [ -z "$choice" ] && return 0
@@ -2652,16 +2277,7 @@ function_toggle_search_engine() {
     fi
     display_explanation "Limpando o cache de preferências (Memcached)..." "Flushing the preferences cache (Memcached)..."
     systemctl restart memcached >/dev/null 2>&1 || true
-    if ! prepare_koha_broker; then
-        set_xml_elasticsearch remover >/dev/null 2>&1 || true
-        set_search_engine "Zebra" >/dev/null 2>&1 || true
-        systemctl disable --now elasticsearch >/dev/null 2>&1 || true
-        write_cron_zebra
-        systemctl enable --now "koha-zebra-daemon@${INSTANCE}" >/dev/null 2>&1 || true
-        backup_lock_release
-        msg_error "" "$(t "Não foi possível configurar a mensageria do Koha para o Elasticsearch. O Zebra foi restaurado." "Could not configure Koha job messaging for Elasticsearch. Zebra was restored.")" 12 78
-        return 1
-    fi
+    prepare_koha_broker || true
     curl -sS -X DELETE --max-time 10 "http://127.0.0.1:9200/${DB_NAME}_biblios" >/dev/null 2>&1 || true
     curl -sS -X DELETE --max-time 10 "http://127.0.0.1:9200/${DB_NAME}_authorities" >/dev/null 2>&1 || true
     display_explanation "Reiniciando o Koha com o Elasticsearch ativo..." "Restarting Koha with Elasticsearch enabled..."
@@ -2768,9 +2384,7 @@ function_repair_indexing() {
         es_up=$(curl -s --max-time 5 http://127.0.0.1:9200 >/dev/null 2>&1 && echo "OK" || echo "FORA/DOWN")
         is_koha_indexer_running && idx="$(t "rodando" "running")" || idx="$(t "PARADO" "STOPPED")"
         ss -lnt 2>/dev/null | grep -q ':61613' && broker="OK" || broker="$(t "ausente" "absent")"
-        pend=$(get_pending_es_jobs 2>/dev/null) || pend="?"
-        bibs=$(get_total_biblios 2>/dev/null) || bibs="?"
-        docs=$(get_total_es_documents)
+        pend=$(get_pending_es_jobs); bibs=$(get_total_biblios); docs=$(get_total_es_documents)
         msg_info "$(t "Diagnóstico" "Diagnostics")" \
 "Elasticsearch (9200) : ${es_up}
 $(t "Bloco no XML" "Block in XML")         : $(is_koha_es_active_in_xml && echo OK || echo "$(t "AUSENTE" "MISSING")")
@@ -2801,11 +2415,7 @@ $(t "Fila crescendo + índice menor que o banco = indexador parado." "Growing qu
             msg_error "" "$(t "A API do Elasticsearch não respondeu após o reinício." "Elasticsearch API did not respond after restart.")" 9 72
             return 1
         fi
-        if ! prepare_koha_broker; then
-            backup_lock_release
-            msg_error "" "$(t "Não foi possível configurar a mensageria do Koha para o Elasticsearch. O reparo foi interrompido." "Could not configure Koha job messaging for Elasticsearch. Repair aborted.")" 11 78
-            return 1
-        fi
+        prepare_koha_broker || true
         systemctl restart memcached koha-common >/dev/null 2>&1 || true
         if ! manage_koha_indexers start; then
             backup_lock_release
@@ -2866,7 +2476,7 @@ function_size_server() {
     elif [ "$ram_int" -lt 8 ];  then recommended=2
     elif [ "$ram_int" -lt 16 ]; then recommended=3
     else recommended=4; fi
-    profile=$(dialog --title "$(t "Dimensionamento" "Sizing")" \
+    profile=$(whiptail --title "$(t "Dimensionamento" "Sizing")" \
         --cancel-button "$(t "Voltar" "Back")" \
         --default-item "$recommended" \
         --menu "$(t "RAM detectada:" "Detected RAM:") ${ram} GB\n$(t "Perfil recomendado:" "Recommended profile:") ${recommended}" 18 76 4 \
@@ -2957,7 +2567,7 @@ validate_and_register_rclone() {
 
 function_configure_rclone() {
     local choice
-    choice=$(dialog --title "$(t "Backup em Nuvem" "Cloud Backup")" \
+    choice=$(whiptail --title "$(t "Backup em Nuvem" "Cloud Backup")" \
         --cancel-button "$(t "Voltar" "Back")" \
         --menu "$(t "Como deseja configurar o envio automático de Backups?" "How do you want to configure auto cloud backups?")" 15 76 2 \
         "1" "$(t "Expresso (Google Drive)" "Express (Google Drive)")" \
@@ -3017,7 +2627,7 @@ function_configure_rclone() {
         clear
         rclone config
         local conn_name
-        conn_name=$(dialog --title "$(t "Nome da Conexão" "Remote Name")" \
+        conn_name=$(whiptail --title "$(t "Nome da Conexão" "Remote Name")" \
             --inputbox "$(t "Digite o NOME EXATO criado no assistente do Rclone:" "Enter the EXACT NAME configured in Rclone:")" 10 70 3>&1 1>&2 2>&3) || return 0
         validate_and_register_rclone "$conn_name"
         return 0
@@ -3035,15 +2645,15 @@ function_configure_automatic_scp_backup() {
 "$(t "Execute no terminal/PowerShell da máquina de DESTINO:\n\nWindows (PowerShell):\nWrite-Host \"IP: \$((Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Get-NetIPAddress -AddressFamily IPv4).IPAddress) | Usuario: \$env:USERNAME\"\n\nLinux:\necho \"IP: \$(ip route get 1.1.1.1 2>/dev/null | awk '{print \$7; exit}') | Usuario: \$(whoami)\"\n\nmacOS:\necho \"IP: \$(ipconfig getifaddr \$(route -n get default 2>/dev/null | awk '/interface:/{print \$2}')) | Usuario: \$(whoami)\"" \
 "Run in the DESTINATION machine terminal/PowerShell:\n\nWindows (PowerShell):\nWrite-Host \"IP: \$((Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Get-NetIPAddress -AddressFamily IPv4).IPAddress) | User: \$env:USERNAME\"\n\nLinux:\necho \"IP: \$(ip route get 1.1.1.1 2>/dev/null | awk '{print \$7; exit}') | User: \$(whoami)\"\n\nmacOS:\necho \"IP: \$(ipconfig getifaddr \$(route -n get default 2>/dev/null | awk '/interface:/{print \$2}')) | User: \$(whoami)\"")" 24 90
 
-    host=$(dialog --title "$(t "Backup Automático via SCP" "Automatic SCP Backup")" \
+    host=$(whiptail --title "$(t "Backup Automático via SCP" "Automatic SCP Backup")" \
         --inputbox "$(t "Endereço (IP ou domínio) do servidor de destino:" "Address (IP or hostname) of the destination server:")" 10 70 3>&1 1>&2 2>&3) || return 0
     [ -z "$host" ] && return 0
 
-    user=$(dialog --title "$(t "Usuário" "Username")" \
+    user=$(whiptail --title "$(t "Usuário" "Username")" \
         --inputbox "$(t "Usuário SSH no destino:" "SSH username on the destination:")" 9 60 "$REAL_USER" 3>&1 1>&2 2>&3) || return 0
     [ -z "$user" ] && return 0
 
-    port=$(dialog --title "Porta SSH / SSH Port" \
+    port=$(whiptail --title "Porta SSH / SSH Port" \
         --inputbox "$(t "Porta SSH do destino:" "SSH port of the destination:")" 9 60 "22" 3>&1 1>&2 2>&3) || return 0
     [ -z "$port" ] && port="22"
     if ! validate_port_number "$port"; then
@@ -3051,7 +2661,7 @@ function_configure_automatic_scp_backup() {
         return 1
     fi
 
-    folder=$(dialog --title "$(t "Pasta de Destino" "Destination Folder")" \
+    folder=$(whiptail --title "$(t "Pasta de Destino" "Destination Folder")" \
         --inputbox "$(t "Pasta no destino onde salvar os backups (deve existir):" "Folder on the destination to save backups (must exist):")" 10 70 "/home/${user}/koha_backups" 3>&1 1>&2 2>&3) || return 0
     [ -z "$folder" ] && return 0
 
@@ -3153,7 +2763,7 @@ function_create_superlibrarian() {
         msg_error "" "$(t "Ainda não existem bibliotecas ou categorias de usuário no banco.\nConclua o Web Installer primeiro." "There are no libraries or patron categories yet.\nFinish the Web Installer first.")" 10 74
         return 0
     fi
-    user=$(dialog --title "$(t "Usuário" "Username")" --inputbox "$(t "Nome de usuário (login):" "Username (login):")" 9 60 3>&1 1>&2 2>&3) || return 0
+    user=$(whiptail --title "$(t "Usuário" "Username")" --inputbox "$(t "Nome de usuário (login):" "Username (login):")" 9 60 3>&1 1>&2 2>&3) || return 0
     [ -z "$user" ] && return 0
     if ! [[ "$user" =~ ^[A-Za-z0-9._-]+$ ]]; then
         msg_error "" "$(t "Use apenas letras, números, ponto, hífen ou sublinhado." "Use only letters, numbers, dot, hyphen or underscore.")" 8 66
@@ -3166,7 +2776,7 @@ function_create_superlibrarian() {
     fi
 
     local cardnumber exists_card
-    cardnumber=$(dialog --title "$(t "Número do Cartão" "Card Number")" --inputbox "$(t "Número do cartão (cardnumber) para $user:" "Card number for $user:")" 9 60 3>&1 1>&2 2>&3) || return 0
+    cardnumber=$(whiptail --title "$(t "Número do Cartão" "Card Number")" --inputbox "$(t "Número do cartão (cardnumber) para $user:" "Card number for $user:")" 9 60 3>&1 1>&2 2>&3) || return 0
     [ -z "$cardnumber" ] && return 0
 
     exists_card=$(run_sql "SELECT COUNT(*) FROM ${DB_NAME}.borrowers WHERE cardnumber='${cardnumber}';")
@@ -3175,13 +2785,13 @@ function_create_superlibrarian() {
         return 0
     fi
 
-    pass=$(dialog --title "$(t "Senha" "Password")" --passwordbox "$(t "Senha para $user (mínimo 8 caracteres):" "Password for $user (at least 8 characters):")" 9 64 3>&1 1>&2 2>&3) || return 0
+    pass=$(whiptail --title "$(t "Senha" "Password")" --passwordbox "$(t "Senha para $user (mínimo 8 caracteres):" "Password for $user (at least 8 characters):")" 9 64 3>&1 1>&2 2>&3) || return 0
     [ "${#pass}" -lt 8 ] && { msg_error "" "$(t "Senha curta demais (mínimo 8 caracteres)." "Password too short (minimum 8 characters).")" 8 62; return 0; }
     local pass2
-    pass2=$(dialog --title "$(t "Confirmar Senha" "Confirm Password")" --passwordbox "$(t "Digite a senha de novo:" "Type the password again:")" 9 64 3>&1 1>&2 2>&3) || return 0
+    pass2=$(whiptail --title "$(t "Confirmar Senha" "Confirm Password")" --passwordbox "$(t "Digite a senha de novo:" "Type the password again:")" 9 64 3>&1 1>&2 2>&3) || return 0
     [ "$pass" != "$pass2" ] && { msg_error "" "$(t "As senhas não conferem." "Passwords do not match.")" 8 60; return 0; }
-    first_name=$(dialog --title "$(t "Nome" "First name")" --inputbox "$(t "Nome:" "First name:")" 9 60 "Super" 3>&1 1>&2 2>&3) || return 0
-    surname=$(dialog --title "$(t "Sobrenome" "Surname")" --inputbox "$(t "Sobrenome:" "Surname:")" 9 60 "Admin" 3>&1 1>&2 2>&3) || return 0
+    first_name=$(whiptail --title "$(t "Nome" "First name")" --inputbox "$(t "Nome:" "First name:")" 9 60 "Super" 3>&1 1>&2 2>&3) || return 0
+    surname=$(whiptail --title "$(t "Sobrenome" "Surname")" --inputbox "$(t "Sobrenome:" "Surname:")" 9 60 "Admin" 3>&1 1>&2 2>&3) || return 0
     clear
     display_explanation "Gerando o hash da senha..." "Hashing the password..."
     cat > /tmp/koha_hash.pl << 'EOF'
@@ -3217,13 +2827,23 @@ SQLEOF
 }
 
 # ======================================================================
-# 16. CLOUDFLARE TUNNEL / CLOUDFLARE TUNNEL (modo local automatizado)
+# 16. CLOUDFLARE TUNNEL / CLOUDFLARE TUNNEL
 # ======================================================================
 function_configure_cloudflare() {
     msg_info "$(t "Passo 1: Domínio e Nameservers" "Step 1: Domain & Nameservers")" \
-"$(t "COMO ASSOCIAR SEU DOMÍNIO À CLOUDFLARE:\n\n1. OBTENHA UM DOMÍNIO GRATUITO:\n   - Digital Plat (rápido/automático): https://domain.digitalplat.org/\n   - nic.eu.org (manual, demora de 14 a 45 dias): https://nic.eu.org\n   - Ou solicite à TI um CNAME oficial (ex: catalogo.palotina.pr.gov.br)\n\n2. ADICIONE NA CLOUDFLARE (dash.cloudflare.com):\n   - Clique em 'Add a site/domain', digite o domínio e selecione Free.\n   - A Cloudflare exibirá DOIS Nameservers. Copie os dois.\n\n3. ATUALIZE ONDE REGISTROU O DOMÍNIO:\n   - No Digital Plat ou nic.eu.org, vá em DNS / Nameservers.\n   - Substitua os servidores existentes pelos DOIS da Cloudflare.\n   - Na Cloudflare, clique em 'Check nameservers' até o status ficar Ativo.\n\nEsta parte não dá pra automatizar (depende do seu registrador),\nmas o resto do processo a partir daqui é todo automático." \
-"HOW TO LINK YOUR DOMAIN TO CLOUDFLARE:\n\n1. GET A FREE DOMAIN:\n   - Digital Plat (fast/automated): https://domain.digitalplat.org/\n   - nic.eu.org (manual, takes 14 to 45 days): https://nic.eu.org\n   - Or ask local IT for an official CNAME (e.g. catalog.city.gov.br)\n\n2. ADD TO CLOUDFLARE (dash.cloudflare.com):\n   - Click 'Add a site/domain', type your domain and select Free.\n   - Cloudflare provides TWO Nameservers. Copy both.\n\n3. UPDATE AT YOUR DOMAIN REGISTRAR:\n   - Replace existing servers with the TWO from Cloudflare.\n   - In Cloudflare, click 'Check nameservers' until status is Active.\n\nThis part can't be automated (depends on your registrar), but\neverything from here on is fully automatic.")" 22 78
-
+"$(t "COMO ASSOCIAR SEU DOMÍNIO À CLOUDFLARE:\n\n1. OBTENHA UM DOMÍNIO GRATUITO:\n   - Digital Plat (rápido/automático): https://domain.digitalplat.org/\n   - nic.eu.org (manual, demora de 14 a 45 dias): https://nic.eu.org\n   - Ou solicite à TI um CNAME oficial (ex: catalogo.palotina.pr.gov.br)\n\n2. ADICIONE NA CLOUDFLARE (dash.cloudflare.com):\n   - Clique em 'Add a site/domain', digite o domínio e selecione Free.\n   - A Cloudflare exibirá DOIS Nameservers (ex: vera.ns.cloudflare.com\n     e rob.ns.cloudflare.com). Copie os dois.\n\n3. ATUALIZE ONDE REGISTROU O DOMÍNIO:\n   - No Digital Plat ou nic.eu.org, vá em DNS / Nameservers.\n   - Substitua os servidores existentes pelos DOIS da Cloudflare.\n   - Na Cloudflare, clique em 'Check nameservers' até o status ficar Ativo." \
+"HOW TO LINK YOUR DOMAIN TO CLOUDFLARE:\n\n1. GET A FREE DOMAIN:\n   - Digital Plat (fast/automated): https://domain.digitalplat.org/\n   - nic.eu.org (manual, takes 14 to 45 days): https://nic.eu.org\n   - Or ask local IT for an official CNAME (e.g. catalog.city.gov.br)\n\n2. ADD TO CLOUDFLARE (dash.cloudflare.com):\n   - Click 'Add a site/domain', type your domain and select Free.\n   - Cloudflare provides TWO Nameservers (e.g. vera.ns.cloudflare.com\n     and rob.ns.cloudflare.com). Copy both.\n\n3. UPDATE AT YOUR DOMAIN REGISTRAR:\n   - In Digital Plat or nic.eu.org, go to DNS / Nameservers settings.\n   - Replace existing servers with the TWO from Cloudflare.\n   - In Cloudflare, click 'Check nameservers' until status is Active.")" 22 78
+    msg_info "Cloudflare Tunnel" \
+"$(t "Publica o Koha na internet sem abrir portas no roteador.\n\n1. Acesse: one.dash.cloudflare.com (Zero Trust)\n2. Networks > Tunnels > Create a tunnel > Escolha 'Debian 64-bit (amd64/arm64 quando disponível)'\n\n3. ATENÇÃO NA TELA DA CLOUDFLARE:\n   - Ignore o primeiro bloco de comandos (instalação).\n   - Copie o comando do 2º bloco ('sudo cloudflared service install...')\n     ou do 3º bloco ('cloudflared tunnel run...').\n\nNa próxima tela, cole o comando copiado (ou apenas a chave 'ey...')." \
+"Publishes Koha on the internet without opening router ports.\n\n1. Go to: one.dash.cloudflare.com (Zero Trust)\n2. Networks > Tunnels > Create a tunnel > Choose 'Debian 64-bit'\n\n3. ATTENTION ON CLOUDFLARE SCREEN:\n   - Ignore the 1st command block (installation commands).\n   - Copy the command from the 2nd block ('sudo cloudflared service install...')\n     or the 3rd block ('cloudflared tunnel run...').\n\nOn the next screen, paste the copied command (or just the 'ey...' token).")" 18 78
+    local input token
+    input=$(whiptail --title "Token Cloudflare" --inputbox "$(t "Cole aqui:" "Paste here:")" 10 76 3>&1 1>&2 2>&3) || return 0
+    [ -z "$input" ] && return 0
+    token=$(printf '%s' "$input" | grep -oE 'ey[A-Za-z0-9_-]{40,}' | head -n1)
+    if [ -z "$token" ]; then
+        msg_error "" "$(t "Não encontrei um token válido (deve começar com 'ey')." "No valid token found (it must start with 'ey').")" 9 70
+        return 0
+    fi
     clear
     display_explanation "Instalando o cloudflared..." "Installing cloudflared..."
     if ! command -v cloudflared >/dev/null 2>&1; then
@@ -3247,87 +2867,18 @@ function_configure_cloudflare() {
         fi
         restore_apt_timers
     fi
-
-    # ------------------------------------------------------------------
-    # Autorização (uma vez só) - clica um link, autoriza, pronto.
-    # Não precisa de token, não precisa mexer em porta nenhuma.
-    # ------------------------------------------------------------------
-    if [ ! -f "$HOME/.cloudflared/cert.pem" ] && [ ! -f "/root/.cloudflared/cert.pem" ]; then
-        msg_info "Cloudflare Tunnel" \
-"$(t "AUTORIZAÇÃO (só na primeira vez):\n\nVai aparecer um link abaixo. Copie e abra em qualquer navegador,\nescolha o domínio que você já ativou na Cloudflare e clique Authorize.\n\nNão precisa colar código nenhum de volta - o servidor detecta\nsozinho quando você autorizar." "AUTHORIZATION (first time only):\n\nA link will appear below. Copy it into any browser, select the\ndomain you already activated in Cloudflare, and click Authorize.\n\nNo need to paste anything back - the server detects it automatically.")" 12 76
-        clear
-        cloudflared tunnel login
-        echo ""
-    fi
-
-    if [ ! -f "$HOME/.cloudflared/cert.pem" ] && [ ! -f "/root/.cloudflared/cert.pem" ]; then
-        msg_error "" "$(t "Autorização não concluída. Tente novamente." "Authorization not completed. Try again.")" 8 66
-        return 1
-    fi
-
-    # ------------------------------------------------------------------
-    # Nome do túnel (reaproveita se já existir de uma configuração anterior)
-    # ------------------------------------------------------------------
-    local tunnel_name="koha-library"
-    if ! cloudflared tunnel list 2>/dev/null | grep -q "$tunnel_name"; then
-        display_explanation "Criando o túnel '$tunnel_name'..." "Creating tunnel '$tunnel_name'..."
-        if ! cloudflared tunnel create "$tunnel_name"; then
-            msg_error "" "$(t "Falha ao criar o túnel." "Failed to create the tunnel.")" 8 66
-            return 1
+    cloudflared service uninstall >/dev/null 2>&1
+    if cloudflared service install "$token"; then
+        systemctl enable --now cloudflared >/dev/null 2>&1
+        sleep 3
+        if systemctl is-active --quiet cloudflared; then
+            msg_ok "$(t "TÚNEL ATIVO! PASSO FINAL NO ZERO TRUST:\n\n1. No túnel, vá em 'Public Hostnames' > 'Add a public hostname'.\n\n   IMPORTANTE: Use sempre 'localhost' (ou 127.0.0.1).\n   NUNCA use o IP da rede local (ex: 192.168.x.x), pois se o IP do\n   servidor mudar via DHCP, o túnel vai quebrar!\n\n   PARA O CATÁLOGO PÚBLICO (OPAC):\n   - Subdomain: catalogo   | Domain: selecione o seu domínio\n   - Type: HTTP            | URL: localhost:80 (ou 127.0.0.1:80)\n\n   PARA A ADMINISTRAÇÃO (STAFF):\n   - Subdomain: admin      | Domain: selecione o seu domínio\n   - Type: HTTP            | URL: localhost:8080 (ou 127.0.0.1:8080)\n\n2. GOOGLE SEARCH CONSOLE:\n   - Adicione via 'Prefixo do URL': https://catalogo.seudominio\n   - Pegue a 'Tag HTML' (<meta ...>) e cole em:\n     Koha Staff > Administração > Preferências > opacheader\n   - Envie o sitemap: sitemap.xml" \
+"TUNNEL ACTIVE! FINAL STEP IN ZERO TRUST:\n\n1. In your tunnel, go to 'Public Hostnames' > 'Add a public hostname'.\n\n   IMPORTANT: Always use 'localhost' (or 127.0.0.1).\n   NEVER use local LAN IP (e.g. 192.168.x.x). If DHCP changes the\n   server IP, the tunnel will immediately break!\n\n   FOR OPAC (PUBLIC CATALOG):\n   - Subdomain: catalog    | Domain: select your domain\n   - Type: HTTP            | URL: localhost:80 (or 127.0.0.1:80)\n\n   FOR STAFF (ADMIN):\n   - Subdomain: admin      | Domain: select your domain\n   - Type: HTTP            | URL: localhost:8080 (or 127.0.0.1:8080)\n\n2. GOOGLE SEARCH CONSOLE:\n   - Add property via 'URL prefix': https://catalog.yourdomain\n   - Copy 'HTML Tag' (<meta ...>) and paste into:\n     Koha Staff > Administration > Preferences > opacheader\n   - Submit sitemap: sitemap.xml")" 26 80
+        else
+            msg_error "" "$(t "O serviço não ficou ativo. Veja: journalctl -u cloudflared -n 30" "The service is not active. Check: journalctl -u cloudflared -n 30")" 9 74
         fi
-    fi
-
-    local tunnel_id
-    tunnel_id=$(cloudflared tunnel list 2>/dev/null | awk -v n="$tunnel_name" '$0 ~ n {print $1; exit}')
-    if [ -z "$tunnel_id" ]; then
-        msg_error "" "$(t "Não consegui identificar o ID do túnel criado." "Could not identify the created tunnel's ID.")" 8 66
-        return 1
-    fi
-
-    local cred_file
-    cred_file=$(find "$HOME/.cloudflared" /root/.cloudflared -name "${tunnel_id}.json" 2>/dev/null | head -n1)
-
-    # ------------------------------------------------------------------
-    # Pergunta os subdomínios (com padrão já sugerido)
-    # ------------------------------------------------------------------
-    local dominio opac_sub staff_sub
-    dominio=$(dialog --title "$(t "Seu Domínio" "Your Domain")" --inputbox "$(t "Digite o domínio que você já ativou na Cloudflare (ex: bibliotecapalotina.org):" "Enter the domain you already activated in Cloudflare (e.g. bibliotecapalotina.org):")" 10 74 3>&1 1>&2 2>&3) || return 0
-    [ -z "$dominio" ] && return 0
-
-    opac_sub=$(dialog --title "OPAC" --inputbox "$(t "Subdomínio do Catálogo Público:" "Public Catalog subdomain:")" 10 60 "catalogo" 3>&1 1>&2 2>&3) || return 0
-    staff_sub=$(dialog --title "Staff" --inputbox "$(t "Subdomínio da Administração:" "Administration subdomain:")" 10 60 "admin" 3>&1 1>&2 2>&3) || return 0
-
-    # ------------------------------------------------------------------
-    # Cria o config.yml local com as duas rotas
-    # ------------------------------------------------------------------
-    mkdir -p /etc/cloudflared
-    cat > /etc/cloudflared/config.yml <<EOF
-tunnel: ${tunnel_id}
-credentials-file: ${cred_file}
-
-ingress:
-  - hostname: ${opac_sub}.${dominio}
-    service: http://localhost:80
-  - hostname: ${staff_sub}.${dominio}
-    service: http://localhost:8080
-  - service: http_status:404
-EOF
-
-    display_explanation "Registrando os subdomínios no DNS..." "Registering subdomains in DNS..."
-    cloudflared tunnel route dns "$tunnel_name" "${opac_sub}.${dominio}" || true
-    cloudflared tunnel route dns "$tunnel_name" "${staff_sub}.${dominio}" || true
-
-    display_explanation "Instalando o túnel como serviço..." "Installing tunnel as a service..."
-    cloudflared service uninstall >/dev/null 2>&1 || true
-    cp /etc/cloudflared/config.yml /etc/cloudflared/config.yml.bak 2>/dev/null || true
-    cloudflared --config /etc/cloudflared/config.yml service install
-    systemctl enable --now cloudflared >/dev/null 2>&1
-    sleep 3
-
-    if systemctl is-active --quiet cloudflared; then
-        msg_ok "$(t "TÚNEL ATIVO E ROTAS CRIADAS AUTOMATICAMENTE!\n\nCatálogo (OPAC): https://${opac_sub}.${dominio}\nAdministração:   https://${staff_sub}.${dominio}\n\nPode levar alguns minutos até o DNS propagar." "TUNNEL ACTIVE AND ROUTES CREATED AUTOMATICALLY!\n\nCatalog (OPAC): https://${opac_sub}.${dominio}\nAdministration: https://${staff_sub}.${dominio}\n\nMay take a few minutes for DNS to propagate.")" 12 78
     else
-        msg_error "" "$(t "O serviço não ficou ativo. Veja: journalctl -u cloudflared -n 30" "The service is not active. Check: journalctl -u cloudflared -n 30")" 9 74
+        msg_error "" "$(t "Falha ao instalar o serviço do túnel." "Failed to install the tunnel service.")" 8 66
     fi
 }
 
@@ -3362,89 +2913,6 @@ function_configure_ssl() {
         return 1
     fi
     msg_ok "$(t "HTTPS configurado com sucesso. O Certbot manterá a renovação automática." "HTTPS configured successfully. Certbot will handle automatic renewal.")" 9 72
-}
-
-# ======================================================================
-# 32. GOOGLE SEARCH CONSOLE / SEO
-# ======================================================================
-function_google_search_console() {
-    local opac_url sitemap_url verification_method http_status
-
-    opac_url=$(dialog --title "$(t "Endereço público do OPAC" "Public OPAC address")" \
-        --inputbox "$(t "Informe a URL pública completa do OPAC, incluindo HTTPS:" "Enter the complete public OPAC URL, including HTTPS:")" \
-        10 78 "https://" 3>&1 1>&2 2>&3) || return 0
-    [ -z "$opac_url" ] && return 0
-
-    opac_url="${opac_url%/}"
-
-    msg_info "$(t "Google Search Console — Guia de Indexação" "Google Search Console — Indexing Guide")" \
-        "$(t "Esta central realiza verificações automáticas no servidor e explica claramente o que precisa ser feito MANUALMENTE no Google.\n\nIMPORTANTE:\n- O Google não garante a indexação imediata.\n- O instalador NÃO solicita nem armazena sua senha Google.\n- A verificação da propriedade deve ser feita por você ou pela TI.\n- A indexação depende das regras e decisões do Google." \
-        "This center performs automatic server checks and clearly explains what must be done MANUALLY in Google.\n\nIMPORTANT:\n- Google does not guarantee immediate indexing.\n- The installer does NOT request or store your Google password.\n- Property verification must be completed by you or IT.\n- Indexing depends on Google's rules and decisions.")" 18 78
-
-    clear
-    display_explanation "Verificando acessibilidade pública do OPAC..." "Checking OPAC public accessibility..."
-
-    http_status=$(curl -L -k -sS -o /dev/null -w "%{http_code}" --connect-timeout 10 --max-time 30 "$opac_url" 2>/dev/null)
-
-    if [[ "$http_status" =~ ^2[0-9][0-9]$|^3[0-9][0-9]$ ]]; then
-        msg_ok "$(t "OPAC acessível!\n\nEndereço testado: $opac_url\nCódigo HTTP recebido: $http_status" "OPAC accessible!\n\nTested address: $opac_url\nHTTP status received: $http_status")" 10 74
-    else
-        msg_error "" "$(t "Não foi possível confirmar o acesso ao OPAC.\n\nCódigo HTTP recebido: ${http_status:-indisponível}\n\nVerifique o domínio, o túnel (Cloudflare/Tailscale), o certificado SSL e o firewall." "Could not confirm OPAC access.\n\nHTTP status received: ${http_status:-unavailable}\n\nCheck the domain, tunnel (Cloudflare/Tailscale), SSL certificate and firewall.")" 13 80
-    fi
-
-    sitemap_url="${opac_url}/sitemap.xml"
-    clear
-    display_explanation "Verificando o sitemap em $sitemap_url..." "Checking sitemap at $sitemap_url..."
-
-    http_status=$(curl -L -k -sS -o /dev/null -w "%{http_code}" --connect-timeout 10 --max-time 30 "$sitemap_url" 2>/dev/null)
-
-    if [[ "$http_status" =~ ^2[0-9][0-9]$ ]]; then
-        msg_ok "$(t "Sitemap encontrado com sucesso em:\n$sitemap_url\n\nCódigo HTTP: $http_status" "Sitemap successfully found at:\n$sitemap_url\n\nHTTP status: $http_status")" 10 74
-    else
-        msg_info "$(t "Sitemap não confirmado" "Sitemap not confirmed")" \
-            "$(t "Não foi possível confirmar automaticamente:\n$sitemap_url\n\nIsso não significa necessariamente um problema. A localização do sitemap pode variar.\nVerifique a documentação da sua versão do Koha e utilize a URL real no Google." "Could not automatically confirm:\n$sitemap_url\n\nThis doesn't necessarily mean a problem. The sitemap location may vary.\nCheck your Koha documentation and use the actual URL in Google.")" 13 80
-    fi
-
-    while true; do
-        verification_method=$(dialog --title "$(t "Verificação Manual Obrigatória" "Required Manual Verification")" \
-            --cancel-button "$(t "Sair" "Exit")" \
-            --menu "$(t "Escolha o método que pretende utilizar no Google Search Console:" "Choose the method you intend to use in Google Search Console:")" \
-            18 82 5 \
-            "1" "$(t "Verificação por Domínio (DNS)" "Domain verification (DNS)")" \
-            "2" "$(t "Verificação por Prefixo de URL (Recomendado)" "URL-prefix verification (Recommended)")" \
-            "3" "$(t "Enviar sitemap ao Google" "Submit sitemap to Google")" \
-            "4" "$(t "Solicitar indexação de uma página" "Request indexing for a page")" \
-            "5" "$(t "Checklist Final e Links Úteis" "Final Checklist and Useful Links")" \
-            3>&1 1>&2 2>&3) || break
-
-        case "$verification_method" in
-            1)
-                msg_info "$(t "Verificação por Domínio (DNS)" "Domain Verification (DNS)")" \
-"$(t "PASSO A PASSO:\n1. Abra: https://search.google.com/search-console\n2. Adicionar propriedade > 'Domínio'.\n3. Informe somente o domínio (ex: bibliotecapalotina.org).\n4. O Google exibirá um registro TXT DNS.\n5. Abra o painel DNS (Cloudflare, Registro.br, TI da prefeitura).\n6. Crie um registro TXT com os dados fornecidos.\n7. Aguarde a propagação do DNS e clique em 'Verificar'.\n\nATENÇÃO: O instalador não pode fazer isso sem acesso ao seu provedor de DNS." \
-"STEP BY STEP:\n1. Open: https://search.google.com/search-console\n2. Add property > 'Domain'.\n3. Enter only the domain (e.g. library.org).\n4. Google will display a DNS TXT record.\n5. Open your DNS panel (Cloudflare, Registrar, IT dept).\n6. Create a TXT record with the provided data.\n7. Wait for DNS propagation and click 'Verify'.\n\nWARNING: The installer cannot do this without access to your DNS provider.")" 20 86
-                ;;
-            2)
-                msg_info "$(t "Verificação por Prefixo de URL" "URL-prefix Verification")" \
-"$(t "PASSO A PASSO:\n1. Adicionar propriedade > 'Prefixo do URL'.\n2. Cole exatamente o endereço público: $opac_url\n3. Escolha o método TAG HTML.\n4. Copie a meta tag fornecida pelo Google (<meta name=\"google-site-verification\"...).\n5. Cole essa tag no Koha Staff em:\n   Administração > Preferências do Sistema > opacheader\n6. Salve a preferência e clique em 'Verificar' no Google.\n\nEste é o método mais fácil se você tiver acesso ao painel Staff!" \
-"STEP BY STEP:\n1. Add property > 'URL prefix'.\n2. Paste the exact public address: $opac_url\n3. Choose the HTML TAG method.\n4. Copy the meta tag provided by Google (<meta name=\"google-site-verification\"...).\n5. Paste this tag in Koha Staff under:\n   Administration > System Preferences > opacheader\n6. Save the preference and click 'Verify' in Google.\n\nThis is the easiest method if you have access to the Staff panel!")" 20 88
-                ;;
-            3)
-                msg_info "$(t "Enviar o Sitemap" "Submit Sitemap")" \
-"$(t "DEPOIS de verificar a propriedade:\n\n1. No Search Console, clique em 'Sitemaps' (menu esquerdo).\n2. No campo 'Adicionar um novo sitemap', digite:\n   sitemap.xml\n3. Clique em 'Enviar'.\n\nCOMPREENDENDO O RESULTADO:\n- 'Enviado' não significa indexação imediata.\n- É apenas um mapa; o Google decide quando e o que indexar.\n- Pode levar dias ou semanas para aparecer nas buscas." \
-"AFTER verifying the property:\n\n1. In Search Console, click 'Sitemaps' (left menu).\n2. In 'Add a new sitemap', enter:\n   sitemap.xml\n3. Click 'Submit'.\n\nUNDERSTANDING THE RESULT:\n- 'Submitted' does not mean immediate indexing.\n- It's just a map; Google decides when and what to index.\n- It may take days or weeks to appear in searches.")" 18 86
-                ;;
-            4)
-                msg_info "$(t "Solicitar Indexação" "Request Indexing")" \
-"$(t "Para forçar o Google a olhar uma página rapidamente:\n\n1. No Search Console, use a barra superior 'Inspecionar qualquer URL'.\n2. Cole o endereço completo (ex: $opac_url).\n3. Dê Enter e aguarde a análise.\n4. Clique em 'Solicitar indexação'.\n\nRECOMENDAÇÃO: Use apenas para a página inicial. O resto do acervo o Google descobre sozinho pelo sitemap." \
-"To force Google to look at a page quickly:\n\n1. In Search Console, use the top bar 'Inspect any URL'.\n2. Paste the full address (e.g., $opac_url).\n3. Press Enter and wait for analysis.\n4. Click 'Request indexing'.\n\nRECOMMENDATION: Use only for the homepage. Google will discover the rest of the catalog through the sitemap.")" 16 86
-                ;;
-            5)
-                msg_info "$(t "Checklist Final" "Final Checklist")" \
-"$(t "LINKS ÚTEIS:\nGoogle Search Console: https://search.google.com/search-console\n\nCHECKLIST:\n[ ] O OPAC abre externamente.\n[ ] A propriedade foi verificada no Google.\n[ ] A tag HTML foi inserida no 'opacheader' (se usou prefixo).\n[ ] O sitemap foi enviado no painel do Google.\n\nAgora é ter paciência. O Google fará o rastreamento no tempo dele." \
-"USEFUL LINKS:\nGoogle Search Console: https://search.google.com/search-console\n\nCHECKLIST:\n[ ] OPAC opens externally.\n[ ] Property was verified in Google.\n[ ] HTML tag was inserted in 'opacheader' (if using prefix).\n[ ] Sitemap was submitted in Google panel.\n\nNow be patient. Google will crawl it on its own schedule.")" 18 88
-                ;;
-        esac
-    done
 }
 
 # ======================================================================
@@ -3497,7 +2965,7 @@ function_configure_clock() {
 function_security_center() {
     local opc jail info new_pass
     while true; do
-        opc=$(dialog --title "$(t "Central de Segurança" "Security Center")" \
+        opc=$(whiptail --title "$(t "Central de Segurança" "Security Center")" \
             --cancel-button "$(t "Voltar" "Back")" \
             --menu "$(t "Escolha uma ação:" "Choose an action:")" 16 76 4 \
             "1" "$(t "Status do Fail2ban (tentativas de invasão)" "Fail2ban status (intrusion attempts)")" \
@@ -3511,26 +2979,22 @@ function_security_center() {
                 for jail in sshd apache-auth apache-badbots; do
                     info="${info}=== ${jail} ===\n$(fail2ban-client status "$jail" 2>/dev/null || echo "$(t "jail inativa" "jail inactive")")\n\n"
                 done
-                dialog --title "Fail2ban" --scrolltext --msgbox "$(printf '%b' "$info")" 24 78 2>/dev/null || true
+                whiptail --title "Fail2ban" --scrolltext --msgbox "$(printf '%b' "$info")" 24 78 2>/dev/null || true
                 ;;
             2)
-                if prompt_yes_no \
-                    "$(t "Liberar Staff publicamente" "Expose Staff publicly")" \
-                    "$(t "ATENÇÃO:\n\nIsso permite acesso direto à administração do Koha pela internet.\n\nRecomenda-se manter a porta 8080 restrita e usar rede local,\nVPN ou túnel seguro.\n\nDeseja realmente liberar a porta 8080 para qualquer origem?" \
-                        "WARNING:\n\nThis allows direct Internet access to the Koha staff interface.\n\nKeeping port 8080 restricted and using local network,\nVPN or a secure tunnel is recommended.\n\nDo you really want to allow port 8080 from any source?")" \
-                    16 80; then
-                    ufw delete allow 8080/tcp >/dev/null 2>&1 || true
-                    ufw delete deny 8080/tcp >/dev/null 2>&1 || true
-                    ufw allow 8080/tcp >/dev/null 2>&1
-                    msg_ok "$(t "A porta 8080 foi liberada publicamente.\nIsso expõe a interface Staff à internet." "Port 8080 was opened publicly.\nThis exposes the Staff interface to the Internet.")" 10 74
+                if prompt_yes_no "$(t "Firewall do Staff" "Staff firewall")" \
+"$(t "A porta 80 (OPAC) deve ficar aberta para o público.\nA porta 8080 (administração) pode ser fechada para a internet\nse você usa Cloudflare Tunnel ou só acessa pela rede local.\n\nBLOQUEAR o acesso externo direto à 8080?" \
+"Port 80 (OPAC) must stay open to the public.\nPort 8080 (staff) can be closed to the internet if you use\nCloudflare Tunnel or only access it from the local network.\n\nBLOCK direct external access to 8080?")" 14 78; then
+                    ufw delete allow 8080/tcp >/dev/null 2>&1
+                    ufw allow from 127.0.0.1 to any port 8080 >/dev/null 2>&1
+                    ufw allow from 192.168.0.0/16 to any port 8080 >/dev/null 2>&1
+                    ufw allow from 10.0.0.0/8 to any port 8080 >/dev/null 2>&1
+                    ufw deny 8080/tcp >/dev/null 2>&1
+                    msg_ok "$(t "Porta 8080 liberada só para 127.0.0.1 e rede local." "Port 8080 now allowed only from 127.0.0.1 and the local network.")" 9 72
                 else
-                    ufw delete allow 8080/tcp >/dev/null 2>&1 || true
-                    ufw delete deny 8080/tcp >/dev/null 2>&1 || true
-                    ufw allow from 127.0.0.1 to any port 8080 proto tcp >/dev/null 2>&1 || true
-                    ufw allow from 10.0.0.0/8 to any port 8080 proto tcp >/dev/null 2>&1 || true
-                    ufw allow from 172.16.0.0/12 to any port 8080 proto tcp >/dev/null 2>&1 || true
-                    ufw allow from 192.168.0.0/16 to any port 8080 proto tcp >/dev/null 2>&1 || true
-                    msg_ok "$(t "A porta 8080 continua restrita à máquina local e redes privadas." "Port 8080 remains restricted to localhost and private networks.")" 10 74
+                    ufw delete deny 8080/tcp >/dev/null 2>&1
+                    ufw allow 8080/tcp >/dev/null 2>&1
+                    msg_ok "$(t "Porta 8080 aberta." "Port 8080 is open.")" 8 60
                 fi
                 ;;
             3)
@@ -3568,7 +3032,7 @@ function_security_center() {
                 fi
                 ;;
             4)
-                dialog --title "UFW" --scrolltext --msgbox "$(ufw status verbose 2>/dev/null || echo 'ufw?')" 24 78 2>/dev/null || true
+                whiptail --title "UFW" --scrolltext --msgbox "$(ufw status verbose 2>/dev/null || echo 'ufw?')" 24 78 2>/dev/null || true
                 ;;
         esac
     done
@@ -3587,7 +3051,7 @@ function_update_system() {
         restore_apt_timers
         return 1
     fi
-    if ! run_with_dialog "$(t "Erro na Atualização" "Update Error")" "$(t "atualização dos pacotes do sistema" "system package update")" env DEBIAN_FRONTEND=noninteractive apt-get upgrade "${APT_OPTS[@]}"; then
+    if ! run_with_dialog "Erro na Atualização" "atualização dos pacotes do sistema (apt-get upgrade)" DEBIAN_FRONTEND=noninteractive apt-get upgrade "${APT_OPTS[@]}"; then
         restore_apt_timers
         return 1
     fi
@@ -3657,10 +3121,10 @@ function_detailed_status() {
     engine=$(get_search_engine)
     is_koha_indexer_running && idx="$(t "rodando" "running")" || idx="$(t "parado" "stopped")"
     plack=$(koha-plack --status "$INSTANCE" 2>/dev/null | tr '\n' ' ' | cut -c1-40)
-    pend=$(get_pending_es_jobs 2>/dev/null) || pend="?"
+    pend=$(get_pending_es_jobs)
     docs=$(get_total_es_documents)
-    bibs=$(get_total_biblios 2>/dev/null) || bibs="?"
-    dialog --title "$(t "Status do Servidor" "Server Status")" --scrolltext --msgbox \
+    bibs=$(get_total_biblios)
+    whiptail --title "$(t "Status do Servidor" "Server Status")" --scrolltext --msgbox \
 "$(t "SERVIÇOS" "SERVICES")
   Apache         : $(systemctl is-active apache2 2>/dev/null)
   MariaDB        : $(systemctl is-active mariadb 2>/dev/null)
@@ -3696,7 +3160,7 @@ $(t "BACKUP" "BACKUP")
 # ======================================================================
 function_run_mc() {
     if ! command -v mc >/dev/null 2>&1; then
-        dialog --title "$(t "Instalando" "Installing")" --infobox "$(t "Aguarde, instalando o Midnight Commander (mc)..." "Please wait, installing Midnight Commander (mc)...")" 8 60
+        whiptail --title "$(t "Instalando" "Installing")" --infobox "$(t "Aguarde, instalando o Midnight Commander (mc)..." "Please wait, installing Midnight Commander (mc)...")" 8 60
         if ! wait_for_apt_locks || ! apt_update_indices || ! apt_install mc; then
             restore_apt_timers
             msg_error "" "$(t "Não foi possível instalar o Midnight Commander." "Could not install Midnight Commander.")" 9 70
@@ -3713,7 +3177,7 @@ function_run_mc() {
 # ======================================================================
 function_run_links() {
     if ! command -v links >/dev/null 2>&1; then
-        dialog --title "$(t "Instalando" "Installing")" --infobox "$(t "Aguarde, instalando o navegador de terminal (links)..." "Please wait, installing terminal web browser (links)...")" 8 60
+        whiptail --title "$(t "Instalando" "Installing")" --infobox "$(t "Aguarde, instalando o navegador de terminal (links)..." "Please wait, installing terminal web browser (links)...")" 8 60
         if ! wait_for_apt_locks || ! apt_update_indices || ! apt_install links; then
             restore_apt_timers
             msg_error "" "$(t "Não foi possível instalar o navegador Links." "Could not install the Links browser.")" 9 70
@@ -3722,7 +3186,7 @@ function_run_links() {
         restore_apt_timers
     fi
     local opc
-    opc=$(dialog --title "$(t "Navegador de Terminal (Links)" "Terminal Web Browser (Links)")" \
+    opc=$(whiptail --title "$(t "Navegador de Terminal (Links)" "Terminal Web Browser (Links)")" \
         --menu "$(t "Qual interface do Koha deseja testar internamente?\n\n(Use as setas para navegar e 'Q' para fechar o navegador)" "Which Koha interface do you want to test internally?\n\n(Use arrow keys to navigate and 'Q' to close the browser)")" 14 76 2 \
         "1" "$(t "Catálogo Público (OPAC - Porta 80)" "Public Catalog (OPAC - Port 80)")" \
         "2" "$(t "Intranet Administrativa (Staff - Porta 8080)" "Administrative Intranet (Staff - Port 8080)")" \
@@ -3740,7 +3204,7 @@ function_run_links() {
 # ======================================================================
 function_run_monitor() {
     if ! command -v htop >/dev/null 2>&1 || ! command -v nethogs >/dev/null 2>&1; then
-        dialog --title "$(t "Instalando" "Installing")" --infobox "$(t "Aguarde, instalando ferramentas de telemetria (htop e nethogs)..." "Please wait, installing telemetry tools (htop and nethogs)...")" 8 70
+        whiptail --title "$(t "Instalando" "Installing")" --infobox "$(t "Aguarde, instalando ferramentas de telemetria (htop e nethogs)..." "Please wait, installing telemetry tools (htop and nethogs)...")" 8 70
         if ! wait_for_apt_locks || ! apt_update_indices || ! apt_install htop nethogs; then
             restore_apt_timers
             msg_error "" "$(t "Não foi possível instalar htop/nethogs." "Could not install htop/nethogs.")" 9 70
@@ -3749,7 +3213,7 @@ function_run_monitor() {
         restore_apt_timers
     fi
     local opc
-    opc=$(dialog --title "$(t "Monitoramento de Recursos" "Resource Monitoring")" \
+    opc=$(whiptail --title "$(t "Monitoramento de Recursos" "Resource Monitoring")" \
         --menu "$(t "Escolha a ferramenta em tempo real:\n\n(Pressione 'F10' ou 'Q' para sair da tela e voltar ao painel)" "Choose the real-time tool:\n\n(Press 'F10' or 'Q' to exit the screen and return to the panel)")" 14 76 2 \
         "1" "$(t "Htop (Uso de CPU, RAM e Processos Ativos)" "Htop (CPU, RAM and Active Processes usage)")" \
         "2" "$(t "Nethogs (Consumo de Banda de Rede por Processo)" "Nethogs (Network Bandwidth usage by Process)")" \
@@ -3769,7 +3233,7 @@ function_run_monitor() {
 # ======================================================================
 function_view_logs() {
     local opc
-    opc=$(dialog --title "$(t "Auditoria de Logs do Apache" "Apache Log Auditing")" \
+    opc=$(whiptail --title "$(t "Auditoria de Logs do Apache" "Apache Log Auditing")" \
         --menu "$(t "Selecione o log para monitoramento contínuo:\n\n(Pressione CTRL+C para parar de visualizar e voltar ao menu)" "Select the log for continuous monitoring:\n\n(Press CTRL+C to stop viewing and return to the menu)")" 14 76 2 \
         "1" "$(t "Erros do Staff / Intranet (koha_${INSTANCE}_error.log)" "Staff / Intranet Errors (koha_${INSTANCE}_error.log)")" \
         "2" "$(t "Erros do OPAC (koha_${INSTANCE}_opac_error.log)" "OPAC Errors (koha_${INSTANCE}_opac_error.log)")" \
@@ -3866,7 +3330,7 @@ function_reboot_server() {
 # 30. SOBRE O PROGRAMA / ABOUT THE PROGRAM
 # ======================================================================
 function_about() {
-    dialog --title "$(t "Sobre / About" "Sobre / About")" --msgbox \
+    whiptail --title "$(t "Sobre / About" "Sobre / About")" --msgbox \
 "$(t "Koha Easy Install & Tools v${PANEL_VERSION}\n\nEste projeto nasceu da vivência real de quem já enfrentou os inúmeros desafios e barreiras técnicas na gestão de acervos. Foi pensado especialmente para bibliotecas que não possuem recursos financeiros para sistemas proprietários ou suporte técnico especializado, democratizando o acesso a uma tecnologia robusta, gratuita e verdadeiramente acessível.\n\nO objetivo é estender a mão a outras instituições e profissionais que passam pelas mesmas dificuldades.\n\nSe esta iniciativa te ajudou:\n⭐ Deixe sua estrela no repositório do GitHub!\n📢 Compartilhe com amigos e colegas que precisam.\n\nRepositório: github.com/BibliotecaPalotina/koha-easy-install\n\nCriado com dedicação por Paulo F. Baldi FH.\nAuxiliar de Biblioteca - Biblioteca Pública Municipal Castro Alves\nPalotina, Paraná, Brasil" \
 "Koha Easy Install & Tools v${PANEL_VERSION}\n\nThis project was born from real-life experience facing technical barriers in collection management. It was specifically designed for libraries lacking financial resources for proprietary systems or specialized technical support, democratizing access to robust, free, and truly accessible technology.\n\nThe goal is to help other institutions facing the same struggles.\n\nIf this initiative helped you:\n⭐ Star the repository on GitHub!\n📢 Share it with friends and colleagues.\n\nRepository: github.com/BibliotecaPalotina/koha-easy-install\n\nCreated with dedication by Paulo F. Baldi FH.\nLibrary Assistant - Castro Alves Public Library\nPalotina, Paraná, Brazil")" 22 76 2>/dev/null || true
 }
@@ -3874,46 +3338,14 @@ function_about() {
 # ======================================================================
 # 31. TAILSCALE FUNNEL / TAILSCALE FUNNEL CONFIGURATION
 # ======================================================================
-
-# Função auxiliar: descobre o hostname e monta/mostra os links ativos
-mostrar_links_tailscale() {
-    local ts_hostname opac_ativo=false staff_ativo=false funnel_status texto
-
-    ts_hostname=$(tailscale status --json 2>/dev/null | grep -oP '"DNSName":\s*"\K[^"]+' | head -n 1 | sed 's/\.$//')
-
-    if [ -z "$ts_hostname" ]; then
-        msg_error "" "$(t "Não foi possível detectar o endereço do Tailscale. O servidor está autenticado?" "Could not detect the Tailscale address. Is the server authenticated?")" 9 70
-        return 1
-    fi
-
-    funnel_status=$(tailscale funnel status 2>&1)
-    echo "$funnel_status" | grep -q '127\.0\.0\.1:80\b' && opac_ativo=true
-    echo "$funnel_status" | grep -q '127\.0\.0\.1:8080\b' && staff_ativo=true
-
-    texto=$(t "SEU DOMÍNIO TAILSCALE:\nhttps://${ts_hostname}\n\n" "YOUR TAILSCALE DOMAIN:\nhttps://${ts_hostname}\n\n")
-
-    if [ "$opac_ativo" = true ]; then
-        texto+=$(t "✅ Catálogo (OPAC):  https://${ts_hostname}\n" "✅ Catalog (OPAC):   https://${ts_hostname}\n")
-    else
-        texto+=$(t "⬜ Catálogo (OPAC):  não publicado\n" "⬜ Catalog (OPAC):   not published\n")
-    fi
-
-    if [ "$staff_ativo" = true ]; then
-        texto+=$(t "✅ Administração:    https://${ts_hostname}:8443\n" "✅ Administration:   https://${ts_hostname}:8443\n")
-    else
-        texto+=$(t "⬜ Administração:    não publicada\n" "⬜ Administration:   not published\n")
-    fi
-
-    dialog --title "$(t "Links Publicados" "Published Links")" --msgbox "$texto" 14 76
-}
-
 function_configure_tailscale() {
     msg_info "Tailscale Funnel" \
-        "$(t "O Tailscale Funnel publica o Koha na internet automaticamente,\ncom domínio e HTTPS prontos, sem precisar de Cloudflare nem domínio próprio." "Tailscale Funnel publishes Koha to the internet automatically,\nwith domain and HTTPS ready, no Cloudflare or custom domain needed.")" 12 76
-
+"$(t "O Tailscale Funnel publica o Koha na internet instantaneamente\nfornecendo um domínio HTTPS automático (ex.: sua-maquina.ts.net),\nsem precisar de Cloudflare ou configuração no roteador.\n\nRequisitos:\n1. Criar uma conta no Tailscale (tailscale.com)\n2. Ativar o 'Funnel' no painel admin (Access Controls)\n\nNa próxima tela, vamos instalar e conectar o servidor." \
+"Tailscale Funnel publishes Koha to the internet instantly\nproviding an automatic HTTPS domain (e.g., your-machine.ts.net),\nwithout needing Cloudflare or router configuration.\n\nRequirements:\n1. Create a Tailscale account (tailscale.com)\n2. Enable 'Funnel' in the admin panel (Access Controls)\n\nNext, we will install and connect the server.")" 20 78
+    
     clear
     display_explanation "Verificando instalação do Tailscale..." "Checking Tailscale installation..."
-
+    
     if ! command -v tailscale >/dev/null 2>&1; then
         display_explanation "Instalando o Tailscale via curl..." "Installing Tailscale via curl..."
         if ! curl -fsSL https://tailscale.com/install.sh | sh; then
@@ -3922,96 +3354,16 @@ function_configure_tailscale() {
         fi
     fi
 
-    if ! tailscale status >/dev/null 2>&1; then
-        display_explanation "Iniciando a conexão com sua conta Tailscale..." "Initiating connection to your Tailscale account..."
-        echo -e "\e[1;33m$(t "Siga o link abaixo no seu navegador para autenticar este servidor:" "Follow the link below in your browser to authenticate this server:")\e[0m"
-        tailscale up
-        echo ""
+    display_explanation "Iniciando a conexão com sua conta Tailscale..." "Initiating connection to your Tailscale account..."
+    echo -e "\e[1;33m$(t "Siga o link abaixo no seu navegador para autenticar este servidor:" "Follow the link below in your browser to authenticate this server:")\e[0m"
+    tailscale up
+    echo ""
+    
+    if tailscale status >/dev/null 2>&1; then
+        msg_ok "$(t "Servidor conectado ao Tailscale com sucesso!\n\nPara publicar o catálogo (OPAC) na internet, rode no terminal:\n  sudo tailscale funnel 80\n\nPara publicar a Administração (Staff):\n  sudo tailscale funnel 8080" "Server successfully connected to Tailscale!\n\nTo publish the catalog (OPAC) to the internet, run:\n  sudo tailscale funnel 80\n\nTo publish the Administration (Staff):\n  sudo tailscale funnel 8080")" 14 76
+    else
+        msg_error "" "$(t "Não foi possível confirmar a conexão ativa do Tailscale." "Could not confirm active Tailscale connection.")" 9 70
     fi
-
-    if ! tailscale status >/dev/null 2>&1; then
-        msg_error "" "$(t "O servidor não pôde ser autenticado no Tailscale. Tente novamente." "The server could not be authenticated on Tailscale. Try again.")" 9 70
-        return 1
-    fi
-
-    # Mostra o subdomínio JÁ na tela assim que autentica, antes mesmo de
-    # publicar qualquer coisa - a pessoa ve para onde vai desde o inicio.
-    local ts_hostname
-    ts_hostname=$(tailscale status --json 2>/dev/null | grep -oP '"DNSName":\s*"\K[^"]+' | head -n 1 | sed 's/\.$//')
-    if [ -n "$ts_hostname" ]; then
-        msg_ok "$(t "Servidor conectado!\n\nSeu domínio será:\nhttps://${ts_hostname}" "Server connected!\n\nYour domain will be:\nhttps://${ts_hostname}")" 11 70
-    fi
-
-    while true; do
-        local choice
-        choice=$(dialog --title "$(t "Gerenciador do Tailscale Funnel" "Tailscale Funnel Manager")" \
-            --cancel-button "$(t "Voltar" "Back")" \
-            --menu "$(t "O que deseja fazer?" "What do you want to do?")" 18 76 5 \
-            "1" "$(t "★ Publicar tudo automaticamente (OPAC + Staff)" "★ Publish everything automatically (OPAC + Staff)")" \
-            "2" "$(t "Publicar só o Catálogo Público (OPAC)" "Publish only Public Catalog (OPAC)")" \
-            "3" "$(t "Publicar só a Administração (Staff)" "Publish only Administration (Staff)")" \
-            "4" "$(t "Ver os links publicados agora" "View currently published links")" \
-            "5" "$(t "Desativar/Parar todos os Funnels ativos" "Stop all active Funnels")" \
-            3>&1 1>&2 2>&3)
-        [[ $? -ne 0 ]] && break
-
-        case "$choice" in
-            1)
-                clear
-                display_explanation "Publicando Catálogo (OPAC, porta 80)..." "Publishing Catalog (OPAC, port 80)..."
-                local opac_ok=false staff_ok=false
-                tailscale funnel --bg 80 >/dev/null 2>&1 && opac_ok=true
-
-                if prompt_yes_no \
-                    "$(t "Publicar Staff também?" "Publish Staff too?")" \
-                    "$(t "ATENÇÃO: isso publica a administração do Koha na internet.\nSó continue se realmente precisa acessá-la remotamente.\n\nPublicar?" "WARNING: this publishes the Koha admin panel to the internet.\nOnly continue if you really need remote access to it.\n\nPublish?")" \
-                    12 74; then
-                    display_explanation "Publicando Administração (Staff, porta 8080)..." "Publishing Administration (Staff, port 8080)..."
-                    tailscale funnel --bg --https=8443 8080 >/dev/null 2>&1 && staff_ok=true
-                fi
-
-                if [ "$opac_ok" = true ]; then
-                    mostrar_links_tailscale
-                else
-                    msg_error "" "$(t "Falha ao publicar o OPAC. Verifique se o Funnel está habilitado no painel admin da sua conta Tailscale (Access Controls)." "Failed to publish OPAC. Check whether Funnel is enabled in your Tailscale admin panel (Access Controls).")" 12 76
-                fi
-                ;;
-            2)
-                clear
-                display_explanation "Ativando o Funnel para o Catálogo (Porta 80)..." "Enabling Funnel for Catalog (Port 80)..."
-                if tailscale funnel --bg 80; then
-                    mostrar_links_tailscale
-                else
-                    msg_error "" "$(t "Falha ao iniciar o Funnel na porta 80. Verifique se o recurso está ativado no painel admin da sua conta Tailscale." "Failed to start Funnel on port 80. Check if the feature is enabled in your Tailscale admin panel.")" 11 76
-                fi
-                ;;
-            3)
-                if ! prompt_yes_no \
-                    "$(t "Publicar Staff na internet" "Publish Staff to the Internet")" \
-                    "$(t "ATENÇÃO:\n\nIsso publica a interface administrativa do Koha pela internet.\n\nUse somente se você entende o risco e realmente precisa dessa exposição.\n\nContinuar?" "WARNING:\n\nThis publishes the Koha staff administration interface to the Internet.\n\nOnly continue if you understand the risk and really need this exposure.\n\nContinue?")" \
-                    15 78; then
-                    continue
-                fi
-                clear
-                display_explanation "Ativando o Funnel para a Administração (Porta 8080)..." "Enabling Funnel for Administration (Port 8080)..."
-                if tailscale funnel --bg --https=8443 8080; then
-                    mostrar_links_tailscale
-                else
-                    msg_error "" "$(t "Falha ao iniciar o Funnel na porta 8080. Verifique se o recurso está ativado no painel admin." "Failed to start Funnel on port 8080. Check if the feature is enabled in the admin panel.")" 11 76
-                fi
-                ;;
-            4)
-                clear
-                mostrar_links_tailscale
-                ;;
-            5)
-                clear
-                display_explanation "Desativando os Funnels ativos..." "Stopping active Funnels..."
-                tailscale funnel off >/dev/null 2>&1 || true
-                msg_ok "$(t "Todos os tunelamentos do Funnel foram desativados." "All Funnel tunnels have been turned off.")" 9 64
-                ;;
-        esac
-    done
 }
 
 # ======================================================================
@@ -4019,26 +3371,16 @@ function_configure_tailscale() {
 # ======================================================================
 sub_menu_backups() {
     while true; do
-        local choice rc
-        choice=$(dialog \
-            --clear \
-            --title "$(t "Central de Backups e Envio Remoto" "Backups and Remote Transfer Center")" \
+        local choice
+        choice=$(whiptail --title "$(t "Central de Backups e Envio Remoto" "Backups and Remote Transfer Center")" \
             --cancel-button "$(t "Voltar" "Back")" \
-            --menu "$(t "Escolha uma ação:" "Choose an action:")" \
-            --item-help \
-            18 88 4 \
+            --menu "$(t "Escolha uma ação:" "Choose an action:")" 16 76 4 \
             "1" "$(t "Gerar backup manual local agora" "Generate manual local backup now")" \
-            "$(t "Cria uma cópia compactada do banco atual na pasta local." "Creates a compressed copy of the current database locally.")" \
             "2" "$(t "Enviar backup via SCP manual agora" "Send manual SCP backup now")" \
-            "$(t "Gera e envia o backup imediatamente para um servidor remoto via SCP." "Generates and sends the backup immediately to a remote server via SCP.")" \
             "3" "$(t "Configurar backup automático via SCP" "Set up automatic SCP backup")" \
-            "$(t "Configura chaves SSH e destino para envio automático diário." "Configures SSH keys and destination for daily transfer.")" \
             "4" "$(t "Configurar backup em nuvem (Rclone)" "Set up cloud backup (Rclone)")" \
-            "$(t "Integra o envio dos backups para serviços em nuvem." "Integrates backup uploads with cloud services.")" \
-            3>&1 1>&2 2>&3
-        )
-        rc=$?
-        [ "$rc" -ne 0 ] && break
+            3>&1 1>&2 2>&3)
+        [[ $? -ne 0 ]] && break
         case "$choice" in
             1) function_manual_backup ;;
             2) function_send_manual_scp_backup ;;
@@ -4050,22 +3392,14 @@ sub_menu_backups() {
 
 sub_menu_search_engine() {
     while true; do
-        local choice rc
-        choice=$(dialog \
-            --clear \
-            --title "$(t "Busca e Indexação" "Search & Indexing")" \
+        local choice
+        choice=$(whiptail --title "$(t "Configurações de Motor de Busca e Indexação" "Search Engine and Indexing Settings")" \
             --cancel-button "$(t "Voltar" "Back")" \
-            --menu "$(t "Escolha uma ação:" "Choose an action:")" \
-            --item-help \
-            16 88 2 \
+            --menu "$(t "Escolha uma ação:" "Choose an action:")" 14 76 2 \
             "1" "$(t "Alternar motor de busca (Zebra / Elasticsearch)" "Toggle search engine (Zebra / Elasticsearch)")" \
-            "$(t "Alterna o mecanismo de busca do acervo." "Switches the catalog search engine.")" \
             "2" "$(t "Reparar ou reconstruir indexação do acervo" "Repair or rebuild catalog indexing")" \
-            "$(t "Corrige falhas, destrava o motor e reindexa o catálogo." "Fixes failures, unlocks the engine and rebuilds the catalog index.")" \
-            3>&1 1>&2 2>&3
-        )
-        rc=$?
-        [ "$rc" -ne 0 ] && break
+            3>&1 1>&2 2>&3)
+        [[ $? -ne 0 ]] && break
         case "$choice" in
             1) function_toggle_search_engine ;;
             2) function_repair_indexing ;;
@@ -4073,175 +3407,123 @@ sub_menu_search_engine() {
     done
 }
 
+sub_menu_public_web() {
+    while true; do
+        local choice
+        choice=$(whiptail --title "$(t "Publicação do Sistema na Internet" "System Web Publication")" \
+            --cancel-button "$(t "Voltar" "Back")" \
+            --menu "$(t "Escolha uma ação:" "Choose an action:")" 15 76 3 \
+            "1" "$(t "Configurar Cloudflare Tunnel (Domínio Institucional)" "Set up Cloudflare Tunnel (Institutional Domain)")" \
+            "2" "$(t "Configurar Tailscale Funnel (Acesso Rápido)" "Set up Tailscale Funnel (Quick Access)")" \
+            "3" "$(t "Configurar Certificado SSL Local (IP/Domínio Próprio)" "Set up Local SSL Certificate (IP/Own Domain)")" \
+            3>&1 1>&2 2>&3)
+        [[ $? -ne 0 ]] && break
+        case "$choice" in
+            1) function_configure_cloudflare ;;
+            2) function_configure_tailscale ;;
+            3) function_configure_ssl ;;
+        esac
+    done
+}
+
 sub_menu_maintenance() {
     while true; do
-        local choice rc
-        choice=$(dialog \
-            --clear \
-            --title "$(t "Central de Manutenção" "Maintenance Center")" \
+        local choice
+        choice=$(whiptail --title "$(t "Central de Manutenção, Reparo e Segurança" "Maintenance, Repair and Security Center")" \
             --cancel-button "$(t "Voltar" "Back")" \
-            --menu "$(t "Escolha uma ferramenta:" "Choose a tool:")" \
-            --item-help \
-            22 94 16 \
-            "1" "$(t "Diagnóstico e reparo do banco" "Database diagnostics and repair")" \
-            "$(t "Verifica estrutura, manutenção e backups recentes." "Checks structure, maintenance and recent backups.")" \
-            "2" "$(t "Dimensionamento do servidor" "Server sizing")" \
-            "$(t "Ajusta recursos do Koha, MariaDB, Plack e Elasticsearch." "Tunes Koha, MariaDB, Plack and Elasticsearch resources.")" \
-            "3" "$(t "Tarefas agendadas" "Scheduled tasks")" \
-            "$(t "Configura os horários das tarefas cron." "Configures scheduled cron tasks.")" \
-            "4" "$(t "Configurar e-mails e avisos" "Configure emails and notices")" \
-            "$(t "Configura as rotinas de notificações do Koha." "Configures Koha notification routines.")" \
-            "5" "$(t "Criar superbibliotecário" "Create super librarian")" \
-            "$(t "Cria uma conta administrativa independente." "Creates an independent administrator account.")" \
-            "6" "$(t "Relógio e fuso horário" "Clock and timezone")" \
-            "$(t "Ajusta o relógio e o fuso horário do servidor." "Adjusts server clock and timezone.")" \
-            "7" "$(t "Central de segurança" "Security center")" \
-            "$(t "Fail2ban, firewall e credenciais." "Fail2ban, firewall and credentials.")" \
-            "8" "$(t "Atualizar sistema e schemas" "Update system and schemas")" \
-            "$(t "Atualiza pacotes e o schema do Koha." "Updates system packages and the Koha schema.")" \
-            "9" "$(t "Validar sistema completo" "Full system validation")" \
-            "$(t "Executa os testes de integridade do ambiente." "Runs environment integrity tests.")" \
-            "10" "$(t "Status detalhado" "Detailed status")" \
-            "$(t "Mostra serviços, busca, backups, rede e recursos." "Shows services, search, backups, network and resources.")" \
-            "11" "$(t "Midnight Commander" "Midnight Commander")" \
-            "$(t "Explorador de arquivos em dois painéis." "Two-panel terminal file manager.")" \
-            "12" "$(t "Navegador Links" "Links browser")" \
-            "$(t "Testa OPAC e Staff pelo terminal." "Tests OPAC and Staff from the terminal.")" \
-            "13" "$(t "Monitoramento de recursos" "Resource monitoring")" \
-            "$(t "CPU, RAM, processos e rede." "CPU, RAM, processes and network.")" \
-            "14" "$(t "Auditoria de logs" "Log auditing")" \
-            "$(t "Acompanha logs do Apache em tempo real." "Monitors Apache logs in real time.")" \
-            "15" "$(t "Atualizar este painel" "Update this panel")" \
-            "$(t "Atualiza o próprio instalador com validação de sintaxe." "Updates the installer with syntax validation.")" \
-            "16" "$(t "Reiniciar servidor" "Reboot server")" \
-            "$(t "Reinicia o servidor com confirmação." "Reboots the server with confirmation.")" \
-            3>&1 1>&2 2>&3
-        )
-        rc=$?
-        [ "$rc" -ne 0 ] && break
+            --menu "$(t "Escolha uma ação:" "Choose an action:")" 24 82 15 \
+            "1"  "$(t "Validar e reparar banco de dados" "Validate and repair database")" \
+            "2"  "$(t "Dimensionar o servidor (memória RAM)" "Server sizing (RAM memory)")" \
+            "3"  "$(t "Tarefas agendadas (horários dos crons)" "Scheduled tasks (cron times)")" \
+            "4"  "$(t "Configurar e-mails e avisos SMTP" "Set up SMTP emails and notices")" \
+            "5"  "$(t "Criar usuário superbibliotecário" "Create a super librarian user")" \
+            "6"  "$(t "Ativar interoperabilidade SIP2 e Z39.50" "Enable SIP2 and Z39.50 interoperability")" \
+            "7"  "$(t "Ajustar relógio e fuso horário" "Adjust clock and timezone")" \
+            "8"  "$(t "Central de segurança (Firewall e Senhas)" "Security center (Firewall and Passwords)")" \
+            "9"  "$(t "Validar saúde do sistema completo" "Full system health validation")" \
+            "10" "$(t "Ver status detalhado dos serviços" "View detailed services status")" \
+            "11" "$(t "Explorador de Arquivos (Midnight Commander)" "File Explorer (Midnight Commander)")" \
+            "12" "$(t "Navegador Web de Terminal (Links)" "Terminal Web Browser (Links)")" \
+            "13" "$(t "Monitoramento de Recursos (Htop/Nethogs)" "Resource Monitoring (Htop/Nethogs)")" \
+            "14" "$(t "Auditoria de Logs em Tempo Real" "Real-Time Log Auditing")" \
+            "15" "$(t "Reiniciar o servidor com segurança" "Safely reboot the server")" \
+            3>&1 1>&2 2>&3)
+        [[ $? -ne 0 ]] && break
         case "$choice" in
             1)  function_validate_repair_database ;;
             2)  function_size_server ;;
             3)  function_manage_crons ;;
             4)  function_configure_emails ;;
             5)  function_create_superlibrarian ;;
-            6)  function_configure_clock ;;
-            7)  function_security_center ;;
-            8)  function_update_system ;;
+            6)  function_interoperability ;;
+            7)  function_configure_clock ;;
+            8)  function_security_center ;;
             9)  function_validate_system ;;
             10) function_detailed_status ;;
             11) function_run_mc ;;
             12) function_run_links ;;
             13) function_run_monitor ;;
             14) function_view_logs ;;
-            15) function_autoupdate ;;
-            16) function_reboot_server ;;
+            15) function_reboot_server ;;
         esac
     done
 }
 
-sub_menu_public_web() {
+sub_menu_updates() {
     while true; do
-        local choice rc
-        choice=$(dialog \
-            --clear \
-            --title "$(t "Publicação Web" "Web Publication")" \
+        local choice
+        choice=$(whiptail --title "$(t "Central de Atualizações" "Updates Center")" \
             --cancel-button "$(t "Voltar" "Back")" \
-            --menu "$(t "Escolha uma ação:" "Choose an action:")" \
-            --item-help \
-            19 88 4 \
-            "1" "$(t "Configurar Cloudflare Tunnel (Domínio Institucional)" "Set up Cloudflare Tunnel (Institutional Domain)")" \
-            "$(t "Expõe o Koha na web com HTTPS usando domínio próprio." "Exposes Koha on the web with HTTPS using a custom domain.")" \
-            "2" "$(t "Configurar Tailscale Funnel (Acesso Rápido)" "Set up Tailscale Funnel (Quick Access)")" \
-            "$(t "Publica o Koha por túnel HTTPS via Tailscale." "Publishes Koha through an HTTPS tunnel via Tailscale.")" \
-            "3" "$(t "Configurar Certificado SSL Local" "Set up local SSL certificate")" \
-            "$(t "Emite um certificado Let's Encrypt via Certbot/Apache." "Issues a Let's Encrypt certificate via Certbot/Apache.")" \
-            "4" "$(t "Google Search Console (SEO)" "Google Search Console (SEO)")" \
-            "$(t "Guia e diagnóstico para indexar o acervo no Google." "Guide and diagnostics to index the catalog on Google.")" \
-            3>&1 1>&2 2>&3
-        )
-        rc=$?
-        [ "$rc" -ne 0 ] && break
+            --menu "$(t "Escolha uma ação:" "Choose an action:")" 14 76 2 \
+            "1" "$(t "Atualizar sistema Koha e banco de dados" "Update Koha system and database")" \
+            "2" "$(t "Atualizar este painel de controle" "Update this control panel")" \
+            3>&1 1>&2 2>&3)
+        [[ $? -ne 0 ]] && break
         case "$choice" in
-            1) function_configure_cloudflare ;;
-            2) function_configure_tailscale ;;
-            3) function_configure_ssl ;;
-            4) function_google_search_console ;;
+            1) function_update_system ;;
+            2) function_autoupdate ;;
         esac
     done
 }
 
-main_menu() {
-    while true; do
-        local choice rc
-        choice=$(dialog \
-            --clear \
-            --backtitle "Koha Easy Install & Tools v${PANEL_VERSION}" \
-            --title "KOHA EASY INSTALL & TOOLS" \
-            --cancel-button "$(t "Sair" "Exit")" \
-            --menu "$(t "Sistema de administração e manutenção do Koha ILS.\\n\\nSelecione uma central ou ferramenta:" "Koha ILS administration and maintenance suite.\\n\\nSelect a center or tool:")" \
-            --item-help \
-            23 98 14 \
-            "1" "$(t "Instalar servidor Koha" "Install Koha server")" \
-            "$(t "Instala e prepara MariaDB, Apache, Memcached, Koha e Zebra." "Installs and prepares MariaDB, Apache, Memcached, Koha and Zebra.")" \
-            "2" "$(t "Ver credenciais" "View credentials")" \
-            "$(t "Exibe acesso Staff, OPAC e credenciais do banco." "Shows Staff, OPAC and database credentials.")" \
-            "3" "$(t "Restaurar banco de dados" "Restore database")" \
-            "$(t "Restaura um backup SQL com proteção e rollback." "Restores an SQL backup with protection and rollback.")" \
-            "4" "$(t "Central de Backups" "Backup Center")" \
-            "$(t "Backups locais, SCP e Rclone." "Local, SCP and Rclone backups.")" \
-            "5" "$(t "Busca e Indexação" "Search & Indexing")" \
-            "$(t "Zebra, Elasticsearch e reparação da indexação." "Zebra, Elasticsearch and indexing repair.")" \
-            "6" "$(t "Central de Manutenção" "Maintenance Center")" \
-            "$(t "Diagnóstico, segurança, atualização, monitoramento e ferramentas." "Diagnostics, security, updates, monitoring and tools.")" \
-            "7" "$(t "Publicação Web" "Web Publication")" \
-            "$(t "Cloudflare Tunnel, Tailscale Funnel e SSL." "Cloudflare Tunnel, Tailscale Funnel and SSL.")" \
-            "8" "$(t "SIP2 / Z39.50" "SIP2 / Z39.50")" \
-            "$(t "Configuração de interoperabilidade do Koha." "Koha interoperability configuration.")" \
-            "9" "$(t "Idiomas do Koha" "Koha languages")" \
-            "$(t "Instala pacotes adicionais de idioma." "Installs additional language packs.")" \
-            "10" "$(t "E-mails e avisos" "Emails and notices")" \
-            "$(t "Acesso direto à configuração de notificações." "Direct access to notification configuration.")" \
-            "11" "$(t "Criar superbibliotecário" "Create super librarian")" \
-            "$(t "Cria uma conta administrativa independente." "Creates an independent administrator account.")" \
-            "12" "$(t "Dimensionamento rápido" "Quick sizing")" \
-            "$(t "Abre diretamente o ajuste de recursos do servidor." "Opens server resource tuning directly.")" \
-            "13" "$(t "Sobre o programa" "About the program")" \
-            "$(t "Informações sobre o Koha Easy Install & Tools." "Information about Koha Easy Install & Tools.")" \
-            "14" "$(t "Sair" "Exit")" \
-            "$(t "Encerra o painel." "Closes the panel.")" \
-            3>&1 1>&2 2>&3
-        )
-        rc=$?
-        if [ "$rc" -ne 0 ] || [ -z "$choice" ]; then
-            clear
-            return 0
-        fi
-        clear
-        case "$choice" in
-            1)  function_install_koha ;;
-            2)  function_view_credentials ;;
-            3)  function_restore_database ;;
-            4)  sub_menu_backups ;;
-            5)  sub_menu_search_engine ;;
-            6)  sub_menu_maintenance ;;
-            7)  sub_menu_public_web ;;
-            8)  function_interoperability ;;
-            9)  function_install_languages ;;
-            10) function_configure_emails ;;
-            11) function_create_superlibrarian ;;
-            12) function_size_server ;;
-            13) function_about ;;
-            14) clear; return 0 ;;
-        esac
-    done
-}
+# ======================================================================
+# MENU PRINCIPAL (COMPATIBILIDADE NATIVA WHIPTAIL)
+# ======================================================================
+while true; do
+    restore_apt_timers
+    export NCURSES_NO_UTF8_ACS=1
+    
+    OPTION=$(whiptail --title "Koha Easy Install & Tools v${PANEL_VERSION} - $(t "Painel de Controle" "Control Dashboard")" \
+        --cancel-button "$(t "Sair" "Exit")" \
+        --menu "$(t "Escolha uma área de atuação:" "Choose an action area:")" 22 78 11 \
+        "1"  "$(t "Instalação do servidor Koha" "Install Koha server")" \
+        "2"  "$(t "Ver credenciais de primeiro acesso" "View access credentials")" \
+        "3"  "$(t "Restauração de banco de dados" "Restore catalog database")" \
+        "4"  "$(t "Central de backups e envio remoto" "Backups & remote transfer center")" \
+        "5"  "$(t "Motor de busca e indexação (Zebra/ES)" "Search engine & indexing settings")" \
+        "6"  "$(t "Publicação do sistema na internet" "System web publication")" \
+        "7"  "$(t "Central de manutenção e segurança" "Maintenance & security center")" \
+        "8"  "$(t "Configurações de idiomas" "Language pack settings")" \
+        "9"  "$(t "Central de atualizações" "System updates center")" \
+        "10" "$(t "Sobre o programa" "About this program")" \
+        "11" "$(t "Sair" "Exit")" \
+        3>&1 1>&2 2>&3) || { clear; exit 0; }
 
-main() {
+    [ -z "$OPTION" ] && { clear; exit 0; }
+
+    case "$OPTION" in
+        1)  function_install_koha ;;
+        2)  function_view_credentials ;;
+        3)  function_restore_database ;;
+        4)  sub_menu_backups ;;
+        5)  sub_menu_search_engine ;;
+        6)  sub_menu_public_web ;;
+        7)  sub_menu_maintenance ;;
+        8)  function_install_languages ;;
+        9)  sub_menu_updates ;;
+        10) function_about ;;
+        11) clear; exit 0 ;;
+    esac
+    
     clear
-    log "Entrando no menu principal."
-    main_menu
-}
-
-main "$@"
-exit $?
+done
