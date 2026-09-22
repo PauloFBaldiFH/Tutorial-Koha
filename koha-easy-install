@@ -1617,14 +1617,61 @@ function_view_credentials() {
 }
 
 # ======================================================================
+# BLOCOS DE CÓDIGO COPIÁVEIS / COPYABLE CODE BLOCKS
+# ======================================================================
+show_ip_discovery_help() {
+    clear
+    echo "======================================================================"
+    echo "$(t "DESCOBRIR IP E USUÁRIO DA MÁQUINA DE DESTINO" "FIND IP AND USER OF THE DESTINATION MACHINE")"
+    echo "======================================================================"
+    echo ""
+    echo "$(t "Execute no terminal/PowerShell da máquina de DESTINO:" "Run in the DESTINATION machine terminal/PowerShell:")"
+    echo ""
+    echo "$(t "Windows (PowerShell):" "Windows (PowerShell):")"
+    echo 'Write-Host "IP: $((Get-NetRoute -DestinationPrefix '"'"'0.0.0.0/0'"'"' | Get-NetIPAddress -AddressFamily IPv4).IPAddress) | Usuario: $env:USERNAME"'
+    echo ""
+    echo "Linux:"
+    echo 'echo "IP: $(ip route get 1.1.1.1 2>/dev/null | awk '"'"'{print $7; exit}'"'"') | Usuario: $(whoami)"'
+    echo ""
+    echo "macOS:"
+    echo 'echo "IP: $(ipconfig getifaddr $(route -n get default 2>/dev/null | awk '"'"'/interface:/{print $2}'"'"')) | Usuario: $(whoami)"'
+    echo ""
+    echo "======================================================================"
+    pause_terminal
+}
+
+show_restore_transfer_help() {
+    clear
+    echo "======================================================================"
+    echo "$(t "COMO ENVIAR O BACKUP PARA O SERVIDOR" "HOW TO SEND THE BACKUP TO THE SERVER")"
+    echo "======================================================================"
+    echo ""
+    echo "$(t "OPÇÃO 1 — Windows (Arrastar e Soltar):" "OPTION 1 — Windows (Drag and Drop):")"
+    echo "$(t "1. No Bloco de Notas, cole o código abaixo e salve na Área de Trabalho como 'Enviar_Backup.bat':" "1. In Notepad, paste the code below and save on Desktop as 'Enviar_Backup.bat':")"
+    echo ""
+    echo "@echo off"
+    echo "chcp 65001 >nul"
+    echo "scp \"%~1\" ${REAL_USER}@$(get_server_ip):${REAL_HOME}/"
+    echo "pause"
+    echo ""
+    echo "$(t "2. Depois, basta ARRASTAR o arquivo .sql em cima desse ícone." "2. Then, just DRAG the .sql file onto that icon.")"
+    echo ""
+    echo "$(t "OPÇÃO 2 — Linux, macOS ou Terminal Direto:" "OPTION 2 — Linux, macOS or Direct Terminal:")"
+    echo "    scp \"caminho_do_arquivo.sql\" ${REAL_USER}@$(get_server_ip):${REAL_HOME}/"
+    echo ""
+    echo "$(t "OPÇÃO 3 — Pendrive/USB: conecte no servidor e verifique em /media ou /mnt" "OPTION 3 — USB drive: plug into server and check /media or /mnt")"
+    echo ""
+    echo "======================================================================"
+    pause_terminal
+}
+
+# ======================================================================
 # 3. RESTAURAR BANCO / RESTORE DATABASE
 # ======================================================================
 function_restore_database() {
     require_koha || return 0
 
-    msg_info "$(t "Origem do Arquivo" "File Source")" \
-"$(t "COMO ENVIAR O BACKUP PARA O SERVIDOR:\n\nOPÇÃO 1 — Windows (Arrastar e Soltar):\n1. No Bloco de Notas, cole o código abaixo e salve na Área de Trabalho como 'Enviar_Backup.bat':\n   @echo off\n   chcp 65001 >nul\n   scp \"%~1\" ${REAL_USER}@$(get_server_ip):${REAL_HOME}/\n   pause\n2. Depois, basta ARRASTAR o arquivo .sql em cima desse ícone.\n\nOPÇÃO 2 — Linux, macOS ou Terminal Direto:\n   scp \"caminho_do_arquivo.sql\" ${REAL_USER}@$(get_server_ip):${REAL_HOME}/\n\nOPÇÃO 3 — Pendrive/USB: conecte no servidor e verifique em /media ou /mnt\n\n(Na próxima tela, navegue até a pasta e selecione o arquivo importado.)" \
-"HOW TO SEND THE BACKUP TO THE SERVER:\n\nOPTION 1 — Windows (Drag and Drop):\n1. In Notepad, paste the code below and save on Desktop as 'Enviar_Backup.bat':\n   @echo off\n   chcp 65001 >nul\n   scp \"%~1\" ${REAL_USER}@$(get_server_ip):${REAL_HOME}/\n   pause\n2. Then, just DRAG the .sql file onto that icon.\n\nOPTION 2 — Linux, macOS or Direct Terminal:\n   scp \"path_to_file.sql\" ${REAL_USER}@$(get_server_ip):${REAL_HOME}/\n\nOPTION 3 — USB drive: plug into server and check /media or /mnt\n\n(On the next screen, browse to the folder and select the file.)")" 28 82
+    show_restore_transfer_help
 
     local file
     file=$(select_file "$REAL_HOME") || return 0
@@ -1779,9 +1826,7 @@ function_send_manual_scp_backup() {
     fi
 
     if [ "$use_saved" = "no" ]; then
-        msg_info "$(t "Descobrir IP e Usuário" "Find IP and User")" \
-"$(t "Execute no terminal/PowerShell da máquina de DESTINO:\n\nWindows (PowerShell):\nWrite-Host \"IP: \$((Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Get-NetIPAddress -AddressFamily IPv4).IPAddress) | Usuario: \$env:USERNAME\"\n\nLinux:\necho \"IP: \$(ip route get 1.1.1.1 2>/dev/null | awk '{print \$7; exit}') | Usuario: \$(whoami)\"\n\nmacOS:\necho \"IP: \$(ipconfig getifaddr \$(route -n get default 2>/dev/null | awk '/interface:/{print \$2}')) | Usuario: \$(whoami)\"" \
-"Run in the DESTINATION machine terminal/PowerShell:\n\nWindows (PowerShell):\nWrite-Host \"IP: \$((Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Get-NetIPAddress -AddressFamily IPv4).IPAddress) | User: \$env:USERNAME\"\n\nLinux:\necho \"IP: \$(ip route get 1.1.1.1 2>/dev/null | awk '{print \$7; exit}') | User: \$(whoami)\"\n\nmacOS:\necho \"IP: \$(ipconfig getifaddr \$(route -n get default 2>/dev/null | awk '/interface:/{print \$2}')) | User: \$(whoami)\"")" 24 90
+        show_ip_discovery_help
 
         host=$(whiptail --title "$(t "Enviar Backup via SCP" "Send Backup via SCP")" \
             --inputbox "$(t "Endereço (IP ou domínio) do destino:" "Address (IP or hostname) of the destination:")" 10 70 3>&1 1>&2 2>&3) || return 0
@@ -2356,10 +2401,8 @@ function_configure_rclone() {
 function_configure_automatic_scp_backup() {
     write_scp_backup_config
     local host user port folder key
-    
-    msg_info "$(t "Descobrir IP e Usuário" "Find IP and User")" \
-"$(t "Execute no terminal/PowerShell da máquina de DESTINO:\n\nWindows (PowerShell):\nWrite-Host \"IP: \$((Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Get-NetIPAddress -AddressFamily IPv4).IPAddress) | Usuario: \$env:USERNAME\"\n\nLinux:\necho \"IP: \$(ip route get 1.1.1.1 2>/dev/null | awk '{print \$7; exit}') | Usuario: \$(whoami)\"\n\nmacOS:\necho \"IP: \$(ipconfig getifaddr \$(route -n get default 2>/dev/null | awk '/interface:/{print \$2}')) | Usuario: \$(whoami)\"" \
-"Run in the DESTINATION machine terminal/PowerShell:\n\nWindows (PowerShell):\nWrite-Host \"IP: \$((Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Get-NetIPAddress -AddressFamily IPv4).IPAddress) | User: \$env:USERNAME\"\n\nLinux:\necho \"IP: \$(ip route get 1.1.1.1 2>/dev/null | awk '{print \$7; exit}') | User: \$(whoami)\"\n\nmacOS:\necho \"IP: \$(ipconfig getifaddr \$(route -n get default 2>/dev/null | awk '/interface:/{print \$2}')) | User: \$(whoami)\"")" 24 90
+
+    show_ip_discovery_help
 
     host=$(whiptail --title "$(t "Backup Automático via SCP" "Automatic SCP Backup")" \
         --inputbox "$(t "Endereço (IP ou domínio) do servidor de destino:" "Address (IP or hostname) of the destination server:")" 10 70 3>&1 1>&2 2>&3) || return 0
