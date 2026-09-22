@@ -2616,6 +2616,8 @@ EOF
 # ======================================================================
 # TAILSCALE FUNNEL / TAILSCALE FUNNEL CONFIGURATION
 # ======================================================================
+
+# Função auxiliar: descobre o hostname e monta/mostra os links ativos
 mostrar_links_tailscale() {
     local ts_hostname opac_ativo=false staff_ativo=false funnel_status texto
 
@@ -2644,7 +2646,7 @@ mostrar_links_tailscale() {
         texto+=$(t "⬜ Administração:    não publicada\n" "⬜ Administration:   not published\n")
     fi
 
-    whiptail --title "$(t "Links Publicados" "Published Links")" --msgbox "$texto" 14 76
+    dialog --title "$(t "Links Publicados" "Published Links")" --msgbox "$texto" 14 76
 }
 
 function_configure_tailscale() {
@@ -2682,7 +2684,7 @@ function_configure_tailscale() {
 
     while true; do
         local choice
-        choice=$(whiptail --title "$(t "Gerenciador do Tailscale Funnel" "Tailscale Funnel Manager")" \
+        choice=$(dialog --title "$(t "Gerenciador do Tailscale Funnel" "Tailscale Funnel Manager")" \
             --cancel-button "$(t "Voltar" "Back")" \
             --menu "$(t "O que deseja fazer?" "What do you want to do?")" 18 76 5 \
             "1" "$(t "★ Publicar tudo automaticamente (OPAC + Staff)" "★ Publish everything automatically (OPAC + Staff)")" \
@@ -2690,37 +2692,49 @@ function_configure_tailscale() {
             "3" "$(t "Publicar só a Administração (Staff)" "Publish only Administration (Staff)")" \
             "4" "$(t "Ver os links publicados agora" "View currently published links")" \
             "5" "$(t "Desativar/Parar todos os Funnels ativos" "Stop all active Funnels")" \
-            3>&1 1>&2 2>&3) || break
-        [ -z "$choice" ] && break
+            3>&1 1>&2 2>&3)
+        [[ $? -ne 0 ]] && break
 
         case "$choice" in
             1)
                 clear
                 display_explanation "Publicando Catálogo (OPAC, porta 80)..." "Publishing Catalog (OPAC, port 80)..."
-                local opac_ok=false staff_ok=false
-                tailscale funnel --bg 80 >/dev/null 2>&1 && opac_ok=true
+                local opac_ok=false staff_ok=false saida_opac saida_staff
+
+                saida_opac=$(tailscale funnel --bg 80 2>&1)
+                if [ $? -eq 0 ]; then
+                    opac_ok=true
+                else
+                    msg_error "" "$(t "A Tailscale bloqueou a publicação.\n\nAcesse login.tailscale.com, vá em 'DNS' e ative 'HTTPS Certificates'. Depois, em 'Access Controls', adicione a permissão de Funnel.\n\nDetalhe do erro:\n$saida_opac" "Tailscale blocked the publication.\n\nEnable HTTPS Certificates and add Funnel permission in your Tailscale admin panel.\n\nError details:\n$saida_opac")" 18 78
+                    continue
+                fi
 
                 if prompt_yes_no \
                     "$(t "Publicar Staff também?" "Publish Staff too?")" \
                     "$(t "ATENÇÃO: isso publica a administração do Koha na internet.\nSó continue se realmente precisa acessá-la remotamente.\n\nPublicar?" "WARNING: this publishes the Koha admin panel to the internet.\nOnly continue if you really need remote access to it.\n\nPublish?")" \
                     12 74; then
                     display_explanation "Publicando Administração (Staff, porta 8080)..." "Publishing Administration (Staff, port 8080)..."
-                    tailscale funnel --bg --https=8443 8080 >/dev/null 2>&1 && staff_ok=true
+                    saida_staff=$(tailscale funnel --bg --https=8443 8080 2>&1)
+                    if [ $? -eq 0 ]; then
+                        staff_ok=true
+                    else
+                        msg_error "" "$(t "Erro ao publicar a Administração:\n\n$saida_staff" "Error publishing Administration:\n\n$saida_staff")" 14 78
+                    fi
                 fi
 
                 if [ "$opac_ok" = true ]; then
                     mostrar_links_tailscale
-                else
-                    msg_error "" "$(t "Falha ao publicar o OPAC. Verifique se o Funnel está habilitado no painel admin da sua conta Tailscale (Access Controls)." "Failed to publish OPAC. Check whether Funnel is enabled in your Tailscale admin panel (Access Controls).")" 12 76
                 fi
                 ;;
             2)
                 clear
                 display_explanation "Ativando o Funnel para o Catálogo (Porta 80)..." "Enabling Funnel for Catalog (Port 80)..."
-                if tailscale funnel --bg 80; then
+                local saida_opac
+                saida_opac=$(tailscale funnel --bg 80 2>&1)
+                if [ $? -eq 0 ]; then
                     mostrar_links_tailscale
                 else
-                    msg_error "" "$(t "Falha ao iniciar o Funnel na porta 80. Verifique se o recurso está ativado no painel admin da sua conta Tailscale." "Failed to start Funnel on port 80. Check if the feature is enabled in your Tailscale admin panel.")" 11 76
+                    msg_error "" "$(t "Falha ao iniciar o Funnel na porta 80. Verifique as permissões (Certificados HTTPS e Access Controls) no painel admin da Tailscale.\n\nDetalhes:\n$saida_opac" "Failed to start Funnel on port 80. Check your Tailscale admin panel permissions.\n\nDetails:\n$saida_opac")" 16 78
                 fi
                 ;;
             3)
@@ -2732,10 +2746,12 @@ function_configure_tailscale() {
                 fi
                 clear
                 display_explanation "Ativando o Funnel para a Administração (Porta 8080)..." "Enabling Funnel for Administration (Port 8080)..."
-                if tailscale funnel --bg --https=8443 8080; then
+                local saida_staff
+                saida_staff=$(tailscale funnel --bg --https=8443 8080 2>&1)
+                if [ $? -eq 0 ]; then
                     mostrar_links_tailscale
                 else
-                    msg_error "" "$(t "Falha ao iniciar o Funnel na porta 8080. Verifique se o recurso está ativado no painel admin." "Failed to start Funnel on port 8080. Check if the feature is enabled in the admin panel.")" 11 76
+                    msg_error "" "$(t "Falha ao iniciar o Funnel na porta 8080. Verifique as permissões no painel admin da Tailscale.\n\nDetalhes:\n$saida_staff" "Failed to start Funnel on port 8080. Check admin panel permissions.\n\nDetails:\n$saida_staff")" 16 78
                 fi
                 ;;
             4)
