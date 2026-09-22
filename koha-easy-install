@@ -104,6 +104,7 @@ log "===== painel iniciado (v$PANEL_VERSION, usuario=$REAL_USER) ====="
 # ======================================================================
 # DEPENDÊNCIAS MÍNIMAS DO PRÓPRIO PAINEL / PANEL DEPENDENCIES
 # ======================================================================
+# Garante listas do APT populadas em imagens mínimas antes de checar comandos
 DEBIAN_FRONTEND=noninteractive apt-get update -y -o Acquire::ForceIPv4=true >/dev/null 2>&1
 
 for dep in whiptail curl python3 unzip; do
