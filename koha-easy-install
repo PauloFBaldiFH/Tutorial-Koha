@@ -27,16 +27,15 @@ if [ "${EUID:-$(id -u)}" -ne 0 ]; then
     echo "+---------------------------------------------------------------+"
     echo ""
     if [ -f "$0" ]; then
-        exec sudo -E bash "$0" "$@"
+        if command -v sudo >/dev/null 2>&1; then
+            exec sudo -E bash "$0" "$@"
+        elif command -v su >/dev/null 2>&1; then
+            exec su -c "bash '$0' $*"
+        fi
     fi
-    echo "ERRO/ERROR: rode como root / run as root: sudo bash $0"
+    echo "ERRO/ERROR: rode como root / run as root: su -c 'bash $0'"
     exit 1
 fi
-
-REAL_USER="${SUDO_USER:-${USER:-root}}"
-REAL_HOME="$(getent passwd "$REAL_USER" 2>/dev/null | cut -d: -f6)"
-[ -z "$REAL_HOME" ] && REAL_HOME="/root"
-[ -d "$REAL_HOME" ] || REAL_HOME="/root"
 
 # ======================================================================
 # IDIOMA / LANGUAGE
@@ -105,6 +104,8 @@ log "===== painel iniciado (v$PANEL_VERSION, usuario=$REAL_USER) ====="
 # ======================================================================
 # DEPENDÊNCIAS MÍNIMAS DO PRÓPRIO PAINEL / PANEL DEPENDENCIES
 # ======================================================================
+DEBIAN_FRONTEND=noninteractive apt-get update -y -o Acquire::ForceIPv4=true >/dev/null 2>&1
+
 for dep in whiptail curl python3 unzip; do
     if ! command -v "$dep" >/dev/null 2>&1; then
         echo "$(t "Instalando dependência do painel: $dep" "Installing panel dependency: $dep")"
@@ -1398,8 +1399,12 @@ function_install_koha() {
 
     display_explanation "Instalando dependências essenciais..." "Installing essential dependencies..."
     apt_install nano curl wget gpg ca-certificates ufw apt-transport-https \
-                 fail2ban libsasl2-modules rclone avahi-daemon memcached \
-                 python3 libxml2-utils unzip pv glabels || return 1
+                fail2ban libsasl2-modules rclone avahi-daemon memcached \
+                python3 libxml2-utils unzip pv || return 1
+
+    # Utilitário de etiquetas instalado isoladamente para não barrar o lote em caso de ausência no repositório
+    apt_install glabels >/dev/null 2>&1 || true
+
     systemctl enable --now avahi-daemon fail2ban memcached >/dev/null 2>&1
 
     display_explanation "Adicionando os repositórios do Koha e do Elasticsearch..." "Adding Koha and Elasticsearch repositories..."
