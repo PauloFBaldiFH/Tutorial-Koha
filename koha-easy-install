@@ -3412,27 +3412,27 @@ function_about() {
 }
 
 # ======================================================================
-# TEMA DRACULA / DRACULA THEME (WHIPTAIL / NEWT)
+# TEMA CYBERPUNK / CYBERPUNK THEME (WHIPTAIL / NEWT)
 # ======================================================================
 export NEWT_COLORS='
-    root=white,black
-    window=white,black
-    border=magenta,black
-    shadow=black,gray
-    title=brightgreen,black
-    button=black,lightgray
-    actbutton=black,brightgreen
+    root=brightcyan,black
+    window=brightcyan,black
+    border=brightmagenta,black
+    shadow=black,black
+    title=yellow,black
+    button=brightmagenta,black
+    actbutton=black,brightcyan
     compactbutton=yellow,black
-    checkbox=lightgray,black
-    actcheckbox=black,brightgreen
-    entry=white,gray
-    label=lightgray,black
-    listbox=white,black
-    actlistbox=black,magenta
+    checkbox=white,black
+    actcheckbox=black,brightmagenta
+    entry=black,brightcyan
+    label=yellow,black
+    listbox=brightcyan,black
+    actlistbox=black,brightmagenta
     textbox=white,black
-    acttextbox=black,white
-    helpline=magenta,black
-    roottext=lightgray,black
+    acttextbox=black,brightcyan
+    helpline=yellow,black
+    roottext=brightmagenta,black
 '
 
 # ======================================================================
@@ -3440,7 +3440,6 @@ export NEWT_COLORS='
 # ======================================================================
 while true; do
     restore_apt_timers
-    export NCURSES_NO_UTF8_ACS=1
 
     MAIN_OPT=$(whiptail --title "Koha Easy Install & Tools v${PANEL_VERSION} - $(t "Painel de Controle" "Control Dashboard")" \
         --cancel-button "$(t "Sair" "Exit")" \
@@ -3633,4 +3632,3 @@ while true; do
     esac
     clear
 done
-
