@@ -3473,6 +3473,28 @@ while true; do
     restore_apt_timers
     export NCURSES_NO_UTF8_ACS=1
 
+    # TEMA DRACULA / DRACULA THEME (WHIPTAIL / NEWT)
+    export NEWT_COLORS='
+        root=white,black
+        window=white,black
+        border=magenta,black
+        shadow=black,gray
+        title=brightgreen,black
+        button=black,lightgray
+        actbutton=black,brightgreen
+        compactbutton=yellow,black
+        checkbox=lightgray,black
+        actcheckbox=black,brightgreen
+        entry=white,gray
+        label=lightgray,black
+        listbox=white,black
+        actlistbox=black,magenta
+        textbox=white,black
+        acttextbox=black,white
+        helpline=magenta,black
+        roottext=lightgray,black
+    '
+
     MAIN_OPT=$(whiptail --title "Koha Easy Install & Tools v${PANEL_VERSION} - $(t "Painel de Controle" "Control Dashboard")" \
         --cancel-button "$(t "Sair" "Exit")" \
         --menu "$(t "Selecione uma opção:" "Select an option:")" 25 80 16 \
