@@ -2,19 +2,17 @@
 # ======================================================================
 # KOHA EASY INSTALL & TOOLS
 # Author: Paulo Fernando Baldi Filho
-# Refactored for Clean Architecture, Stability, and Readability
+# Architecture: Clean, Modular, Trilingual, Failsafe
 # ======================================================================
 
-PANEL_VERSION="4.0"
+PANEL_VERSION="1.0"
 UPDATE_URL="https://raw.githubusercontent.com/BibliotecaPalotina/koha-easy-install/refs/heads/main/installer"
 
 # ======================================================================
 # 1. INICIALIZAÇÃO BLINDADA (ROOT, PIPE, TELA E LOCKS)
 # ======================================================================
-# 1.1 Elevação de Privilégios
 if [ "${EUID:-$(id -u)}" -ne 0 ]; then
-    echo -e "\n[!] Privilégios de administrador (root) necessários."
-    echo "[!] Root privileges required. Please enter your password:"
+    echo -e "\n[!] Privilégios de administrador (root) necessários / Root privileges required."
     if [ -f "$0" ]; then
         exec sudo -E bash "$0" "$@"
     else
@@ -23,7 +21,6 @@ if [ "${EUID:-$(id -u)}" -ne 0 ]; then
     fi
 fi
 
-# 1.2 Proteção contra execução em Pipe (Desacopla o stdin para o dialog funcionar)
 if [ ! -t 0 ]; then
     echo "[AVISO] Execução via pipe detectada. Isolando o processo no disco local..."
     TMP_SCRIPT="/tmp/koha_installer_temp.sh"
@@ -33,7 +30,6 @@ if [ ! -t 0 ]; then
     exit 0
 fi
 
-# 1.3 Verificação do Tamanho do Terminal (Evita crash silencioso do dialog)
 COLS=$(tput cols 2>/dev/null || echo 80)
 LINES=$(tput lines 2>/dev/null || echo 24)
 if [ "$COLS" -lt 98 ] || [ "$LINES" -lt 28 ]; then
@@ -50,7 +46,6 @@ if [ "$COLS" -lt 98 ] || [ "$LINES" -lt 28 ]; then
     exit 1
 fi
 
-# 1.4 Prevenção de Múltiplas Instâncias
 PANEL_LOCK_FILE="/var/lock/koha_easy_install.lock"
 exec 8>"$PANEL_LOCK_FILE"
 if ! flock -n 8; then
@@ -106,11 +101,11 @@ APT_OPTS=(-y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confo
 wait_for_apt_locks() {
     local wait_time=0
     while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || fuser /var/lib/dpkg/lock >/dev/null 2>&1; do
-        echo "$(t "[INFO] Aguardando liberação do APT/DPKG..." "[INFO] Waiting for APT/DPKG lock...")"
+        echo "$(t "[INFO] Aguardando liberação do APT/DPKG..." "[INFO] Waiting for APT/DPKG lock..." "[INFO] Esperando liberación de APT/DPKG...")"
         sleep 3
         wait_time=$((wait_time + 3))
         if [ "$wait_time" -ge 120 ]; then
-            echo "$(t "[ERRO] APT travado há mais de 2 minutos. Abortando." "[ERROR] APT locked for over 2 minutes. Aborting.")"
+            echo "$(t "[ERRO] APT travado há mais de 2 minutos. Abortando." "[ERROR] APT locked for over 2 minutes. Aborting." "[ERROR] APT bloqueado por más de 2 minutos. Abortando.")"
             return 1
         fi
     done
@@ -133,9 +128,8 @@ apt_install() {
     fi
 }
 
-# Instala dependências visuais e utilitários básicos antes de abrir o menu
 if ! command -v dialog >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1; then
-    echo "Instalando dependências essenciais do painel (dialog, curl)..."
+    echo "$(t "Instalando dependências essenciais do painel..." "Installing essential panel dependencies..." "Instalando dependencias esenciales del panel...")"
     timedatectl set-ntp true >/dev/null 2>&1 || true
     apt_update_indices
     apt_install dialog curl python3 unzip psmisc || exit 1
@@ -164,7 +158,7 @@ run_with_dialog() {
     rc=$?
     if [ "$rc" -ne 0 ]; then
         err_msg=$(tail -n 15 "$log_temp" 2>/dev/null)
-        msg_error "$title" "$(t "Falha em: $desc\n\nCódigo: $rc\nDetalhes:\n$err_msg" "Failed during: $desc\n\nCode: $rc\nDetails:\n$err_msg")" 20 82
+        msg_error "$title" "$(t "Falha em: $desc\n\nCódigo: $rc\nDetalhes:\n$err_msg" "Failed during: $desc\n\nCode: $rc\nDetails:\n$err_msg" "Fallo en: $desc\n\nCódigo: $rc\nDetalles:\n$err_msg")" 20 82
         log "FALHA: $desc (rc=$rc)"
     fi
     rm -f "$log_temp"
@@ -201,13 +195,13 @@ get_database_password() {
 }
 
 require_koha() {
-    is_koha_installed || { msg_error "" "$(t "O Koha ainda não foi instalado." "Koha is not installed yet.")" 10 72; return 1; }
+    is_koha_installed || { msg_error "" "$(t "O Koha ainda não foi instalado." "Koha is not installed yet." "Koha aún no está instalado.")" 10 72; return 1; }
 }
 
 require_database() {
     require_koha || return 1
     run_sql "SELECT 1 FROM information_schema.tables WHERE table_schema='${DB_NAME}' AND table_name='systempreferences' LIMIT 1;" | grep -q 1 || \
-    { msg_error "" "$(t "O banco ainda está vazio. Conclua o Web Installer ou restaure um backup." "Database is empty. Finish Web Installer or restore a backup.")" 11 72; return 1; }
+    { msg_error "" "$(t "O banco ainda está vazio. Conclua o Web Installer ou restaure um backup." "Database is empty. Finish Web Installer or restore a backup." "La base de datos está vacía. Termine el Web Installer o restaure una copia.")" 11 72; return 1; }
 }
 
 sql_escape_literal() {
@@ -215,9 +209,8 @@ sql_escape_literal() {
 }
 
 # ======================================================================
-# 7. MANIPULAÇÃO DE ARQUIVOS AVANÇADA (Isolando a complexidade do Python)
+# 7. MANIPULAÇÃO DE ARQUIVOS AVANÇADA
 # ======================================================================
-# Edita tags XML no koha-conf mantendo comentários intactos
 edit_xml() {
     python3 - "$1" "$2" "$KOHA_CONF" "${3:-}" << 'PYEOF'
 import re, sys, os
@@ -233,7 +226,6 @@ with open(path, "w", encoding="utf-8") as f: f.write(text)
 PYEOF
 }
 
-# Atualiza variáveis simples em arquivos de configuração (.conf, bash)
 set_shell_config_value() {
     local file="$1" key="$2" value="$3"
     touch "$file"
@@ -252,19 +244,19 @@ select_file() {
     [ -d "$current" ] || current="/"
     while true; do
         items=()
-        [ "$current" != "/" ] && items+=(".." "$(t "[Voltar]" "[Back]")")
+        [ "$current" != "/" ] && items+=(".." " $(t "[Voltar]" "[Back]" "[Volver]")")
         while IFS= read -r d; do
-            [ -n "$d" ] && items+=("$d" "$(t "[Pasta]" "[Folder]")")
+            [ -n "$d" ] && items+=("$d" " $(t "[Pasta]" "[Folder]" "[Carpeta]")")
         done < <(find "$current" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort)
         while IFS= read -r f; do
-            [ -n "$f" ] && items+=("$f" "$(t "Arquivo de backup" "Backup file")")
+            [ -n "$f" ] && items+=("$f" " $(t "Backup" "Backup" "Copia")")
         done < <(find "$current" -mindepth 1 -maxdepth 1 -type f \( -name '*.sql' -o -name '*.sql.gz' \) -printf '%f\n' 2>/dev/null | sort)
 
-        [ ${#items[@]} -eq 0 ] && items+=(".." "$(t "[Vazio - Voltar]" "[Empty - Back]")")
+        [ ${#items[@]} -eq 0 ] && items+=(".." " $(t "[Vazio - Voltar]" "[Empty - Back]" "[Vacío - Volver]")")
 
-        choice=$(dialog --title "$(t "Explorador de Arquivos" "File Explorer")" \
-            --cancel-button "$(t "Voltar" "Back")" \
-            --menu "$(t "Pasta atual:" "Current folder:") $current\n\n$(t "Escolha o backup:" "Pick the backup:")" \
+        choice=$(dialog --title "$(t "Explorador de Arquivos" "File Explorer" "Explorador de Archivos")" \
+            --no-tags --cancel-button "$(t "Voltar" "Back" "Volver")" \
+            --menu "$(t "Pasta atual:" "Current folder:" "Carpeta actual:") $current\n\n$(t "Escolha o backup:" "Pick the backup:" "Elija la copia:")" \
             22 76 12 "${items[@]}" 3>&1 1>&2 2>&3) || return 1
         [ -z "$choice" ] && return 1
 
@@ -275,18 +267,18 @@ select_file() {
 }
 
 select_directory() {
-    local current="${1:-/}" choice dirs=() marker=">>> $(t "SALVAR AQUI" "SAVE HERE") <<<"
+    local current="${1:-/}" choice dirs=() marker=">>> $(t "SALVAR AQUI" "SAVE HERE" "GUARDAR AQUÍ") <<<"
     [ -d "$current" ] || current="/"
     while true; do
-        dirs=("$marker" "$current")
-        [ "$current" != "/" ] && dirs+=(".." "$(t "[Voltar]" "[Back]")")
+        dirs=("$marker" " $current")
+        [ "$current" != "/" ] && dirs+=(".." " $(t "[Voltar]" "[Back]" "[Volver]")")
         while IFS= read -r d; do
-            [ -n "$d" ] && dirs+=("$d" "$(t "[Pasta]" "[Folder]")")
+            [ -n "$d" ] && dirs+=("$d" " $(t "[Pasta]" "[Folder]" "[Carpeta]")")
         done < <(find "$current" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort)
 
-        choice=$(dialog --title "$(t "Seletor de Pasta" "Folder Picker")" \
-            --cancel-button "$(t "Voltar" "Back")" \
-            --menu "$(t "Pasta atual:" "Current folder:") $current" 22 76 12 "${dirs[@]}" 3>&1 1>&2 2>&3) || return 1
+        choice=$(dialog --title "$(t "Seletor de Pasta" "Folder Picker" "Selector de Carpeta")" \
+            --no-tags --cancel-button "$(t "Voltar" "Back" "Volver")" \
+            --menu "$(t "Pasta atual:" "Current folder:" "Carpeta actual:") $current" 22 76 12 "${dirs[@]}" 3>&1 1>&2 2>&3) || return 1
         [ -z "$choice" ] && return 1
 
         if [ "$choice" = "$marker" ]; then printf '%s' "$current"; return 0
@@ -319,24 +311,24 @@ v_info() { printf '[INFO] %s\n' "$1" | tee -a "$VALIDATION_LOG"; }
 
 validate_service() {
     local s="$1" d="$2"
-    if ! systemctl cat "$s" >/dev/null 2>&1; then v_fail "$d: serviço não instalado ($s)."; return 1; fi
-    systemctl is-active --quiet "$s" && v_ok "$d: ativo ($s)." || { v_fail "$d: INATIVO ($s)."; return 1; }
+    if ! systemctl cat "$s" >/dev/null 2>&1; then v_fail "$d: $(t "serviço não instalado" "service not installed" "servicio no instalado") ($s)."; return 1; fi
+    systemctl is-active --quiet "$s" && v_ok "$d: $(t "ativo" "active" "activo") ($s)." || { v_fail "$d: INATIVO ($s)."; return 1; }
 }
 
 validate_http() {
     local code; code=$(curl -sS -L --max-time 5 -o /dev/null -w '%{http_code}' "$1" 2>/dev/null)
     if [[ "$code" =~ ^[23][0-9][0-9]$ ]]; then v_ok "$2: HTTP $code."; return 0; fi
-    v_fail "$2: HTTP ${code:-sem resposta} ($1)."; return 1
+    v_fail "$2: HTTP ${code:-$(t "sem resposta" "no response" "sin respuesta")} ($1)."; return 1
 }
 
 validate_mariadb() {
-    if ! mysql -Nse 'SELECT 1;' >/dev/null 2>&1; then v_fail "MariaDB: conexão local falhou."; return 1; fi
+    if ! mysql -Nse 'SELECT 1;' >/dev/null 2>&1; then v_fail "MariaDB: $(t "conexão falhou" "connection failed" "conexión fallida")."; return 1; fi
     local c; c=$(run_sql_checked "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${DB_NAME}';") || return 1
-    [ "$c" -ge 150 ] 2>/dev/null && v_ok "${DB_NAME}: $c tabelas estruturais." || v_warn "${DB_NAME}: apenas $c tabelas."
+    [ "$c" -ge 150 ] 2>/dev/null && v_ok "${DB_NAME}: $c $(t "tabelas" "tables" "tablas")." || v_warn "${DB_NAME}: $(t "apenas" "only" "solo") $c $(t "tabelas" "tables" "tablas")."
 }
 
 show_validation_report() {
-    [ -f "$VALIDATION_LOG" ] && dialog --title "$(t "Relatório" "Report")" --scrolltext --textbox "$VALIDATION_LOG" 30 100 2>/dev/null || true
+    [ -f "$VALIDATION_LOG" ] && dialog --title "$(t "Relatório" "Report" "Informe")" --scrolltext --textbox "$VALIDATION_LOG" 30 100 2>/dev/null || true
 }
 
 # ======================================================================
@@ -345,7 +337,6 @@ show_validation_report() {
 get_search_engine() { run_sql "SELECT value FROM ${DB_NAME}.systempreferences WHERE variable='SearchEngine' LIMIT 1;"; }
 set_search_engine() { mysql -e "UPDATE ${DB_NAME}.systempreferences SET value='${1}' WHERE variable='SearchEngine';" >/dev/null 2>&1; }
 
-# Edição segura do koha-conf.xml com rollback automático em caso de corrupção
 set_xml_elasticsearch() {
     local action="$1" body="" xml_backup
     [ -f "$KOHA_CONF" ] || return 1
@@ -358,7 +349,6 @@ set_xml_elasticsearch() {
         cp -p "$xml_backup" "$KOHA_CONF"; rm -f "$xml_backup"; return 1
     fi
 
-    # Valida integridade do XML após alteração. Se falhar, reverte imediatamente.
     if command -v xmllint >/dev/null 2>&1 && ! xmllint --noout "$KOHA_CONF" >/dev/null 2>&1; then
         cp -p "$xml_backup" "$KOHA_CONF"; rm -f "$xml_backup"
         log "FALHA: Edição do Elasticsearch corrompeu o XML. Rollback automático."
@@ -373,7 +363,6 @@ is_koha_es_active_in_xml() {
     return 1
 }
 
-# Configura mensageria assíncrona (Necessário para o ES indexar em background)
 prepare_koha_broker() {
     if dpkg -s rabbitmq-server >/dev/null 2>&1 && rabbitmq-plugins enable rabbitmq_stomp >/dev/null 2>&1 && systemctl start rabbitmq-server >/dev/null 2>&1; then
         mysql -e "UPDATE ${DB_NAME}.systempreferences SET value='STOMP' WHERE variable='JobsNotificationMethod';" >/dev/null 2>&1
@@ -405,7 +394,6 @@ manage_koha_indexers() {
     rm -f "$CRON_ES"; systemctl restart cron >/dev/null 2>&1 || true
 }
 
-# Instala o serviço Systemd do indexador e o script Watchdog que destrava filas presas
 install_koha_indexer_service() {
     local unit="/etc/systemd/system/koha-es-indexer@.service"
     if [ ! -f "$unit" ]; then
@@ -425,7 +413,6 @@ EOF
         systemctl daemon-reload
     fi
 
-    # Watchdog enxuto: só reinicia se a fila do banco estiver acumulando jobs velhos
     cat > /usr/local/bin/koha-es-watchdog.sh << EOF
 #!/bin/bash
 if ! curl -sS --max-time 5 http://127.0.0.1:9200/ >/dev/null 2>&1; then exit 0; fi
@@ -447,9 +434,6 @@ force_stop_koha_zebra() {
     fi
 }
 
-# ======================================================================
-# 11. ELASTICSEARCH: GERENCIAMENTO DE ÍNDICE E REPOSITÓRIO
-# ======================================================================
 clear_orphan_jobs() {
     mysql -e "UPDATE ${DB_NAME}.background_jobs SET status='cancelled' WHERE type='update_elastic_index' AND status IN ('new','started') AND enqueued_on < '${1}';" >/dev/null 2>&1
 }
@@ -465,7 +449,7 @@ rebuild_koha_elasticsearch() {
     )
     rc=$?
     if [ "$rc" -eq 0 ]; then clear_orphan_jobs "$cut_time"
-    elif [ "$rc" -eq 75 ]; then msg_info "$(t "Em andamento" "Running")" "Reindex in progress." 9 72; fi
+    elif [ "$rc" -eq 75 ]; then msg_info "$(t "Em andamento" "Running" "En curso")" "$(t "Reindexação em andamento." "Reindex in progress." "Reindexación en curso.")" 9 72; fi
     return "$rc"
 }
 
@@ -508,7 +492,7 @@ adjust_elasticsearch_heap() {
 }
 
 # ======================================================================
-# 12. INFRAESTRUTURA DE BACKUPS (GERAÇÃO DE SCRIPTS E CONFIG)
+# 11. INFRAESTRUTURA DE BACKUPS (GERAÇÃO DE SCRIPTS E CONFIG)
 # ======================================================================
 write_backup_config() {
     [ -f "$BACKUP_CONF" ] && return 0
@@ -537,7 +521,6 @@ write_backup_scripts() {
     write_backup_config
     write_scp_backup_config
 
-    # Script Backup SQL
     cat > /root/backup_sql.sh << EOF
 #!/bin/bash
 set -o pipefail
@@ -558,12 +541,10 @@ FILE="\$DIR/${DB_NAME}_\$(date +%Y-%m-%d_%Hh%M).sql.gz"
 if mysqldump --single-transaction --quick --routines --triggers --default-character-set=utf8mb4 "$DB_NAME" 2>>"\$LOG" | gzip > "\$FILE" && gzip -t "\$FILE" 2>/dev/null; then
     log_backup "OK: \$FILE"
     
-    # Envio Rclone
     if [ -n "\$RCLONE_REMOTE" ] && [ -f /root/.config/rclone/rclone.conf ]; then
         rclone copy "\$FILE" "\${RCLONE_REMOTE}:\${RCLONE_SQL_FOLDER:-Backup_SQL_Koha}/" >>"\$LOG" 2>&1
     fi
     
-    # Envio SCP
     if [ -n "\$SCP_HOST" ] && [ -n "\$SCP_USER" ] && [ -n "\$SCP_FOLDER" ]; then
         scp -P "\${SCP_PORT:-22}" -i "\${SCP_KEY}" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new "\$FILE" "\${SCP_USER}@\${SCP_HOST}:\${SCP_FOLDER%/}/" >>"\$LOG" 2>&1
     fi
@@ -576,7 +557,6 @@ find "\$DIR" -name '*.sql.gz' -mtime "+\$KEEP_DAYS" -delete 2>/dev/null
 exit 0
 EOF
 
-    # Script Backup MARC21
     cat > /root/backup_marc.sh << EOF
 #!/bin/bash
 set -o pipefail
@@ -622,7 +602,7 @@ EOF
 }
 
 # ======================================================================
-# 13. TAREFAS DE SISTEMA (CRON E UFW FIREWALL)
+# 12. TAREFAS DE SISTEMA (CRON E UFW FIREWALL)
 # ======================================================================
 write_cron_tasks() {
     local email_block=""
@@ -675,7 +655,7 @@ configure_firewall() {
 }
 
 # ======================================================================
-# 14. BANNER DE ACESSO DO SERVIDOR (ASCII ART)
+# 13. BANNER DE ACESSO DO SERVIDOR (ASCII ART)
 # ======================================================================
 write_banner() {
     local ip="$1"
@@ -701,7 +681,7 @@ EOF
 }
 
 # ======================================================================
-# 15. SISTEMA DE PRÉ-VALIDAÇÃO E DIAGNÓSTICO COMPLETO
+# 14. SISTEMA DE PRÉ-VALIDAÇÃO E DIAGNÓSTICO
 # ======================================================================
 validate_network_and_system() {
     local ram free_disk
@@ -712,22 +692,22 @@ validate_network_and_system() {
     v_info "RAM: ${ram:-?} GB."
     
     free_disk=$(get_free_space_mb /)
-    if [ "${free_disk:-0}" -ge 5120 ] 2>/dev/null; then v_ok "Disco: ${free_disk} MB livres."
-    elif [ "${free_disk:-0}" -ge 2048 ] 2>/dev/null; then v_warn "Disco: ${free_disk} MB livres."
-    else v_fail "Disco: ${free_disk:-0} MB livres (menos de 2 GB)."; fi
+    if [ "${free_disk:-0}" -ge 5120 ] 2>/dev/null; then v_ok "Disco: ${free_disk} MB $(t "livres" "free" "libres")."
+    elif [ "${free_disk:-0}" -ge 2048 ] 2>/dev/null; then v_warn "Disco: ${free_disk} MB $(t "livres" "free" "libres")."
+    else v_fail "Disco: ${free_disk:-0} MB $(t "livres" "free" "libres") (< 2 GB)."; fi
     
-    swapon --show 2>/dev/null | grep -q '/' && v_ok "SWAP: ativa." || v_warn "SWAP: inexistente."
-    timedatectl show -p NTPSynchronized --value 2>/dev/null | grep -q '^yes$' && v_ok "NTP: sincronizado." || v_warn "NTP: não confirmado."
+    swapon --show 2>/dev/null | grep -q '/' && v_ok "SWAP: $(t "ativa" "active" "activa")." || v_warn "SWAP: $(t "inexistente" "none" "inexistente")."
+    timedatectl show -p NTPSynchronized --value 2>/dev/null | grep -q '^yes$' && v_ok "NTP: $(t "sincronizado" "synchronized" "sincronizado")." || v_warn "NTP: $(t "não confirmado" "unconfirmed" "no confirmado")."
 }
 
 validate_pre_installation() {
     v_reset "pré-instalação"
-    [ "$EUID" -eq 0 ] && v_ok "Root OK." || v_fail "Root: privilégios insuficientes."
+    [ "$EUID" -eq 0 ] && v_ok "Root OK." || v_fail "Root: $(t "privilégios insuficientes" "insufficient privileges" "privilegios insuficientes")."
     
     if [ -r /etc/os-release ] && grep -qiE '^(ID|ID_LIKE)=.*(debian|ubuntu)' /etc/os-release; then
-        v_ok "SO: base Debian/Ubuntu ($(. /etc/os-release; echo "$PRETTY_NAME"))."
+        v_ok "SO: Debian/Ubuntu ($(. /etc/os-release; echo "$PRETTY_NAME"))."
     else
-        v_fail "SO: $(t "este instalador só suporta Debian/Ubuntu" "this installer only supports Debian/Ubuntu")."
+        v_fail "SO: $(t "este instalador só suporta Debian/Ubuntu" "this installer only supports Debian/Ubuntu" "este instalador solo admite Debian/Ubuntu")."
     fi
 
     validate_command apt-get "APT"
@@ -735,39 +715,39 @@ validate_pre_installation() {
     validate_command systemctl "Systemd"
 
     curl -fsSI --max-time 10 https://debian.koha-community.org/koha/ >/dev/null 2>&1 && \
-        v_ok "HTTPS: repositório Koha respondeu." || v_fail "HTTPS: repositório Koha não respondeu."
+        v_ok "HTTPS: $(t "repositório Koha respondeu" "Koha repo responded" "repositorio Koha respondió")." || v_fail "HTTPS: $(t "repositório Koha não respondeu" "Koha repo did not respond" "repositorio Koha no respondió")."
 
     for p in 80 8080; do
         if ss -lnt 2>/dev/null | awk '{print $4}' | grep -Eq "([.:]$p)\$"; then
-            v_warn "TCP $p já está em uso (outro servidor web?)."
+            v_warn "TCP $p $(t "já está em uso (outro servidor web?)" "already in use (another web server?)" "ya está en uso (¿otro servidor web?)")."
         else
-            v_ok "TCP $p livre."
+            v_ok "TCP $p $(t "livre" "free" "libre")."
         fi
     done
 
     if [ "$V_FAIL" -ne 0 ]; then
-        msg_error "" "$(t "A pré-validação encontrou $V_FAIL erro(s) crítico(s).\nAvisos: $V_WARN\n\nLog: $VALIDATION_LOG" "Pre-validation found $V_FAIL critical error(s).\nWarnings: $V_WARN\n\nLog: $VALIDATION_LOG")" 12 74
+        msg_error "" "$(t "A pré-validação encontrou $V_FAIL erro(s) crítico(s).\nAvisos: $V_WARN\n\nLog: $VALIDATION_LOG" "Pre-validation found $V_FAIL critical error(s).\nWarnings: $V_WARN\n\nLog: $VALIDATION_LOG" "La prevalidación encontró $V_FAIL error(es) crítico(s).\nAvisos: $V_WARN\n\nLog: $VALIDATION_LOG")" 12 74
         return 1
     fi
-    prompt_yes_no "$(t "Pré-validação OK" "Pre-validation OK")" "$(t "Nenhum erro crítico.\n\nIniciar a instalação agora?" "No critical errors.\n\nStart the installation now?")" 10 70
+    prompt_yes_no "$(t "Pré-validação OK" "Pre-validation OK" "Prevalidación OK")" "$(t "Nenhum erro crítico.\n\nIniciar a instalação agora?" "No critical errors.\n\nStart the installation now?" "Sin errores críticos.\n\n¿Iniciar la instalación ahora?")" 10 70
 }
 
 # ======================================================================
-# 16. INSTALAÇÃO DO SERVIDOR KOHA (AUTOMATIZADA E PROTEGIDA)
+# 15. INSTALAÇÃO DO SERVIDOR KOHA (AUTOMATIZADA E PROTEGIDA)
 # ======================================================================
 choose_timezone() {
     local current choice
     current=$(timedatectl show -p Timezone --value 2>/dev/null)
-    choice=$(dialog --title "$(t "Fuso Horário" "Timezone")" --cancel-button "$(t "Manter" "Keep")" \
-        --menu "$(t "Atual:" "Current:") ${current:-UTC}\n\n$(t "Escolha o fuso do servidor:" "Choose the server timezone:")" 20 72 9 \
-        "America/Sao_Paulo"  "Brasil - Brasilia/SP/RJ/PR/SC/RS/MG" \
-        "America/Manaus"     "Brasil - Amazonas / MT" \
-        "America/Belem"      "Brasil - Para / Amapa" \
-        "America/Fortaleza"  "Brasil - Nordeste" \
-        "America/Rio_Branco" "Brasil - Acre" \
-        "Europe/Lisbon"      "Portugal" \
-        "UTC"                "UTC" \
-        "OUTRO"              "$(t "Outro (lista completa)" "Other (full list)")" 3>&1 1>&2 2>&3) || return 1
+    choice=$(dialog --title "$(t "Fuso Horário" "Timezone" "Zona Horaria")" --no-tags --cancel-button "$(t "Manter" "Keep" "Mantener")" \
+        --menu "$(t "Atual:" "Current:" "Actual:") ${current:-UTC}\n\n$(t "Escolha o fuso do servidor:" "Choose the server timezone:" "Elija la zona horaria del servidor:")" 20 72 9 \
+        "America/Sao_Paulo"  " Brasil - Brasilia/SP/RJ/PR/SC/RS/MG" \
+        "America/Manaus"     " Brasil - Amazonas / MT" \
+        "America/Belem"      " Brasil - Para / Amapa" \
+        "America/Fortaleza"  " Brasil - Nordeste" \
+        "America/Rio_Branco" " Brasil - Acre" \
+        "Europe/Lisbon"      " Portugal" \
+        "UTC"                " UTC" \
+        "OUTRO"              " $(t "Outro (lista completa)" "Other (full list)" "Otro (lista completa)")" 3>&1 1>&2 2>&3) || return 1
     [ -z "$choice" ] && return 1
     if [ "$choice" = "OUTRO" ]; then clear; dpkg-reconfigure tzdata; return 1; fi
     printf '%s' "$choice"
@@ -792,20 +772,24 @@ define_koha_sites_conf() {
 function_view_credentials() {
     require_koha || return 0
     local ip; ip=$(get_server_ip)
-    msg_info "$(t "Credenciais" "Credentials")" "$(t "ACESSO AO KOHA\n\n  Staff (administração): http://${ip}:8080\n  OPAC  (catálogo):      http://${ip}:80\n\n  Usuário: ${DB_NAME}\n  Senha:   $(get_database_password)\n\nArquivo completo salvo em: /root/credenciais_koha.txt" "KOHA ACCESS\n\n  Staff: http://${ip}:8080\n  OPAC:  http://${ip}:80\n\n  User: ${DB_NAME}\n  Pass: $(get_database_password)\n\nFull file: /root/credenciais_koha.txt")" 16 74
+    msg_info "$(t "Credenciais" "Credentials" "Credenciales")" "$(t "ACESSO AO KOHA\n\n  Staff (administração): http://${ip}:8080\n  OPAC  (catálogo):      http://${ip}:80\n\n  Usuário: ${DB_NAME}\n  Senha:   $(get_database_password)\n\nArquivo completo salvo em: /root/credenciais_koha.txt" "KOHA ACCESS\n\n  Staff: http://${ip}:8080\n  OPAC:  http://${ip}:80\n\n  User: ${DB_NAME}\n  Pass: $(get_database_password)\n\nFull file: /root/credenciais_koha.txt" "ACCESO A KOHA\n\n  Staff (administración): http://${ip}:8080\n  OPAC  (catálogo):      http://${ip}:80\n\n  Usuario: ${DB_NAME}\n  Contraseña: $(get_database_password)\n\nArchivo completo en: /root/credenciais_koha.txt")" 16 74
 }
 
 function_install_koha() {
-    msg_info "$(t "Instalação" "Installation")" "$(t "Este assistente vai instalar MariaDB, Apache, Memcached e o Koha.\n\nPode levar de 10 a 30 minutos. Não feche o terminal." "This wizard installs MariaDB, Apache, Memcached and Koha.\n\nIt can take 10 to 30 minutes. Do not close the terminal.")" 10 76
+    msg_info "$(t "Instalação" "Installation" "Instalación")" "$(t "Este assistente vai instalar MariaDB, Apache, Memcached e o Koha.\n\nPode levar de 10 a 30 minutos. Não feche o terminal." "This wizard installs MariaDB, Apache, Memcached and Koha.\n\nIt can take 10 to 30 minutes. Do not close the terminal." "Este asistente instalará MariaDB, Apache, Memcached y Koha.\n\nPuede tardar de 10 a 30 minutos. No cierre el terminal.")" 10 76
     clear
     validate_pre_installation || return 0
 
     local tz
-    tz=$(choose_timezone) && [ -n "$tz" ] && timedatectl set-timezone "$tz" >/dev/null 2>&1
+    tz=$(choose_timezone) || return 0
+    [ -n "$tz" ] && timedatectl set-timezone "$tz" >/dev/null 2>&1
 
-    display_explanation "Configurando idioma, fuso e SWAP..." "Configuring locales, timezone and SWAP..."
-    apt_update_indices || return 1
-    apt_install locales systemd-timesyncd
+    display_explanation "$(t "Configurando idioma, fuso e SWAP..." "Configuring locales, timezone and SWAP..." "Configurando idioma, zona horaria y SWAP...")"
+    
+    apt_update_indices || { msg_error "$(t "Erro" "Error" "Error")" "$(t "Falha ao atualizar repositórios." "Failed to update repositories." "Error al actualizar repositorios.")"; return 1; }
+    
+    apt_install locales systemd-timesyncd || { msg_error "$(t "Erro" "Error" "Error")" "$(t "Falha ao instalar pacotes base." "Failed to install base packages." "Error al instalar paquetes base.")"; return 1; }
+    
     locale-gen pt_BR.UTF-8 en_US.UTF-8 es_ES.UTF-8 >/dev/null 2>&1
     case "$SYS_LANG" in
         pt) update-locale LANG=pt_BR.UTF-8 ;;
@@ -821,32 +805,34 @@ function_install_koha() {
         swapon /swapfile 2>/dev/null && echo '/swapfile none swap sw 0 0' >> /etc/fstab
     fi
 
-    display_explanation "Atualizando sistema e instalando dependências base..." "Upgrading system and base dependencies..."
-    DEBIAN_FRONTEND=noninteractive apt-get upgrade "${APT_OPTS[@]}" || { msg_error "" "System upgrade failed."; return 1; }
-    apt_install nano wget gnupg ca-certificates ufw apt-transport-https openssh-client fail2ban libsasl2-modules rclone avahi-daemon memcached libxml2-utils pv || return 1
+    display_explanation "$(t "Atualizando sistema e instalando dependências base..." "Upgrading system and base dependencies..." "Actualizando sistema e instalando dependencias base...")"
+    DEBIAN_FRONTEND=noninteractive apt-get upgrade "${APT_OPTS[@]}" || { msg_error "$(t "Erro" "Error" "Error")" "$(t "Falha na atualização do sistema." "System upgrade failed." "Fallo en la actualización del sistema.")"; return 1; }
+    
+    apt_install nano wget gnupg ca-certificates ufw apt-transport-https openssh-client fail2ban libsasl2-modules rclone avahi-daemon memcached libxml2-utils pv || { msg_error "$(t "Erro" "Error" "Error")" "$(t "Falha ao instalar dependências." "Failed to install dependencies." "Error al instalar dependencias.")"; return 1; }
+    
     systemctl enable --now avahi-daemon fail2ban memcached >/dev/null 2>&1
 
-    display_explanation "Adicionando repositório oficial do Koha..." "Adding official Koha repository..."
+    display_explanation "$(t "Adicionando repositório oficial do Koha..." "Adding official Koha repository..." "Añadiendo repositorio oficial de Koha...")"
     mkdir -p /usr/share/keyrings
     curl -fsSL --retry 3 https://debian.koha-community.org/koha/gpg.asc | gpg --dearmor --yes -o /usr/share/keyrings/koha-keyring.gpg 2>/dev/null || return 1
     echo "deb [signed-by=/usr/share/keyrings/koha-keyring.gpg] https://debian.koha-community.org/koha stable main" > /etc/apt/sources.list.d/koha.list
-    apt_update_indices || return 1
+    apt_update_indices || { msg_error "$(t "Erro" "Error" "Error")" "$(t "Falha ao atualizar repositórios do Koha." "Failed to update Koha repositories." "Error al actualizar repositorios de Koha.")"; return 1; }
 
-    display_explanation "Instalando MariaDB e Koha (etapa mais demorada)..." "Installing MariaDB and Koha (longest step)..."
-    apt_install mariadb-server koha-common || return 1
+    display_explanation "$(t "Instalando MariaDB e Koha (etapa mais demorada)..." "Installing MariaDB and Koha (longest step)..." "Instalando MariaDB y Koha (etapa más larga)...")"
+    apt_install mariadb-server koha-common || { msg_error "$(t "Erro" "Error" "Error")" "$(t "Falha ao instalar Koha/MariaDB." "Failed to install Koha/MariaDB." "Error al instalar Koha/MariaDB.")"; return 1; }
     systemctl enable --now mariadb >/dev/null 2>&1
 
-    display_explanation "Configurando Apache e preparando o Koha..." "Configuring Apache and preparing Koha..."
+    display_explanation "$(t "Configurando Apache e preparando o Koha..." "Configuring Apache and preparing Koha..." "Configurando Apache y preparando Koha...")"
     define_koha_sites_conf
     a2enmod rewrite cgi deflate headers proxy proxy_http >/dev/null 2>&1
     grep -qE '^[[:space:]]*Listen[[:space:]]+8080' /etc/apache2/ports.conf 2>/dev/null || sed -i '/^[[:space:]]*Listen[[:space:]]\+80$/a Listen 8080' /etc/apache2/ports.conf
     systemctl restart apache2 memcached >/dev/null 2>&1
 
     if [ -d "/etc/koha/sites/${INSTANCE}" ] || [ "$(run_sql "SELECT 1 FROM information_schema.schemata WHERE schema_name='${DB_NAME}';")" = "1" ]; then
-        prompt_yes_no "$(t "Instância Existente" "Existing Instance")" "$(t "O Koha já está instalado. REINSTALAR APAGARÁ TUDO!\n\nContinuar?" "Koha is already installed. REINSTALLING DELETES EVERYTHING!\n\nContinue?")" 10 70 || return 0
+        prompt_yes_no "$(t "Instância Existente" "Existing Instance" "Instancia Existente")" "$(t "O Koha já está instalado. REINSTALAR APAGARÁ TUDO!\n\nContinuar?" "Koha is already installed. REINSTALLING DELETES EVERYTHING!\n\nContinue?" "Koha ya está instalado. ¡REINSTALAR BORRARÁ TODO!\n\n¿Continuar?")" 10 70 || return 0
         local confirm
-        confirm=$(dialog --title "$(t "CONFIRMAÇÃO" "CONFIRMATION")" --inputbox "$(t "Digite REINSTALAR para continuar:" "Type REINSTALL to continue:")" 10 50 3>&1 1>&2 2>&3) || return 0
-        [ "$confirm" != "$(t "REINSTALAR" "REINSTALL")" ] && return 0
+        confirm=$(dialog --title "$(t "CONFIRMAÇÃO" "CONFIRMATION" "CONFIRMACIÓN")" --inputbox "$(t "Digite REINSTALAR para continuar:" "Type REINSTALL to continue:" "Escriba REINSTALAR para continuar:")" 10 50 3>&1 1>&2 2>&3) || return 0
+        [ "$confirm" != "$(t "REINSTALAR" "REINSTALL" "REINSTALAR")" ] && return 0
         
         manage_koha_indexers stop
         [ -d "/etc/koha/sites/${INSTANCE}" ] && koha-remove "$INSTANCE" >/dev/null 2>&1
@@ -854,8 +840,8 @@ function_install_koha() {
         rm -rf "/etc/koha/sites/${INSTANCE}"
     fi
 
-    display_explanation "Criando a instância de banco e bibliotecas..." "Creating database instance and libraries..."
-    koha-create --create-db "$INSTANCE" || { msg_error "" "Failed to create Koha instance."; return 1; }
+    display_explanation "$(t "Criando a instância de banco e bibliotecas..." "Creating database instance and libraries..." "Creando instancia de base de datos y bibliotecas...")"
+    koha-create --create-db "$INSTANCE" || { msg_error "$(t "Erro" "Error" "Error")" "$(t "Falha ao criar instância Koha." "Failed to create Koha instance." "Fallo al crear instancia Koha.")"; return 1; }
 
     sed -i 's/__MEMCACHED_SERVERS__/127.0.0.1:11211/g; s/__MEMCACHED_PREFIX__/koha_library:/g' "$KOHA_CONF" 2>/dev/null
     a2dissite 000-default >/dev/null 2>&1
@@ -871,7 +857,7 @@ function_install_koha() {
     write_cron_zebra
     manage_koha_indexers start >/dev/null 2>&1
 
-    display_explanation "Finalizando credenciais e rotinas automáticas..." "Finalizing credentials and automatic routines..."
+    display_explanation "$(t "Finalizando credenciais e rotinas automáticas..." "Finalizing credentials and automatic routines..." "Finalizando credenciales y rutinas automáticas...")"
     local db_pass ip
     db_pass=$(get_database_password)
     ip=$(get_server_ip)
@@ -900,13 +886,13 @@ EOF
     DEBIAN_FRONTEND=noninteractive apt-get autoremove --purge -y >/dev/null 2>&1
 
     clear
-    msg_ok "$(t "INSTALAÇÃO CONCLUÍDA!\n\nAcesse a Interface Staff para concluir o Web Installer:\nhttp://${ip}:8080\n\nUsuário: ${DB_NAME}\nSenha:   ${db_pass}" "INSTALLATION COMPLETE!\n\nAccess the Staff Interface to finish Web Installer:\nhttp://${ip}:8080\n\nUser: ${DB_NAME}\nPass: ${db_pass}")" 15 74
+    msg_ok "$(t "INSTALAÇÃO CONCLUÍDA!\n\nAcesse a Interface Staff para concluir o Web Installer:\nhttp://${ip}:8080\n\nUsuário: ${DB_NAME}\nSenha:   ${db_pass}" "INSTALLATION COMPLETE!\n\nAccess the Staff Interface to finish Web Installer:\nhttp://${ip}:8080\n\nUser: ${DB_NAME}\nPass: ${db_pass}" "¡INSTALACIÓN COMPLETADA!\n\nAcceda a la Interfaz Staff para concluir el Web Installer:\nhttp://${ip}:8080\n\nUsuario: ${DB_NAME}\nContraseña: ${db_pass}")" 15 74
 
-    prompt_yes_no "$(t "Reiniciar Servidor" "Reboot Server")" "$(t "É recomendado reiniciar agora para carregar a SWAP e aplicar tunings.\nReiniciar?" "Reboot is recommended to load SWAP and apply tunings.\nReboot now?")" 10 70 && reboot
+    prompt_yes_no "$(t "Reiniciar Servidor" "Reboot Server" "Reiniciar Servidor")" "$(t "É recomendado reiniciar agora para carregar a SWAP e aplicar tunings.\nReiniciar?" "Reboot is recommended to load SWAP and apply tunings.\nReboot now?" "Se recomienda reiniciar ahora para cargar SWAP y aplicar tunings.\n¿Reiniciar?")" 10 70 && reboot
 }
 
 # ======================================================================
-# 17. RESTAURAÇÃO DE BACKUP COM ROLLBACK ATÔMICO
+# 16. RESTAURAÇÃO DE BACKUP COM ROLLBACK ATÔMICO
 # ======================================================================
 backup_database_for_rollback() {
     local dest="$1"
@@ -961,23 +947,23 @@ function_restore_database() {
     local file; file=$(select_file "$REAL_HOME") || return 0
     [ -z "$file" ] && return 0
 
-    display_explanation "Inspecionando integridade do backup..." "Inspecting backup integrity..."
+    display_explanation "$(t "Inspecionando integridade do backup..." "Inspecting backup integrity..." "Inspeccionando integridad de la copia...")"
     if [[ "$file" == *.gz ]] && ! gzip -t "$file" 2>/dev/null; then
-        msg_error "" "$(t "Arquivo corrompido (falha no teste gzip)." "Corrupted file (failed gzip test).")" 8 60; return 0
+        msg_error "$(t "Erro" "Error" "Error")" "$(t "Arquivo corrompido (falha no teste gzip)." "Corrupted file (failed gzip test)." "Archivo dañado (falló la prueba gzip).")" 8 60; return 0
     fi
 
-    prompt_yes_no "$(t "Confirmar Restauração" "Confirm Restore")" "$(t "Arquivo: $file\n\nATENÇÃO: O banco atual será SUBSTITUÍDO.\nUm backup de rollback será criado automaticamente.\n\nContinuar?" "File: $file\n\nWARNING: The current DB will be REPLACED.\nA rollback backup will be created automatically.\n\nContinue?")" 12 74 || return 0
+    prompt_yes_no "$(t "Confirmar Restauração" "Confirm Restore" "Confirmar Restauración")" "$(t "Arquivo: $file\n\nATENÇÃO: O banco atual será SUBSTITUÍDO.\nUm backup de rollback será criado automaticamente.\n\nContinuar?" "File: $file\n\nWARNING: The current DB will be REPLACED.\nA rollback backup will be created automatically.\n\nContinue?" "Archivo: $file\n\nATENCIÓN: La base actual será REEMPLAZADA.\nSe creará una copia de seguridad automáticamente.\n\n¿Continuar?")" 12 74 || return 0
     
     clear
     exec 9>"/var/lock/koha_backup.lock"
-    if ! flock -n 9; then msg_error "" "Operação bloqueada por outro backup em andamento."; return 0; fi
+    if ! flock -n 9; then msg_error "$(t "Erro" "Error" "Error")" "$(t "Operação bloqueada por outro backup em andamento." "Operation blocked by another backup in progress." "Operación bloqueada por otra copia en curso.")"; return 0; fi
 
     local rollback_file="${DIR_SQL}/PRE-RESTORE_${DB_NAME}_$(date +%Y%m%d-%H%M%S).sql.gz"
     local old_engine; old_engine=$(get_search_engine)
     [ "$old_engine" = "Elasticsearch" ] || old_engine="Zebra"
 
     if ! backup_database_for_rollback "$rollback_file"; then
-        flock -u 9; msg_error "" "$(t "Falha ao criar o backup de segurança para rollback. Abortando." "Failed to create safety rollback backup. Aborting.")" 9 74; return 1
+        flock -u 9; msg_error "$(t "Erro" "Error" "Error")" "$(t "Falha ao criar o backup de segurança para rollback. Abortando." "Failed to create safety rollback backup. Aborting." "Fallo al crear la copia de seguridad. Abortando.")" 9 74; return 1
     fi
 
     manage_koha_indexers stop
@@ -987,63 +973,63 @@ function_restore_database() {
     [ -z "$configured_db_pass" ] && configured_db_pass=$(python3 -c 'import secrets,string; print("".join(secrets.choice(string.ascii_letters+string.digits) for _ in range(32)))')
     local db_pass_sql; db_pass_sql=$(sql_escape_literal "$configured_db_pass")
 
-    display_explanation "Recriando banco e importando dados..." "Recreating DB and importing data..."
+    display_explanation "$(t "Recriando banco e importando dados..." "Recreating DB and importing data..." "Recreando base de datos e importando datos...")"
     mysql -e "DROP DATABASE IF EXISTS ${DB_NAME}; CREATE DATABASE ${DB_NAME} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; CREATE USER IF NOT EXISTS '${DB_NAME}'@'localhost' IDENTIFIED BY '${db_pass_sql}'; ALTER USER '${DB_NAME}'@'localhost' IDENTIFIED BY '${db_pass_sql}'; GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_NAME}'@'localhost'; FLUSH PRIVILEGES;" >/dev/null 2>&1
 
     if ! import_sql_backup "$file"; then
         log "Falha na importação. Executando rollback."
         rollback_database_from_backup "$rollback_file" && restore_engine_after_database_rollback "$old_engine"
-        flock -u 9; msg_error "" "$(t "Importação falhou. Banco revertido para o estado anterior." "Import failed. Database rolled back to previous state.")" 9 70; return 1
+        flock -u 9; msg_error "$(t "Erro" "Error" "Error")" "$(t "Importação falhou. Banco revertido para o estado anterior." "Import failed. Database rolled back to previous state." "La importación falló. La base de datos fue revertida.")" 9 70; return 1
     fi
 
-    display_explanation "Atualizando schema do Koha..." "Upgrading Koha schema..."
+    display_explanation "$(t "Atualizando schema do Koha..." "Upgrading Koha schema..." "Actualizando esquema de Koha...")"
     systemctl restart memcached >/dev/null 2>&1 || true
     if ! koha-upgrade-schema "$INSTANCE"; then
         rollback_database_from_backup "$rollback_file" && restore_engine_after_database_rollback "$old_engine"
-        flock -u 9; msg_error "" "$(t "Migração do schema falhou. Banco revertido." "Schema migration failed. Database rolled back.")" 9 70; return 1
+        flock -u 9; msg_error "$(t "Erro" "Error" "Error")" "$(t "Migração do schema falhou. Banco revertido." "Schema migration failed. Database rolled back." "La migración del esquema falló. Base revertida.")" 9 70; return 1
     fi
 
-    display_explanation "Sincronizando motores de busca..." "Synchronizing search engines..."
+    display_explanation "$(t "Sincronizando motores de busca..." "Synchronizing search engines..." "Sincronizando motores de búsqueda...")"
     local engine="Zebra"
     if dpkg -s koha-elasticsearch >/dev/null 2>&1 && is_koha_es_active_in_xml; then engine="Elasticsearch"; fi
     set_search_engine "$engine"
 
     if [ "$engine" = "Elasticsearch" ]; then
-        prepare_koha_broker || { rollback_database_from_backup "$rollback_file"; restore_engine_after_database_rollback "$old_engine"; flock -u 9; msg_error "" "Falha ao configurar mensageria ES."; return 1; }
+        prepare_koha_broker || { rollback_database_from_backup "$rollback_file"; restore_engine_after_database_rollback "$old_engine"; flock -u 9; msg_error "$(t "Erro" "Error" "Error")" "$(t "Falha ao configurar mensageria ES." "Failed to configure ES broker." "Fallo al configurar mensajería ES.")"; return 1; }
         systemctl restart koha-common >/dev/null 2>&1 || true
         manage_koha_indexers start
-        rebuild_koha_elasticsearch "$(date '+%Y-%m-%d %H:%M:%S')" || msg_error "" "O banco foi restaurado, mas a reconstrução do índice Elasticsearch falhou. Repare-o na Central de Manutenção."
+        rebuild_koha_elasticsearch "$(date '+%Y-%m-%d %H:%M:%S')" || msg_error "$(t "Aviso" "Warning" "Aviso")" "$(t "O banco foi restaurado, mas a reconstrução do ES falhou. Repare-o na Central de Manutenção." "DB restored, but ES index rebuild failed. Repair it in Maintenance Center." "Base de datos restaurada, pero falló la reconstrucción de ES. Repárelo en el Centro de Mantenimiento.")"
     else
         systemctl enable --now "koha-zebra-daemon@${INSTANCE}" >/dev/null 2>&1 || true
         write_cron_zebra
-        koha-rebuild-zebra -f -v -b -a "$INSTANCE" || msg_error "" "A reindexação do Zebra falhou."
+        koha-rebuild-zebra -f -v -b -a "$INSTANCE" || msg_error "$(t "Erro" "Error" "Error")" "$(t "A reindexação do Zebra falhou." "Zebra reindexing failed." "La reindexación de Zebra falló.")"
     fi
 
     flock -u 9
     koha-plack --restart "$INSTANCE" >/dev/null 2>&1 || true
-    msg_ok "$(t "Restauração concluída!\n\nMotor atual: $engine\nPonto de segurança mantido em: $rollback_file" "Restore complete!\n\nCurrent engine: $engine\nSafety backup kept at: $rollback_file")" 11 74
+    msg_ok "$(t "Restauração concluída!\n\nMotor atual: $engine\nPonto de segurança mantido em: $rollback_file" "Restore complete!\n\nCurrent engine: $engine\nSafety backup kept at: $rollback_file" "¡Restauración completada!\n\nMotor actual: $engine\nCopia de seguridad en: $rollback_file")" 11 74
 }
 
 # ======================================================================
-# 18. OPERAÇÕES DE BACKUP E NUVEM (MANUAL, SCP, RCLONE)
+# 17. OPERAÇÕES DE BACKUP E NUVEM (MANUAL, SCP, RCLONE)
 # ======================================================================
 function_manual_backup() {
     require_database || return 0
-    msg_info "$(t "Destino do Backup" "Backup Destination")" "$(t "Escolha a pasta para salvar o arquivo." "Choose the folder to save the file.")" 8 60
+    msg_info "$(t "Destino do Backup" "Backup Destination" "Destino de la Copia")" "$(t "Escolha a pasta para salvar o arquivo." "Choose the folder to save the file." "Elija la carpeta para guardar el archivo.")" 8 60
     local target_dir; target_dir=$(select_directory "$REAL_HOME") || return 0
     [ -z "$target_dir" ] && return 0
     
     exec 9>"/var/lock/koha_backup.lock"
-    if ! flock -n 9; then msg_error "" "Outro backup ou restauração já está em andamento."; return 0; fi
+    if ! flock -n 9; then msg_error "$(t "Erro" "Error" "Error")" "$(t "Outro backup ou restauração já está em andamento." "Another backup or restore is already in progress." "Otra copia o restauración ya está en progreso.")"; return 0; fi
 
     local file="${target_dir%/}/${DB_NAME}_manual_$(date +%Y-%m-%d_%Hh%M).sql.gz"
-    display_explanation "Gerando o backup local..." "Generating local backup..."
+    display_explanation "$(t "Gerando o backup local..." "Generating local backup..." "Generando copia local...")"
     if mysqldump --single-transaction --quick --routines --triggers --default-character-set=utf8mb4 "$DB_NAME" | gzip > "$file" && gzip -t "$file" 2>/dev/null; then
         flock -u 9
-        msg_ok "$(t "Backup gerado:\n$file\n\nTamanho: $(du -h "$file" | cut -f1)" "Backup generated:\n$file\n\nSize: $(du -h "$file" | cut -f1)")" 10 70
+        msg_ok "$(t "Backup gerado:\n$file\n\nTamanho: $(du -h "$file" | cut -f1)" "Backup generated:\n$file\n\nSize: $(du -h "$file" | cut -f1)" "Copia generada:\n$file\n\nTamaño: $(du -h "$file" | cut -f1)")" 10 70
     else
         rm -f "$file"; flock -u 9
-        msg_error "" "$(t "Falha ao gerar backup. Verifique espaço em disco." "Failed to generate backup. Check disk space.")" 9 60
+        msg_error "$(t "Erro" "Error" "Error")" "$(t "Falha ao gerar backup. Verifique espaço em disco." "Failed to generate backup. Check disk space." "Fallo al generar copia. Compruebe el espacio en disco.")" 9 60
     fi
 }
 
@@ -1053,39 +1039,39 @@ function_send_manual_scp_backup() {
 
     if [ -f "$SCP_BACKUP_CONF" ] && grep -q '^SCP_HOST="[^"]\+"' "$SCP_BACKUP_CONF" 2>/dev/null; then
         . "$SCP_BACKUP_CONF"
-        if prompt_yes_no "SCP" "$(t "Usar destino salvo: ${SCP_USER}@${SCP_HOST}:${SCP_FOLDER}?" "Use saved destination: ${SCP_USER}@${SCP_HOST}:${SCP_FOLDER}?")" 9 70; then
+        if prompt_yes_no "SCP" "$(t "Usar destino salvo: ${SCP_USER}@${SCP_HOST}:${SCP_FOLDER}?" "Use saved destination: ${SCP_USER}@${SCP_HOST}:${SCP_FOLDER}?" "¿Usar destino guardado: ${SCP_USER}@${SCP_HOST}:${SCP_FOLDER}?")" 9 70; then
             host="$SCP_HOST"; user="$SCP_USER"; port="$SCP_PORT"; folder="$SCP_FOLDER"; key="$SCP_KEY"
-            [ -n "$key" ] && [ ! -r "$key" ] && { msg_error "" "Chave não encontrada: $key"; return 1; }
+            [ -n "$key" ] && [ ! -r "$key" ] && { msg_error "$(t "Erro" "Error" "Error")" "$(t "Chave não encontrada:" "Key not found:" "Clave no encontrada:") $key"; return 1; }
             use_saved="yes"
         fi
     fi
 
     if [ "$use_saved" = "no" ]; then
-        host=$(dialog --title "SCP" --inputbox "$(t "IP/Domínio de destino:" "Destination IP/Domain:")" 9 60 3>&1 1>&2 2>&3) || return 0
-        user=$(dialog --title "SCP" --inputbox "$(t "Usuário SSH:" "SSH User:")" 9 60 "$REAL_USER" 3>&1 1>&2 2>&3) || return 0
-        port=$(dialog --title "SCP" --inputbox "$(t "Porta SSH:" "SSH Port:")" 9 60 "22" 3>&1 1>&2 2>&3) || return 0
-        folder=$(dialog --title "SCP" --inputbox "$(t "Pasta no destino:" "Remote Folder:")" 9 60 "/home/${user}/Desktop" 3>&1 1>&2 2>&3) || return 0
+        host=$(dialog --title "SCP" --inputbox "$(t "IP/Domínio de destino:" "Destination IP/Domain:" "IP/Dominio de destino:")" 9 60 3>&1 1>&2 2>&3) || return 0
+        user=$(dialog --title "SCP" --inputbox "$(t "Usuário SSH:" "SSH User:" "Usuario SSH:")" 9 60 "$REAL_USER" 3>&1 1>&2 2>&3) || return 0
+        port=$(dialog --title "SCP" --inputbox "$(t "Porta SSH:" "SSH Port:" "Puerto SSH:")" 9 60 "22" 3>&1 1>&2 2>&3) || return 0
+        folder=$(dialog --title "SCP" --inputbox "$(t "Pasta no destino:" "Remote Folder:" "Carpeta remota:")" 9 60 "/home/${user}/Desktop" 3>&1 1>&2 2>&3) || return 0
         key=""
     fi
 
     exec 9>"/var/lock/koha_backup.lock"
-    if ! flock -n 9; then msg_error "" "Outro backup em andamento."; return 1; fi
+    if ! flock -n 9; then msg_error "$(t "Erro" "Error" "Error")" "$(t "Outro backup em andamento." "Another backup in progress." "Otra copia en curso.")"; return 1; fi
 
     local target="${DIR_SQL}/${DB_NAME}_manual_scp_$(date +%Y%m%d%H%M).sql.gz"
     mkdir -p "$DIR_SQL"
-    display_explanation "Gerando o backup para envio..." "Generating backup for transfer..."
+    display_explanation "$(t "Gerando o backup para envio..." "Generating backup for transfer..." "Generando copia para transferencia...")"
     if ! (mysqldump --single-transaction --quick --routines --triggers --default-character-set=utf8mb4 "$DB_NAME" | gzip > "$target" && gzip -t "$target" 2>/dev/null); then
-        rm -f "$target"; flock -u 9; msg_error "" "Falha ao gerar backup SQL local."; return 1
+        rm -f "$target"; flock -u 9; msg_error "$(t "Erro" "Error" "Error")" "$(t "Falha ao gerar backup SQL local." "Failed to generate local SQL backup." "Fallo al generar copia SQL local.")"; return 1
     fi
 
-    display_explanation "Enviando para ${user}@${host} via SCP..." "Sending via SCP..."
+    display_explanation "$(t "Enviando para ${user}@${host} via SCP..." "Sending to ${user}@${host} via SCP..." "Enviando a ${user}@${host} por SCP...")"
     local opts=(-P "$port" -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
     [ -n "$key" ] && opts+=(-i "$key")
 
     if scp "${opts[@]}" "$target" "${user}@${host}:${folder%/}/" 2>&1 | tee -a "$RUN_LOG"; then
-        flock -u 9; msg_ok "$(t "Backup enviado com sucesso para ${host}:${folder}" "Backup sent successfully to ${host}:${folder}")" 9 66
+        flock -u 9; msg_ok "$(t "Backup enviado com sucesso para ${host}:${folder}" "Backup sent successfully to ${host}:${folder}" "Copia enviada con éxito a ${host}:${folder}")" 9 66
     else
-        flock -u 9; msg_error "" "$(t "Falha no SCP. A cópia local foi salva em $target" "SCP failed. Local copy saved at $target")" 9 70
+        flock -u 9; msg_error "$(t "Erro" "Error" "Error")" "$(t "Falha no SCP. A cópia local foi salva em $target" "SCP failed. Local copy saved at $target" "Fallo en SCP. Copia local guardada en $target")" 9 70
     fi
 }
 
@@ -1093,10 +1079,10 @@ function_configure_automatic_scp_backup() {
     write_scp_backup_config
     local host user port folder key="/root/.ssh/koha_backup_ed25519"
     
-    host=$(dialog --title "Auto SCP" --inputbox "$(t "IP/Domínio de destino:" "Destination IP/Domain:")" 9 60 3>&1 1>&2 2>&3) || return 0
-    user=$(dialog --title "Auto SCP" --inputbox "$(t "Usuário SSH:" "SSH User:")" 9 60 "$REAL_USER" 3>&1 1>&2 2>&3) || return 0
-    port=$(dialog --title "Auto SCP" --inputbox "$(t "Porta SSH:" "SSH Port:")" 9 60 "22" 3>&1 1>&2 2>&3) || return 0
-    folder=$(dialog --title "Auto SCP" --inputbox "$(t "Pasta destino (deve existir):" "Remote folder (must exist):")" 9 60 "/home/${user}/koha_backups" 3>&1 1>&2 2>&3) || return 0
+    host=$(dialog --title "Auto SCP" --inputbox "$(t "IP/Domínio de destino:" "Destination IP/Domain:" "IP/Dominio de destino:")" 9 60 3>&1 1>&2 2>&3) || return 0
+    user=$(dialog --title "Auto SCP" --inputbox "$(t "Usuário SSH:" "SSH User:" "Usuario SSH:")" 9 60 "$REAL_USER" 3>&1 1>&2 2>&3) || return 0
+    port=$(dialog --title "Auto SCP" --inputbox "$(t "Porta SSH:" "SSH Port:" "Puerto SSH:")" 9 60 "22" 3>&1 1>&2 2>&3) || return 0
+    folder=$(dialog --title "Auto SCP" --inputbox "$(t "Pasta destino (deve existir):" "Remote folder (must exist):" "Carpeta destino (debe existir):")" 9 60 "/home/${user}/koha_backups" 3>&1 1>&2 2>&3) || return 0
 
     mkdir -p /root/.ssh && chmod 700 /root/.ssh
     if [ ! -f "$key" ]; then
@@ -1105,18 +1091,18 @@ function_configure_automatic_scp_backup() {
 
     clear
     echo "======================================================================"
-    echo "$(t "AUTORIZAÇÃO SSH NO DESTINO" "SSH DESTINATION AUTHORIZATION")"
-    echo "$(t "A senha do usuário '${user}' no destino será solicitada UMA ÚNICA VEZ." "Password for '${user}' will be asked ONCE.")"
+    echo "$(t "AUTORIZAÇÃO SSH NO DESTINO" "SSH DESTINATION AUTHORIZATION" "AUTORIZACIÓN SSH EN DESTINO")"
+    echo "$(t "A senha do usuário '${user}' no destino será solicitada UMA ÚNICA VEZ." "Password for '${user}' will be asked ONCE." "La contraseña de '${user}' se pedirá UNA SOLA VEZ.")"
     echo "======================================================================"
     if ssh-copy-id -p "$port" -i "${key}.pub" -o StrictHostKeyChecking=accept-new "${user}@${host}"; then
-        echo -e "\n[OK] Chave autorizada!"
+        echo -e "\n[OK] $(t "Chave autorizada!" "Key authorized!" "¡Clave autorizada!")"
     else
-        msg_info "SCP" "$(t "Copie a chave pública abaixo para o ~/.ssh/authorized_keys do destino:\n\n$(cat "${key}.pub")" "Copy this key to target's authorized_keys:\n\n$(cat "${key}.pub")")" 18 78
+        msg_info "SCP" "$(t "Copie a chave pública abaixo para o ~/.ssh/authorized_keys do destino:\n\n$(cat "${key}.pub")" "Copy this key to target's authorized_keys:\n\n$(cat "${key}.pub")" "Copie esta clave en authorized_keys del destino:\n\n$(cat "${key}.pub")")" 18 78
     fi
 
-    display_explanation "Testando conexão..." "Testing connection..."
+    display_explanation "$(t "Testando conexão..." "Testing connection..." "Probando conexión...")"
     if ! ssh -p "$port" -i "$key" -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "${user}@${host}" "mkdir -p -- '$folder' && echo OK" | grep -q OK; then
-        msg_error "" "$(t "A conexão sem senha falhou." "Passwordless connection failed.")" 9 60; return 1
+        msg_error "$(t "Erro" "Error" "Error")" "$(t "A conexão sem senha falhou." "Passwordless connection failed." "La conexión sin contraseña falló.")" 9 60; return 1
     fi
 
     set_shell_config_value "$SCP_BACKUP_CONF" SCP_HOST "$host"
@@ -1125,58 +1111,60 @@ function_configure_automatic_scp_backup() {
     set_shell_config_value "$SCP_BACKUP_CONF" SCP_FOLDER "$folder"
     set_shell_config_value "$SCP_BACKUP_CONF" SCP_KEY "$key"
 
-    msg_ok "$(t "Backup SCP Diário configurado para:\n${user}@${host}:${folder}" "Daily SCP backup configured for:\n${user}@${host}:${folder}")" 10 70
+    msg_ok "$(t "Backup SCP Diário configurado para:\n${user}@${host}:${folder}" "Daily SCP backup configured for:\n${user}@${host}:${folder}" "Copia SCP diaria configurada para:\n${user}@${host}:${folder}")" 10 70
 }
 
 function_configure_rclone() {
-    local choice; choice=$(dialog --title "Rclone" --menu "$(t "Configurar Envio em Nuvem:" "Configure Cloud Storage:")" 12 70 2 "1" "Google Drive (Express/JSON Token)" "2" "$(t "Outro / Assistente Rclone" "Other / Rclone Wizard")" 3>&1 1>&2 2>&3) || return 0
+    local choice; choice=$(dialog --title "Rclone" --no-tags --menu "$(t "Configurar Envio em Nuvem:" "Configure Cloud Storage:" "Configurar almacenamiento en la nube:")" 12 70 2 \
+        "1" " 1. $(t "Google Drive (Express/JSON Token)" "Google Drive (Express/JSON Token)" "Google Drive (Rápido/JSON Token)")" \
+        "2" " 2. $(t "Outro / Assistente Rclone" "Other / Rclone Wizard" "Otro / Asistente Rclone")" 3>&1 1>&2 2>&3) || return 0
     if [ "$choice" = "1" ]; then
         clear
-        echo -e "\e[1;36mCONFIGURAÇÃO EXPRESSA DO GOOGLE DRIVE\e[0m\n"
-        echo "$(t "No seu computador pessoal (Windows/Linux/Mac), execute:" "On your personal computer, run:")"
+        echo -e "\e[1;36m$(t "CONFIGURAÇÃO EXPRESSA DO GOOGLE DRIVE" "EXPRESS GOOGLE DRIVE CONFIGURATION" "CONFIGURACIÓN RÁPIDA DE GOOGLE DRIVE")\e[0m\n"
+        echo "$(t "No seu computador pessoal (Windows/Linux/Mac), execute:" "On your personal computer, run:" "En su ordenador personal, ejecute:")"
         echo -e "\e[1;33mrclone authorize \"drive\"\e[0m\n"
-        echo "$(t "O navegador vai abrir. Autorize o login e cole o JSON gerado abaixo:" "Authorize in the browser and paste the JSON below:")"
+        echo "$(t "O navegador vai abrir. Autorize o login e cole o JSON gerado abaixo:" "Authorize in the browser and paste the JSON below:" "Autorice en el navegador y pegue el JSON a continuación:")"
         
         local token_input
         while true; do
             read -r token_input
             if python3 -c 'import sys, json; json.loads(sys.argv[1])' "$token_input" 2>/dev/null; then break; fi
-            echo -e "\e[1;31mJSON inválido. Tente colar exatamente o bloco todo (com as chaves {}):\e[0m"
+            echo -e "\e[1;31m$(t "JSON inválido. Tente colar exatamente o bloco todo (com as chaves {}):" "Invalid JSON. Please paste the whole block (with {}):" "JSON inválido. Pegue todo el bloque completo (con {}):")\e[0m"
         done
 
         rclone config delete gdrive >/dev/null 2>&1 || true
         if rclone config create gdrive drive config_is_local false token "$token_input" --non-interactive < /dev/null >/dev/null 2>&1; then
             write_backup_config
             set_shell_config_value "$BACKUP_CONF" RCLONE_REMOTE "gdrive"
-            msg_ok "Google Drive configurado (remote: gdrive)." 8 60
+            msg_ok "$(t "Google Drive configurado (remote: gdrive)." "Google Drive configured (remote: gdrive)." "Google Drive configurado (remote: gdrive).")" 8 60
         else
-            echo "Falha ao registrar gdrive no Rclone."; sleep 3
+            echo "$(t "Falha ao registrar gdrive no Rclone." "Failed to register gdrive in Rclone." "Fallo al registrar gdrive en Rclone.")"; sleep 3
         fi
     else
         clear; rclone config
-        local conn_name; conn_name=$(dialog --title "Rclone" --inputbox "$(t "Qual NOME EXATO do remote criado?" "What is the EXACT remote name created?")" 9 60 3>&1 1>&2 2>&3) || return 0
+        local conn_name; conn_name=$(dialog --title "Rclone" --inputbox "$(t "Qual NOME EXATO do remote criado?" "What is the EXACT remote name created?" "¿Cuál es el NOMBRE EXACTO del remote creado?")" 9 60 3>&1 1>&2 2>&3) || return 0
         if rclone listremotes 2>/dev/null | grep -qx "${conn_name}:"; then
             write_backup_config
             set_shell_config_value "$BACKUP_CONF" RCLONE_REMOTE "$conn_name"
-            msg_ok "Remote '${conn_name}' salvo com sucesso." 8 60
+            msg_ok "$(t "Remote '${conn_name}' salvo com sucesso." "Remote '${conn_name}' saved successfully." "Remote '${conn_name}' guardado con éxito.")" 8 60
         else
-            msg_error "" "O remote '$conn_name' não foi encontrado no Rclone." 9 60
+            msg_error "$(t "Erro" "Error" "Error")" "$(t "O remote '$conn_name' não foi encontrado no Rclone." "Remote '$conn_name' not found in Rclone." "El remote '$conn_name' no se encontró en Rclone.")" 9 60
         fi
     fi
 }
 
 # ======================================================================
-# 19. DIAGNÓSTICO E REPARO DO BANCO DE DADOS (DBA)
+# 18. DIAGNÓSTICO E REPARO DO BANCO DE DADOS (DBA)
 # ======================================================================
 function_test_latest_backup() {
     local latest=$(find "$DIR_SQL" -type f \( -name "*.sql" -o -name "*.sql.gz" \) -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -f2- -d' ')
-    [ -z "$latest" ] && { msg_error "" "Nenhum backup local encontrado em $DIR_SQL"; return 1; }
+    [ -z "$latest" ] && { msg_error "$(t "Erro" "Error" "Error")" "$(t "Nenhum backup local encontrado em $DIR_SQL" "No local backup found in $DIR_SQL" "No se encontró copia local en $DIR_SQL")"; return 1; }
 
     exec 9>"/var/lock/koha_backup.lock"
-    if ! flock -n 9; then msg_error "" "Operação bloqueada por tarefa em andamento."; return 1; fi
+    if ! flock -n 9; then msg_error "$(t "Erro" "Error" "Error")" "$(t "Operação bloqueada por tarefa em andamento." "Operation blocked by active task." "Operación bloqueada por tarea en curso.")"; return 1; fi
 
     clear
-    display_explanation "Testando importação estrutural em base temporária...\nArquivo: $(basename "$latest")" "Testing structural import in temporary DB..."
+    display_explanation "$(t "Testando importação estrutural em base temporária...\nArquivo: $(basename "$latest")" "Testing structural import in temporary DB...\nFile: $(basename "$latest")" "Probando importación en base temporal...\nArchivo: $(basename "$latest")")"
     
     local test_db="koha_test_$$_$(date +%s)"
     mysql -e "DROP DATABASE IF EXISTS ${test_db}; CREATE DATABASE ${test_db} CHARACTER SET utf8mb4;" || { flock -u 9; return 1; }
@@ -1192,20 +1180,20 @@ function_test_latest_backup() {
     flock -u 9
 
     if [ "$tables" -ge 100 ]; then
-        msg_ok "$(t "O backup ($tables tabelas) passou no teste de importação estrutural!" "The backup ($tables tables) passed structural import test!")" 10 74
+        msg_ok "$(t "O backup ($tables tabelas) passou no teste de importação estrutural!" "The backup ($tables tables) passed structural import test!" "¡La copia ($tables tablas) pasó la prueba de importación!")" 10 74
     else
-        msg_error "" "$(t "O arquivo falhou no teste (gerou apenas $tables tabelas)." "File failed the test (generated only $tables tables).")" 9 70
+        msg_error "$(t "Erro" "Error" "Error")" "$(t "O arquivo falhou no teste (gerou apenas $tables tabelas)." "File failed the test (generated only $tables tables)." "El archivo falló la prueba (generó solo $tables tablas).")" 9 70
     fi
 }
 
 function_validate_repair_database() {
     require_database || return 0
     while true; do
-        local sub=$(dialog --title "$(t "Diagnóstico e Reparo" "Diagnostics & Repair")" --menu "$(t "Ações no MariaDB:" "MariaDB Actions:")" 16 76 4 \
-            "1" "$(t "Validar o último backup (Dry-run temp DB)" "Validate latest backup (Temp DB dry-run)")" \
-            "2" "$(t "Checagem de integridade (CHECK)" "Integrity check (CHECK)")" \
-            "3" "$(t "Análise e estatísticas (ANALYZE)" "Analysis and stats (ANALYZE)")" \
-            "4" "$(t "Otimização/Reparo Profundo (REPAIR)" "Deep Optimize/Repair (REPAIR)")" 3>&1 1>&2 2>&3) || break
+        local sub=$(dialog --title "$(t "Diagnóstico e Reparo" "Diagnostics & Repair" "Diagnóstico y Reparación")" --no-tags --menu "$(t "Ações no MariaDB:" "MariaDB Actions:" "Acciones en MariaDB:")" 16 76 4 \
+            "1" " 1. $(t "Validar o último backup (Dry-run temp DB)" "Validate latest backup (Temp DB dry-run)" "Validar última copia (Prueba DB temporal)")" \
+            "2" " 2. $(t "Checagem de integridade (CHECK)" "Integrity check (CHECK)" "Chequeo de integridad (CHECK)")" \
+            "3" " 3. $(t "Análise e estatísticas (ANALYZE)" "Analysis and stats (ANALYZE)" "Análisis y estadísticas (ANALYZE)")" \
+            "4" " 4. $(t "Otimização/Reparo Profundo (REPAIR)" "Deep Optimize/Repair (REPAIR)" "Optimización/Reparación profunda (REPAIR)")" 3>&1 1>&2 2>&3) || break
         
         case "$sub" in
             1) function_test_latest_backup ;;
@@ -1213,19 +1201,19 @@ function_validate_repair_database() {
                 clear
                 local mode="--check" title="CHECK"
                 [ "$sub" = "3" ] && { mode="--analyze"; title="ANALYZE"; }
-                display_explanation "Executando mysqlcheck $mode..." "Running mysqlcheck $mode..."
+                display_explanation "$(t "Executando mysqlcheck $mode..." "Running mysqlcheck $mode..." "Ejecutando mysqlcheck $mode...")"
                 local tlog="/tmp/mariadb_${title}.log"
                 mysqlcheck $mode --databases "$DB_NAME" > "$tlog" 2>&1
-                dialog --title "Resultado / Result" --scrolltext --textbox "$tlog" 20 80
+                dialog --title "$(t "Resultado" "Result" "Resultado")" --scrolltext --textbox "$tlog" 20 80
                 rm -f "$tlog"
                 ;;
             4)
-                prompt_yes_no "Otimizar Banco" "$(t "Executar REPAIR, OPTIMIZE e limpar sessões velhas?" "Run REPAIR, OPTIMIZE and clear old sessions?")" 10 70 || continue
+                prompt_yes_no "$(t "Otimizar Banco" "Optimize DB" "Optimizar Base")" "$(t "Executar REPAIR, OPTIMIZE e limpar sessões velhas?" "Run REPAIR, OPTIMIZE and clear old sessions?" "¿Ejecutar REPAIR, OPTIMIZE y limpiar sesiones viejas?")" 10 70 || continue
                 clear
                 exec 9>"/var/lock/koha_backup.lock"
-                if ! flock -n 9; then msg_error "" "Operação bloqueada."; continue; fi
+                if ! flock -n 9; then msg_error "$(t "Erro" "Error" "Error")" "$(t "Operação bloqueada." "Operation blocked." "Operación bloqueada.")"; continue; fi
                 
-                display_explanation "Reparando e otimizando MariaDB..." "Repairing and optimizing MariaDB..."
+                display_explanation "$(t "Reparando e otimizando MariaDB..." "Repairing and optimizing MariaDB..." "Reparando y optimizando MariaDB...")"
                 local rlog="${LOG_DIR}/mariadb_repair.log"
                 {
                     mysqlcheck --repair --databases "$DB_NAME"
@@ -1236,28 +1224,28 @@ function_validate_repair_database() {
                 
                 flock -u 9
                 systemctl restart memcached >/dev/null 2>&1
-                dialog --title "Otimização / Optimization" --scrolltext --textbox "$rlog" 20 80
+                dialog --title "$(t "Otimização" "Optimization" "Optimización")" --scrolltext --textbox "$rlog" 20 80
                 ;;
         esac
     done
 }
 
 # ======================================================================
-# 20. GERENCIAMENTO DO MOTOR DE BUSCA (ALTERNÂNCIA)
+# 19. GERENCIAMENTO DO MOTOR DE BUSCA (ALTERNÂNCIA)
 # ======================================================================
 function_toggle_search_engine() {
     require_database || return 0
     local engine; engine=$(get_search_engine)
     
     if [ "$engine" = "Elasticsearch" ]; then
-        prompt_yes_no "Zebra" "$(t "Voltar o motor de busca para ZEBRA?\nO índice do Elasticsearch não será removido." "Revert search engine to ZEBRA?")" 10 70 || return 0
+        prompt_yes_no "Zebra" "$(t "Voltar o motor de busca para ZEBRA?\nO índice do Elasticsearch não será removido." "Revert search engine to ZEBRA?\nElasticsearch index will not be removed." "¿Volver el motor de búsqueda a ZEBRA?\nEl índice Elasticsearch no se eliminará.")" 10 70 || return 0
         clear
         exec 7>"/var/lock/koha_es_rebuild.lock"
-        if ! flock -n 7; then msg_error "" "Bloqueado: Reindexação em andamento."; return 1; fi
+        if ! flock -n 7; then msg_error "$(t "Erro" "Error" "Error")" "$(t "Bloqueado: Reindexação em andamento." "Blocked: Reindex in progress." "Bloqueado: Reindexación en curso.")"; return 1; fi
         
-        display_explanation "Trocando motor de volta para o Zebra..." "Switching engine back to Zebra..."
+        display_explanation "$(t "Trocando motor de volta para o Zebra..." "Switching engine back to Zebra..." "Cambiando motor a Zebra...")"
         manage_koha_indexers stop
-        set_xml_elasticsearch remover || { flock -u 7; msg_error "" "Falha ao editar XML."; return 1; }
+        set_xml_elasticsearch remover || { flock -u 7; msg_error "$(t "Erro" "Error" "Error")" "$(t "Falha ao editar XML." "Failed to edit XML." "Fallo al editar XML.")"; return 1; }
         set_search_engine "Zebra"
         
         systemctl disable --now elasticsearch >/dev/null 2>&1 || true
@@ -1269,34 +1257,34 @@ function_toggle_search_engine() {
         write_cron_zebra
         systemctl restart memcached koha-common >/dev/null 2>&1
         
-        display_explanation "Reconstruindo o Zebra..." "Rebuilding Zebra..."
+        display_explanation "$(t "Reconstruindo o Zebra..." "Rebuilding Zebra..." "Reconstruyendo Zebra...")"
         koha-rebuild-zebra -f -v -b -a -r "$INSTANCE"
         koha-plack --restart "$INSTANCE" >/dev/null 2>&1
         flock -u 7
-        msg_ok "Motor alterado para ZEBRA com sucesso." 8 60
+        msg_ok "$(t "Motor alterado para ZEBRA com sucesso." "Engine switched to ZEBRA successfully." "Motor cambiado a ZEBRA con éxito.")" 8 60
         return 0
     fi
 
-    prompt_yes_no "Elasticsearch" "$(t "Ativar ELASTICSEARCH? (Exige ~1.5GB de RAM a mais)." "Enable ELASTICSEARCH? (Requires ~1.5GB extra RAM).")" 10 70 || return 0
-    if [ "$(get_free_space_mb /)" -lt 4096 ]; then prompt_yes_no "Aviso" "$(t "Menos de 4GB no disco. Continuar?" "Less than 4GB disk space. Continue?")" 9 60 || return 0; fi
+    prompt_yes_no "Elasticsearch" "$(t "Ativar ELASTICSEARCH? (Exige ~1.5GB de RAM a mais)." "Enable ELASTICSEARCH? (Requires ~1.5GB extra RAM)." "¿Activar ELASTICSEARCH? (Requiere ~1.5GB de RAM extra).")" 10 70 || return 0
+    if [ "$(get_free_space_mb /)" -lt 4096 ]; then prompt_yes_no "$(t "Aviso" "Warning" "Aviso")" "$(t "Menos de 4GB no disco. Continuar?" "Less than 4GB disk space. Continue?" "Menos de 4GB en disco. ¿Continuar?")" 9 60 || return 0; fi
 
     clear
     exec 7>"/var/lock/koha_es_rebuild.lock"
-    if ! flock -n 7; then msg_error "" "Bloqueado."; return 1; fi
+    if ! flock -n 7; then msg_error "$(t "Erro" "Error" "Error")" "$(t "Bloqueado." "Blocked." "Bloqueado.")"; return 1; fi
 
-    display_explanation "Desativando o Zebra..." "Disabling Zebra..."
+    display_explanation "$(t "Desativando o Zebra..." "Disabling Zebra..." "Desactivando Zebra...")"
     rm -f "$CRON_ZEBRA"; systemctl restart cron >/dev/null 2>&1
     systemctl disable --now "koha-zebra-daemon@${INSTANCE}" >/dev/null 2>&1 || true
 
     if ! dpkg -s elasticsearch >/dev/null 2>&1 || ! dpkg -s koha-elasticsearch >/dev/null 2>&1; then
-        display_explanation "Instalando pacotes do Elasticsearch..." "Installing Elasticsearch packages..."
+        display_explanation "$(t "Instalando pacotes do Elasticsearch..." "Installing Elasticsearch packages..." "Instalando paquetes de Elasticsearch...")"
         if ! ensure_elasticsearch_repository || ! apt_install elasticsearch koha-elasticsearch; then
             write_cron_zebra; systemctl enable --now "koha-zebra-daemon@${INSTANCE}" >/dev/null 2>&1
-            flock -u 7; msg_error "" "Falha ao instalar o ES. Zebra restaurado."; return 1
+            flock -u 7; msg_error "$(t "Erro" "Error" "Error")" "$(t "Falha ao instalar o ES. Zebra restaurado." "Failed to install ES. Zebra restored." "Fallo al instalar ES. Zebra restaurado.")"; return 1
         fi
     fi
 
-    display_explanation "Configurando Elasticsearch..." "Configuring Elasticsearch..."
+    display_explanation "$(t "Configurando Elasticsearch..." "Configuring Elasticsearch..." "Configurando Elasticsearch...")"
     adjust_elasticsearch_heap
     set_shell_config_value /etc/elasticsearch/elasticsearch.yml discovery.type single-node
     set_shell_config_value /etc/elasticsearch/elasticsearch.yml network.host 127.0.0.1
@@ -1312,22 +1300,22 @@ function_toggle_search_engine() {
     for _ in $(seq 1 45); do curl -sS --max-time 2 http://127.0.0.1:9200 >/dev/null 2>&1 && { es_ok="yes"; break; }; sleep 2; done
     if [ "$es_ok" = "no" ]; then
         write_cron_zebra; systemctl enable --now "koha-zebra-daemon@${INSTANCE}" >/dev/null 2>&1
-        flock -u 7; msg_error "" "Elasticsearch não subiu na porta 9200. Zebra restaurado."; return 1
+        flock -u 7; msg_error "$(t "Erro" "Error" "Error")" "$(t "Elasticsearch não subiu na porta 9200. Zebra restaurado." "Elasticsearch failed on port 9200. Zebra restored." "Elasticsearch falló en puerto 9200. Zebra restaurado.")"; return 1
     fi
 
-    display_explanation "Injetando tags no XML e configurando banco..." "Injecting XML tags and DB config..."
+    display_explanation "$(t "Injetando tags no XML e configurando banco..." "Injecting XML tags and DB config..." "Inyectando XML y configurando base...")"
     if ! set_xml_elasticsearch inserir || ! set_search_engine "Elasticsearch" || ! prepare_koha_broker; then
         set_xml_elasticsearch remover >/dev/null 2>&1 || true
         set_search_engine "Zebra"
         write_cron_zebra; systemctl enable --now "koha-zebra-daemon@${INSTANCE}" >/dev/null 2>&1
-        flock -u 7; msg_error "" "Erro ao injetar configurações do ES. Zebra restaurado."; return 1
+        flock -u 7; msg_error "$(t "Erro" "Error" "Error")" "$(t "Erro ao injetar configurações do ES. Zebra restaurado." "Failed to inject ES config. Zebra restored." "Fallo al inyectar configuración ES. Zebra restaurado.")"; return 1
     fi
 
     curl -sS -X DELETE --max-time 10 "http://127.0.0.1:9200/${DB_NAME}_biblios" >/dev/null 2>&1 || true
     systemctl restart memcached koha-common >/dev/null 2>&1
     manage_koha_indexers start
 
-    display_explanation "Reconstruindo o Índice Elasticsearch..." "Rebuilding Elasticsearch Index..."
+    display_explanation "$(t "Reconstruindo o Índice Elasticsearch..." "Rebuilding Elasticsearch Index..." "Reconstruyendo Índice Elasticsearch...")"
     local cut_time; cut_time=$(date '+%Y-%m-%d %H:%M:%S')
     local rebuild_ok="yes"
     rebuild_koha_elasticsearch "$cut_time" || rebuild_ok="no"
@@ -1336,24 +1324,24 @@ function_toggle_search_engine() {
     flock -u 7
 
     if [ "$rebuild_ok" = "yes" ]; then
-        msg_ok "ELASTICSEARCH ativado e indexado com sucesso!" 8 60
+        msg_ok "$(t "ELASTICSEARCH ativado e indexado com sucesso!" "ELASTICSEARCH enabled and indexed successfully!" "¡ELASTICSEARCH activado e indexado con éxito!")" 8 60
     else
-        msg_error "" "ES ativado, mas a reindexação final falhou. Use a opção de reparar índices." 9 70
+        msg_error "$(t "Erro" "Error" "Error")" "$(t "ES ativado, mas a reindexação final falhou. Use a opção de reparar índices." "ES enabled, but index rebuild failed. Use repair indexing option." "ES activado, pero falló la reindexación. Use la opción de reparar.")" 9 70
     fi
 }
 
 function_repair_indexing() {
     require_database || return 0
     if [ "$(get_search_engine)" = "Elasticsearch" ]; then
-        prompt_yes_no "Reparar ES" "$(t "Reiniciar ES e reindexar?" "Restart ES and reindex?")" 8 60 || return 0
+        prompt_yes_no "Reparar ES" "$(t "Reiniciar ES e reindexar?" "Restart ES and reindex?" "¿Reiniciar ES y reindexar?")" 8 60 || return 0
         clear
         systemctl restart elasticsearch memcached koha-common >/dev/null 2>&1
         manage_koha_indexers start
         rebuild_koha_elasticsearch "$(date '+%Y-%m-%d %H:%M:%S')"
         koha-plack --restart "$INSTANCE" >/dev/null 2>&1
-        msg_ok "Comando de reparo do ES enviado." 8 60
+        msg_ok "$(t "Comando de reparo do ES enviado." "ES repair command sent." "Comando de reparación ES enviado.")" 8 60
     else
-        prompt_yes_no "Reparar Zebra" "$(t "Destravar e reindexar Zebra?" "Unlock and reindex Zebra?")" 8 60 || return 0
+        prompt_yes_no "Reparar Zebra" "$(t "Destravar e reindexar Zebra?" "Unlock and reindex Zebra?" "¿Desbloquear y reindexar Zebra?")" 8 60 || return 0
         clear
         systemctl disable --now "koha-zebra-daemon@${INSTANCE}" >/dev/null 2>&1 || true
         force_stop_koha_zebra
@@ -1363,19 +1351,19 @@ function_repair_indexing() {
         systemctl restart memcached koha-common >/dev/null 2>&1
         koha-rebuild-zebra -f -v -b -a -r "$INSTANCE"
         koha-plack --restart "$INSTANCE" >/dev/null 2>&1
-        msg_ok "Zebra destravado e reindexado." 8 60
+        msg_ok "$(t "Zebra destravado e reindexado." "Zebra unlocked and reindexed." "Zebra desbloqueado y reindexado.")" 8 60
     fi
 }
 
 # ======================================================================
-# 21. PUBLICAÇÃO WEB (CLOUDFLARE E TAILSCALE)
+# 20. PUBLICAÇÃO WEB (CLOUDFLARE E TAILSCALE)
 # ======================================================================
 function_configure_cloudflare() {
-    msg_info "$(t "Passo 1" "Step 1")" "$(t "1. Adicione um domínio no dash.cloudflare.com\n2. Mude os Nameservers no local de registro (ex: nic.eu.org)\n3. Aguarde o DNS propagar.\n\nO restante será feito automaticamente." "1. Add a domain to dash.cloudflare.com\n2. Change Nameservers at your registrar\n3. Wait for DNS propagation.\n\nThe rest is automatic.")" 14 74
+    msg_info "$(t "Passo 1" "Step 1" "Paso 1")" "$(t "1. Adicione um domínio no dash.cloudflare.com\n2. Mude os Nameservers no local de registro\n3. Aguarde o DNS propagar.\n\nO restante será feito automaticamente." "1. Add a domain to dash.cloudflare.com\n2. Change Nameservers at your registrar\n3. Wait for DNS propagation.\n\nThe rest is automatic." "1. Añada un dominio en dash.cloudflare.com\n2. Cambie los Nameservers en su registrador\n3. Espere la propagación de DNS.\n\nEl resto es automático.")" 14 74
     clear
     
     if ! command -v cloudflared >/dev/null 2>&1; then
-        display_explanation "Instalando o cloudflared..." "Installing cloudflared..."
+        display_explanation "$(t "Instalando o cloudflared..." "Installing cloudflared..." "Instalando cloudflared...")"
         wait_for_apt_locks || return 1
         mkdir -p /etc/apt/keyrings
         curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg -o /etc/apt/keyrings/cloudflare-main.gpg || return 1
@@ -1384,10 +1372,10 @@ function_configure_cloudflare() {
     fi
 
     if [ ! -f "$HOME/.cloudflared/cert.pem" ] && [ ! -f "/root/.cloudflared/cert.pem" ]; then
-        msg_info "Cloudflare Tunnel" "$(t "Autorize o túnel acessando o link que aparecerá no console." "Authorize the tunnel by accessing the link in the console.")" 9 70
+        msg_info "Cloudflare Tunnel" "$(t "Autorize o túnel acessando o link que aparecerá no console." "Authorize the tunnel by accessing the link in the console." "Autorice el túnel accediendo al enlace que aparecerá en la consola.")" 9 70
         clear; cloudflared tunnel login; echo ""
     fi
-    [ ! -f "$HOME/.cloudflared/cert.pem" ] && [ ! -f "/root/.cloudflared/cert.pem" ] && { msg_error "" "Autorização não concluída."; return 1; }
+    [ ! -f "$HOME/.cloudflared/cert.pem" ] && [ ! -f "/root/.cloudflared/cert.pem" ] && { msg_error "$(t "Erro" "Error" "Error")" "$(t "Autorização não concluída." "Authorization incomplete." "Autorización incompleta.")"; return 1; }
 
     local tunnel_name="koha-library"
     cloudflared tunnel list 2>/dev/null | grep -q "$tunnel_name" || cloudflared tunnel create "$tunnel_name" >/dev/null 2>&1 || return 1
@@ -1395,9 +1383,9 @@ function_configure_cloudflare() {
     local cred_file; cred_file=$(find "$HOME/.cloudflared" /root/.cloudflared -name "${tunnel_id}.json" 2>/dev/null | head -n1)
 
     local dominio opac_sub staff_sub
-    dominio=$(dialog --title "Domínio" --inputbox "$(t "Domínio ativo na Cloudflare (ex: bibliotecapalotina.org):" "Domain active in Cloudflare:")" 9 70 3>&1 1>&2 2>&3) || return 0
-    opac_sub=$(dialog --title "OPAC" --inputbox "$(t "Subdomínio OPAC:" "OPAC Subdomain:")" 9 60 "catalogo" 3>&1 1>&2 2>&3) || return 0
-    staff_sub=$(dialog --title "Staff" --inputbox "$(t "Subdomínio Staff:" "Staff Subdomain:")" 9 60 "admin" 3>&1 1>&2 2>&3) || return 0
+    dominio=$(dialog --title "$(t "Domínio" "Domain" "Dominio")" --inputbox "$(t "Domínio ativo na Cloudflare (ex: bibliotecapalotina.org):" "Domain active in Cloudflare:" "Dominio activo en Cloudflare:")" 9 70 3>&1 1>&2 2>&3) || return 0
+    opac_sub=$(dialog --title "OPAC" --inputbox "$(t "Subdomínio OPAC:" "OPAC Subdomain:" "Subdominio OPAC:")" 9 60 "catalogo" 3>&1 1>&2 2>&3) || return 0
+    staff_sub=$(dialog --title "Staff" --inputbox "$(t "Subdomínio Staff:" "Staff Subdomain:" "Subdominio Staff:")" 9 60 "admin" 3>&1 1>&2 2>&3) || return 0
 
     mkdir -p /etc/cloudflared
     cat > /etc/cloudflared/config.yml <<EOF
@@ -1411,7 +1399,7 @@ ingress:
   - service: http_status:404
 EOF
 
-    display_explanation "Registrando DNS e reiniciando serviço..." "Registering DNS and restarting service..."
+    display_explanation "$(t "Registrando DNS e reiniciando serviço..." "Registering DNS and restarting service..." "Registrando DNS y reiniciando servicio...")"
     cloudflared tunnel route dns "$tunnel_name" "${opac_sub}.${dominio}" >/dev/null 2>&1 || true
     cloudflared tunnel route dns "$tunnel_name" "${staff_sub}.${dominio}" >/dev/null 2>&1 || true
 
@@ -1421,60 +1409,63 @@ EOF
     sleep 3
 
     if systemctl is-active --quiet cloudflared; then
-        msg_ok "$(t "TÚNEL ATIVO!\n\nOPAC: https://${opac_sub}.${dominio}\nStaff: https://${staff_sub}.${dominio}" "TUNNEL ACTIVE!\n\nOPAC: https://${opac_sub}.${dominio}\nStaff: https://${staff_sub}.${dominio}")" 10 70
+        msg_ok "$(t "TÚNEL ATIVO!\n\nOPAC: https://${opac_sub}.${dominio}\nStaff: https://${staff_sub}.${dominio}" "TUNNEL ACTIVE!\n\nOPAC: https://${opac_sub}.${dominio}\nStaff: https://${staff_sub}.${dominio}" "¡TÚNEL ACTIVO!\n\nOPAC: https://${opac_sub}.${dominio}\nStaff: https://${staff_sub}.${dominio}")" 10 70
     else
-        msg_error "" "Falha ao iniciar o serviço cloudflared." 9 60
+        msg_error "$(t "Erro" "Error" "Error")" "$(t "Falha ao iniciar o serviço cloudflared." "Failed to start cloudflared service." "Fallo al iniciar el servicio cloudflared.")" 9 60
     fi
 }
 
 mostrar_links_tailscale() {
     local ts_hostname; ts_hostname=$(tailscale status --json 2>/dev/null | grep -oP '"DNSName":\s*"\K[^"]+' | head -n 1 | sed 's/\.$//')
-    [ -z "$ts_hostname" ] && { msg_error "" "Tailscale offline ou sem IP."; return 1; }
+    [ -z "$ts_hostname" ] && { msg_error "$(t "Erro" "Error" "Error")" "$(t "Tailscale offline ou sem IP." "Tailscale offline or no IP." "Tailscale sin conexión o sin IP.")"; return 1; }
     local funnel_status; funnel_status=$(tailscale funnel status 2>&1)
-    local t="DOMÍNIO TAILSCALE:\nhttps://${ts_hostname}\n\n"
+    local t="$(t "DOMÍNIO TAILSCALE:\nhttps://${ts_hostname}\n\n" "TAILSCALE DOMAIN:\nhttps://${ts_hostname}\n\n" "DOMINIO TAILSCALE:\nhttps://${ts_hostname}\n\n")"
     
-    echo "$funnel_status" | grep -q '127\.0\.0\.1:80\b' && t+="✅ OPAC:  https://${ts_hostname}\n" || t+="⬜ OPAC:  não publicado\n"
-    echo "$funnel_status" | grep -q '127\.0\.0\.1:8080\b' && t+="✅ Staff: https://${ts_hostname}:8443\n" || t+="⬜ Staff: não publicado\n"
-    dialog --title "$(t "Tailscale Funnel" "Tailscale Funnel")" --msgbox "$t" 12 70
+    echo "$funnel_status" | grep -q '127\.0\.0\.1:80\b' && t+="✅ OPAC:  https://${ts_hostname}\n" || t+="⬜ OPAC:  $(t "não publicado" "not published" "no publicado")\n"
+    echo "$funnel_status" | grep -q '127\.0\.0\.1:8080\b' && t+="✅ Staff: https://${ts_hostname}:8443\n" || t+="⬜ Staff: $(t "não publicado" "not published" "no publicado")\n"
+    dialog --title "$(t "Tailscale Funnel" "Tailscale Funnel" "Tailscale Funnel")" --msgbox "$t" 12 70
 }
 
 function_configure_tailscale() {
     if ! command -v tailscale >/dev/null 2>&1; then
-        display_explanation "Instalando Tailscale..." "Installing Tailscale..."
+        display_explanation "$(t "Instalando Tailscale..." "Installing Tailscale..." "Instalando Tailscale...")"
         curl -fsSL https://tailscale.com/install.sh | sh || return 1
     fi
 
     if ! tailscale status >/dev/null 2>&1; then
-        clear; echo "Autenticando no Tailscale..."; tailscale up; echo ""
+        clear; echo "$(t "Autenticando no Tailscale..." "Authenticating to Tailscale..." "Autenticando en Tailscale...")"; tailscale up; echo ""
     fi
-    tailscale status >/dev/null 2>&1 || { msg_error "" "Falha de autenticação Tailscale."; return 1; }
+    tailscale status >/dev/null 2>&1 || { msg_error "$(t "Erro" "Error" "Error")" "$(t "Falha de autenticação Tailscale." "Tailscale auth failed." "Fallo de autenticación Tailscale.")"; return 1; }
 
     while true; do
-        local choice; choice=$(dialog --title "Tailscale Funnel" --menu "$(t "Ações:" "Actions:")" 14 74 5 \
-            "1" "Publicar Automático (OPAC + Staff)" "2" "Publicar apenas OPAC" \
-            "3" "Publicar apenas Staff" "4" "Ver status atual" "5" "Desativar tudo" 3>&1 1>&2 2>&3) || break
+        local choice; choice=$(dialog --title "Tailscale Funnel" --no-tags --menu "$(t "Ações:" "Actions:" "Acciones:")" 14 74 5 \
+            "1" " 1. $(t "Publicar Automático (OPAC + Staff)" "Publish Auto (OPAC + Staff)" "Publicar Auto (OPAC + Staff)")" \
+            "2" " 2. $(t "Publicar apenas OPAC" "Publish only OPAC" "Publicar solo OPAC")" \
+            "3" " 3. $(t "Publicar apenas Staff" "Publish only Staff" "Publicar solo Staff")" \
+            "4" " 4. $(t "Ver status atual" "View current status" "Ver estado actual")" \
+            "5" " 5. $(t "Desativar tudo" "Disable all" "Desactivar todo")" 3>&1 1>&2 2>&3) || break
         
         case "$choice" in
             1) clear; tailscale funnel --bg 80 >/dev/null 2>&1; tailscale funnel --bg --https=8443 8080 >/dev/null 2>&1; mostrar_links_tailscale ;;
             2) clear; tailscale funnel --bg 80 >/dev/null 2>&1; mostrar_links_tailscale ;;
             3) clear; tailscale funnel --bg --https=8443 8080 >/dev/null 2>&1; mostrar_links_tailscale ;;
             4) clear; mostrar_links_tailscale ;;
-            5) clear; tailscale funnel off >/dev/null 2>&1; msg_ok "Funnels desativados." 8 60 ;;
+            5) clear; tailscale funnel off >/dev/null 2>&1; msg_ok "$(t "Funnels desativados." "Funnels disabled." "Funnels desactivados.")" 8 60 ;;
         esac
     done
 }
 
 function_configure_ssl() {
-    prompt_yes_no "SSL Local" "$(t "O domínio já deve estar apontando para o IP público deste servidor.\nCancelar se usar Cloudflare Tunnel.\n\nContinuar?" "Domain must point to this public IP.\nCancel if using Cloudflare Tunnel.\n\nContinue?")" 10 70 || return 0
+    prompt_yes_no "SSL Local" "$(t "O domínio já deve estar apontando para o IP público deste servidor.\nCancelar se usar Cloudflare Tunnel.\n\nContinuar?" "Domain must point to this public IP.\nCancel if using Cloudflare Tunnel.\n\nContinue?" "El dominio debe apuntar a la IP pública.\nCancele si usa Cloudflare Tunnel.\n\n¿Continuar?")" 10 70 || return 0
     clear
     wait_for_apt_locks || return 1
     apt_update_indices && apt_install certbot python3-certbot-apache || return 1
-    if ! certbot --apache; then msg_error "" "Certbot falhou."; return 1; fi
-    apachectl configtest && systemctl reload apache2 >/dev/null 2>&1 || msg_error "" "Falha ao recarregar Apache."
+    if ! certbot --apache; then msg_error "$(t "Erro" "Error" "Error")" "$(t "Certbot falhou." "Certbot failed." "Certbot falló.")"; return 1; fi
+    apachectl configtest && systemctl reload apache2 >/dev/null 2>&1 || msg_error "$(t "Erro" "Error" "Error")" "$(t "Falha ao recarregar Apache." "Failed to reload Apache." "Fallo al recargar Apache.")"
 }
 
 # ======================================================================
-# 22. DIMENSIONAMENTO DO SERVIDOR (TUNING)
+# 21. DIMENSIONAMENTO DO SERVIDOR (TUNING)
 # ======================================================================
 function_size_server() {
     local ram_int recommended profile wk mem db
@@ -1484,11 +1475,11 @@ function_size_server() {
     elif [ "$ram_int" -lt 16 ]; then recommended=3
     else recommended=4; fi
     
-    profile=$(dialog --title "Tuning" --default-item "$recommended" --menu "$(t "Perfil recomendado: $recommended" "Recommended profile: $recommended")" 14 74 4 \
-        "1" "< 4 GB  (2 Plack, 64M Memcached, 512M InnoDB)" \
-        "2" "4-8 GB  (3 Plack, 128M Memcached, 768M InnoDB)" \
-        "3" "8-16 GB (4 Plack, 128M Memcached, 1G InnoDB)" \
-        "4" "16 GB+  (6 Plack, 256M Memcached, 2G InnoDB)" 3>&1 1>&2 2>&3) || return 0
+    profile=$(dialog --title "Tuning" --no-tags --default-item "$recommended" --menu "$(t "Perfil recomendado: $recommended" "Recommended profile: $recommended" "Perfil recomendado: $recommended")" 14 74 4 \
+        "1" " 1. < 4 GB  (2 Plack, 64M Memcached, 512M InnoDB)" \
+        "2" " 2. 4-8 GB  (3 Plack, 128M Memcached, 768M InnoDB)" \
+        "3" " 3. 8-16 GB (4 Plack, 128M Memcached, 1G InnoDB)" \
+        "4" " 4. 16 GB+  (6 Plack, 256M Memcached, 2G InnoDB)" 3>&1 1>&2 2>&3) || return 0
     
     case "$profile" in
         1) wk=2; mem=64;  db=512M ;;
@@ -1499,7 +1490,7 @@ function_size_server() {
     esac
 
     clear
-    display_explanation "Aplicando perfil $profile..." "Applying profile $profile..."
+    display_explanation "$(t "Aplicando perfil $profile..." "Applying profile $profile..." "Aplicando perfil $profile...")"
     
     set_shell_config_value /etc/default/koha-common PLACK_WORKERS "$wk"
     set_shell_config_value /etc/default/koha-common PLACK_MAX_REQUESTS "100"
@@ -1512,33 +1503,33 @@ function_size_server() {
     systemctl restart memcached >/dev/null 2>&1
     if ! systemctl restart mariadb; then
         rm -f "$tuning"; systemctl restart mariadb >/dev/null 2>&1
-        msg_error "" "MariaDB não aceitou o ajuste ($db). Revertido." 9 60; return 1
+        msg_error "$(t "Erro" "Error" "Error")" "$(t "MariaDB não aceitou o ajuste ($db). Revertido." "MariaDB rejected the tune ($db). Reverted." "MariaDB rechazó el ajuste ($db). Revertido.")" 9 60; return 1
     fi
     
     systemctl restart koha-common >/dev/null 2>&1
     koha-plack --restart "$INSTANCE" >/dev/null 2>&1
     [ "$(get_search_engine)" = "Elasticsearch" ] && { adjust_elasticsearch_heap; systemctl restart elasticsearch >/dev/null 2>&1; }
     
-    msg_ok "Tuning aplicado: Plack=$wk | Mem=$mem | MariaDB=$db" 8 60
+    msg_ok "$(t "Tuning aplicado: Plack=$wk | Mem=$mem | MariaDB=$db" "Tuning applied: Plack=$wk | Mem=$mem | MariaDB=$db" "Tuning aplicado: Plack=$wk | Mem=$mem | MariaDB=$db")" 8 60
 }
 
 # ======================================================================
-# 23. GOOGLE SEARCH CONSOLE E RELÓGIO
+# 22. GOOGLE SEARCH CONSOLE E RELÓGIO
 # ======================================================================
 function_google_search_console() {
-    local opac_url; opac_url=$(dialog --title "Google SEO" --inputbox "URL pública do OPAC (com https://):" 9 70 "https://" 3>&1 1>&2 2>&3) || return 0
+    local opac_url; opac_url=$(dialog --title "Google SEO" --inputbox "$(t "URL pública do OPAC (com https://):" "OPAC public URL (with https://):" "URL pública del OPAC (con https://):")" 9 70 "https://" 3>&1 1>&2 2>&3) || return 0
     [ -z "$opac_url" ] && return 0
     
     clear
-    display_explanation "Testando $opac_url..." "Testing $opac_url..."
+    display_explanation "$(t "Testando $opac_url..." "Testing $opac_url..." "Probando $opac_url...")"
     local code; code=$(curl -L -k -sS -o /dev/null -w "%{http_code}" --connect-timeout 5 "$opac_url" 2>/dev/null)
     [[ "$code" =~ ^2[0-9][0-9]$ ]] && v_ok "OPAC HTTP $code" || v_fail "OPAC HTTP $code"
     
     local sm="${opac_url%/}/sitemap.xml"
     code=$(curl -L -k -sS -o /dev/null -w "%{http_code}" --connect-timeout 5 "$sm" 2>/dev/null)
-    [[ "$code" =~ ^2[0-9][0-9]$ ]] && v_ok "Sitemap OK ($sm)" || v_fail "Sitemap não encontrado."
+    [[ "$code" =~ ^2[0-9][0-9]$ ]] && v_ok "Sitemap OK ($sm)" || v_fail "$(t "Sitemap não encontrado." "Sitemap not found." "Sitemap no encontrado.")"
 
-    dialog --title "SEO" --msgbox "$(t "1. Vá em search.google.com/search-console\n2. Adicione Propriedade (Prefixo da URL)\n3. Escolha 'Tag HTML' e cole o meta no koha-conf (opacheader)\n4. Valide a propriedade\n5. Envie a aba Sitemaps com a URL: $sm" "1. Go to search.google.com/search-console\n2. Add URL prefix property\n3. Put HTML tag in Koha opacheader\n4. Verify property\n5. Submit sitemap: $sm")" 14 74
+    dialog --title "SEO" --msgbox "$(t "1. Vá em search.google.com/search-console\n2. Adicione Propriedade (Prefixo da URL)\n3. Escolha 'Tag HTML' e cole o meta no koha-conf (opacheader)\n4. Valide a propriedade\n5. Envie a aba Sitemaps com a URL: $sm" "1. Go to search.google.com/search-console\n2. Add URL prefix property\n3. Put HTML tag in Koha opacheader\n4. Verify property\n5. Submit sitemap: $sm" "1. Vaya a search.google.com/search-console\n2. Añada Propiedad (Prefijo de URL)\n3. Elija 'Etiqueta HTML' y pegue en koha-conf (opacheader)\n4. Valide la propiedad\n5. Envíe el Sitemap con: $sm")" 14 74
 }
 
 function_configure_clock() {
@@ -1546,36 +1537,39 @@ function_configure_clock() {
     [ -n "$tz" ] && timedatectl set-timezone "$tz" >/dev/null 2>&1
     systemctl enable --now systemd-timesyncd >/dev/null 2>&1
     systemctl restart cron >/dev/null 2>&1
-    msg_ok "Fuso ajustado: $tz\nHora atual: $(date '+%Y-%m-%d %H:%M')" 8 60
+    msg_ok "$(t "Fuso ajustado: $tz\nHora atual: $(date '+%Y-%m-%d %H:%M')" "Timezone set: $tz\nCurrent time: $(date '+%Y-%m-%d %H:%M')" "Zona horaria: $tz\nHora actual: $(date '+%Y-%m-%d %H:%M')")" 8 60
 }
 
 # ======================================================================
-# 24. IDIOMAS DO KOHA (TRADUÇÕES)
+# 23. IDIOMAS DO KOHA (TRADUÇÕES)
 # ======================================================================
 function_install_languages() {
     require_database || return 0
-    local items=( "pt-BR" "Português (Brasil)" "pt-PT" "Português (Portugal)" "es-ES" "Español" "en-GB" "English (UK)" )
-    local choice; choice=$(dialog --title "Idiomas / Languages" --menu "Escolha o pacote / Choose pack:" 14 70 8 "${items[@]}" 3>&1 1>&2 2>&3) || return 0
+    local items=( "1" " 1. pt-BR  (Português Brasil)" "2" " 2. pt-PT  (Português Portugal)" "3" " 3. es-ES  (Español)" "4" " 4. en-GB  (English UK)" )
+    local choice; choice=$(dialog --title "$(t "Idiomas" "Languages" "Idiomas")" --no-tags --menu "$(t "Escolha o pacote:" "Choose pack:" "Elija el paquete:")" 14 70 8 "${items[@]}" 3>&1 1>&2 2>&3) || return 0
     
+    local lang_code
+    case "$choice" in 1) lang_code="pt-BR" ;; 2) lang_code="pt-PT" ;; 3) lang_code="es-ES" ;; 4) lang_code="en-GB" ;; esac
+
     clear
-    display_explanation "Instalando idioma: $choice" "Installing language: $choice"
-    if koha-translate --list 2>/dev/null | grep -Fqx "$choice"; then
-        msg_ok "Idioma já instalado no sistema." 8 50
-    elif koha-translate --install "$choice" >/dev/null 2>&1; then
+    display_explanation "$(t "Instalando idioma: $lang_code" "Installing language: $lang_code" "Instalando idioma: $lang_code")"
+    if koha-translate --list 2>/dev/null | grep -Fqx "$lang_code"; then
+        msg_ok "$(t "Idioma já instalado no sistema." "Language already installed." "Idioma ya instalado en el sistema.")" 8 50
+    elif koha-translate --install "$lang_code" >/dev/null 2>&1; then
         systemctl restart memcached koha-common >/dev/null 2>&1
         koha-plack --restart "$INSTANCE" >/dev/null 2>&1
-        msg_ok "Idioma $choice instalado com sucesso.\nAtive-o no Koha via Preferências do Sistema > I18N/L10N." 9 70
+        msg_ok "$(t "Idioma $lang_code instalado com sucesso.\nAtive-o no Koha via Preferências do Sistema > I18N/L10N." "Language $lang_code successfully installed.\nEnable it in Koha System Preferences > I18N/L10N." "Idioma $lang_code instalado con éxito.\nActívelo en Preferencias del Sistema > I18N/L10N.")" 9 70
     else
-        msg_error "" "Falha ao instalar o idioma." 8 50
+        msg_error "$(t "Erro" "Error" "Error")" "$(t "Falha ao instalar o idioma." "Failed to install language." "Fallo al instalar el idioma.")" 8 50
     fi
 }
 
 # ======================================================================
-# 25. INTEROPERABILIDADE (SIP2 E Z39.50)
+# 24. INTEROPERABILIDADE (SIP2 E Z39.50)
 # ======================================================================
 function_interoperability() {
     require_koha || return 0
-    prompt_yes_no "SIP2 & Z39.50" "$(t "Z39.50 (2100): Busca remota no acervo.\nSIP2 (6001): Autoatendimento.\n\nAtivar serviços e abrir portas?" "Enable Z39.50 and SIP2 services and open ports?")" 10 70 || return 0
+    prompt_yes_no "SIP2 & Z39.50" "$(t "Z39.50 (2100): Busca remota no acervo.\nSIP2 (6001): Autoatendimento.\n\nAtivar serviços e abrir portas?" "Enable Z39.50 and SIP2 services and open ports?" "¿Activar servicios Z39.50 y SIP2 y abrir puertos?")" 10 70 || return 0
     clear
     
     ufw allow 2100/tcp >/dev/null 2>&1 || true
@@ -1588,24 +1582,23 @@ function_interoperability() {
     systemctl enable --now "koha-z3950-responder@${INSTANCE}" >/dev/null 2>&1 || true
     systemctl enable --now "koha-sip-daemon@${INSTANCE}" >/dev/null 2>&1 || true
 
-    msg_ok "$(t "Serviços ativados.\nPara o SIP2, configure o arquivo:\n/etc/koha/sites/${INSTANCE}/SIPconfig.xml" "Services enabled.\nFor SIP2, configure:\n/etc/koha/sites/${INSTANCE}/SIPconfig.xml")" 9 70
+    msg_ok "$(t "Serviços ativados.\nPara o SIP2, configure o arquivo:\n/etc/koha/sites/${INSTANCE}/SIPconfig.xml" "Services enabled.\nFor SIP2, configure:\n/etc/koha/sites/${INSTANCE}/SIPconfig.xml" "Servicios activados.\nPara SIP2, configure el archivo:\n/etc/koha/sites/${INSTANCE}/SIPconfig.xml")" 9 70
 }
 
 # ======================================================================
-# 26. E-MAILS E AVISOS DE ATRASO
+# 25. E-MAILS E AVISOS DE ATRASO
 # ======================================================================
 function_configure_emails() {
     clear
     apt_install libsasl2-modules >/dev/null 2>&1
     [ -f "$CRON_TASKS" ] || write_cron_tasks
     
-    # Adiciona as rotinas no cron se não existirem
     if ! grep -q 'overdue_notices.pl' "$CRON_TASKS"; then
         echo -e "# BEGIN KOHA EMAIL NOTICES\n0 8 * * * root /usr/sbin/koha-shell ${INSTANCE} -c \"/usr/share/koha/bin/cronjobs/overdue_notices.pl -v -t\" >/dev/null 2>&1\n5 8 * * * root /usr/sbin/koha-shell ${INSTANCE} -c \"/usr/share/koha/bin/cronjobs/process_message_queue.pl -v\" >/dev/null 2>&1\n# END KOHA EMAIL NOTICES" >> "$CRON_TASKS"
         systemctl restart cron >/dev/null 2>&1
     fi
     
-    msg_info "E-mails" "$(t "Tarefas agendadas (08:00).\n\nConfigure no Koha:\n1. Adm > Parâmetros Adicionais > Servidores SMTP\n2. Preferências: KohaAdminEmailAddress\n3. Preferências: EnhancedMessagingPreferences = Allow" "Tasks scheduled.\n\nConfigure in Koha Admin:\n1. SMTP Servers\n2. Prefs: KohaAdminEmailAddress\n3. Prefs: EnhancedMessagingPreferences = Allow")" 12 70
+    msg_info "E-mails" "$(t "Tarefas agendadas (08:00).\n\nConfigure no Koha:\n1. Adm > Parâmetros Adicionais > Servidores SMTP\n2. Preferências: KohaAdminEmailAddress\n3. Preferências: EnhancedMessagingPreferences = Allow" "Tasks scheduled.\n\nConfigure in Koha Admin:\n1. SMTP Servers\n2. Prefs: KohaAdminEmailAddress\n3. Prefs: EnhancedMessagingPreferences = Allow" "Tareas programadas (08:00).\n\nConfigure en Koha:\n1. Adm > Parámetros Adicionales > Servidores SMTP\n2. Preferencias: KohaAdminEmailAddress\n3. Preferencias: EnhancedMessagingPreferences = Allow")" 12 70
 }
 
 function_manage_crons() {
@@ -1614,63 +1607,65 @@ function_manage_crons() {
     nano "$CRON_TASKS"
     chmod 644 "$CRON_TASKS"
     systemctl restart cron >/dev/null 2>&1
-    msg_ok "Agendamentos atualizados." 8 50
+    msg_ok "$(t "Agendamentos atualizados." "Schedules updated." "Programaciones actualizadas.")" 8 50
 }
 
 # ======================================================================
-# 27. SUPERBIBLIOTECÁRIO
+# 26. SUPERBIBLIOTECÁRIO
 # ======================================================================
 function_create_superlibrarian() {
     require_database || return 0
-    local branch cat_ user pass hash user_sql card_sql hash_sql surname_sql first_sql branch_sql cat_sql cardnumber
+    local branch cat_ user pass hash user_sql card_sql hash_sql branch_sql cat_sql cardnumber
     
     branch=$(run_sql_checked "SELECT branchcode FROM ${DB_NAME}.branches LIMIT 1;")
     cat_=$(run_sql_checked "SELECT categorycode FROM ${DB_NAME}.categories WHERE category_type='S' LIMIT 1;")
     [ -z "$cat_" ] && cat_=$(run_sql_checked "SELECT categorycode FROM ${DB_NAME}.categories LIMIT 1;")
     
     if [ -z "$branch" ] || [ -z "$cat_" ]; then
-        msg_error "" "Conclua o Web Installer primeiro para criar bibliotecas e categorias." 9 70; return 0
+        msg_error "$(t "Erro" "Error" "Error")" "$(t "Conclua o Web Installer primeiro para criar bibliotecas e categorias." "Finish Web Installer first to create branches and categories." "Termine el Web Installer primero para crear bibliotecas y categorías.")" 9 70; return 0
     fi
     
-    user=$(dialog --title "Usuário" --inputbox "Login:" 9 60 3>&1 1>&2 2>&3) || return 0
+    user=$(dialog --title "$(t "Usuário" "User" "Usuario")" --inputbox "Login:" 9 60 3>&1 1>&2 2>&3) || return 0
     [ -z "$user" ] && return 0
     if [ "$(run_sql_checked "SELECT COUNT(*) FROM ${DB_NAME}.borrowers WHERE userid='${user}';")" -gt 0 ]; then
-        msg_error "" "Usuário já existe."; return 0
+        msg_error "$(t "Erro" "Error" "Error")" "$(t "Usuário já existe." "User already exists." "El usuario ya existe.")"; return 0
     fi
 
-    cardnumber=$(dialog --title "Cartão" --inputbox "Número do cartão:" 9 60 3>&1 1>&2 2>&3) || return 0
-    pass=$(dialog --title "Senha" --passwordbox "Senha (mín 8 char):" 9 60 3>&1 1>&2 2>&3) || return 0
-    [ "${#pass}" -lt 8 ] && { msg_error "" "Senha curta."; return 0; }
+    cardnumber=$(dialog --title "$(t "Cartão" "Card" "Tarjeta")" --inputbox "$(t "Número do cartão:" "Card number:" "Número de tarjeta:")" 9 60 3>&1 1>&2 2>&3) || return 0
+    pass=$(dialog --title "$(t "Senha" "Password" "Contraseña")" --passwordbox "$(t "Senha (mín 8 char):" "Password (min 8 char):" "Contraseña (mín 8 char):")" 9 60 3>&1 1>&2 2>&3) || return 0
+    [ "${#pass}" -lt 8 ] && { msg_error "$(t "Erro" "Error" "Error")" "$(t "Senha curta." "Password too short." "Contraseña demasiado corta.")"; return 0; }
 
     clear
-    display_explanation "Gerando hash da senha e inserindo no banco..." "Hashing password..."
+    display_explanation "$(t "Gerando hash da senha e inserindo no banco..." "Hashing password and inserting into database..." "Generando hash y insertando en la base de datos...")"
     cat > /tmp/koha_hash.pl << 'EOF'
 use strict; use warnings; use Koha::AuthUtils qw(hash_password);
 my $pw = <STDIN>; chomp $pw; print hash_password($pw);
 EOF
     hash=$(printf '%s\n' "$pass" | koha-shell "$INSTANCE" -c "perl /tmp/koha_hash.pl" 2>/dev/null)
     rm -f /tmp/koha_hash.pl
-    [ -z "$hash" ] && { msg_error "" "Falha ao gerar hash."; return 1; }
+    [ -z "$hash" ] && { msg_error "$(t "Erro" "Error" "Error")" "$(t "Falha ao gerar hash." "Failed to generate hash." "Fallo al generar hash.")"; return 1; }
 
     user_sql=$(sql_escape_literal "$user"); card_sql=$(sql_escape_literal "$cardnumber")
     hash_sql=$(sql_escape_literal "$hash"); branch_sql=$(sql_escape_literal "$branch")
     cat_sql=$(sql_escape_literal "$cat_")
 
     if mysql -e "INSERT INTO ${DB_NAME}.borrowers (userid, cardnumber, password, surname, firstname, branchcode, categorycode, flags) VALUES ('$user_sql', '$card_sql', '$hash_sql', 'Admin', 'Super', '$branch_sql', '$cat_sql', 1);" 2>/dev/null; then
-        msg_ok "Superbibliotecário $user criado com sucesso!" 8 60
+        msg_ok "$(t "Superbibliotecário $user criado com sucesso!" "Superlibrarian $user created successfully!" "¡Superbibliotecario $user creado con éxito!")" 8 60
     else
-        msg_error "" "Falha ao inserir usuário no banco." 8 60
+        msg_error "$(t "Erro" "Error" "Error")" "$(t "Falha ao inserir usuário no banco." "Failed to insert user into database." "Fallo al insertar usuario en la base de datos.")" 8 60
     fi
 }
 
 # ======================================================================
-# 28. CENTRAL DE SEGURANÇA E ROTAÇÃO DE SENHAS
+# 27. CENTRAL DE SEGURANÇA E ROTAÇÃO DE SENHAS
 # ======================================================================
 function_security_center() {
     while true; do
-        local opc; opc=$(dialog --title "Segurança" --menu "Ações:" 14 70 4 \
-            "1" "Status Fail2ban" "2" "Staff na Internet (8080)" \
-            "3" "Rotacionar senha do Banco" "4" "Regras UFW" 3>&1 1>&2 2>&3) || return 0
+        local opc; opc=$(dialog --title "$(t "Segurança" "Security" "Seguridad")" --no-tags --menu "$(t "Ações:" "Actions:" "Acciones:")" 14 70 4 \
+            "1" " 1. $(t "Status Fail2ban" "Fail2ban Status" "Estado Fail2ban")" \
+            "2" " 2. $(t "Staff na Internet (8080)" "Staff on the Internet (8080)" "Staff en Internet (8080)")" \
+            "3" " 3. $(t "Rotacionar senha do Banco" "Rotate DB Password" "Rotar Contraseña BD")" \
+            "4" " 4. $(t "Regras UFW" "UFW Rules" "Reglas UFW")" 3>&1 1>&2 2>&3) || return 0
         
         case "$opc" in
             1)
@@ -1678,15 +1673,15 @@ function_security_center() {
                 dialog --title "Fail2ban" --scrolltext --msgbox "$info" 20 70
                 ;;
             2)
-                if prompt_yes_no "Staff Externo" "Liberar a porta 8080 para a internet toda?" 8 60; then
-                    ufw allow 8080/tcp >/dev/null 2>&1; msg_ok "8080 Exposta." 8 40
+                if prompt_yes_no "$(t "Staff Externo" "External Staff" "Staff Externo")" "$(t "Liberar a porta 8080 para a internet toda?" "Expose port 8080 to the whole internet?" "¿Exponer el puerto 8080 a toda internet?")" 8 60; then
+                    ufw allow 8080/tcp >/dev/null 2>&1; msg_ok "$(t "8080 Exposta." "8080 Exposed." "8080 Expuesta.")" 8 40
                 else
-                    ufw delete allow 8080/tcp >/dev/null 2>&1; ufw allow from 127.0.0.1 to any port 8080 proto tcp >/dev/null 2>&1; msg_ok "8080 Restrita à LAN." 8 40
+                    ufw delete allow 8080/tcp >/dev/null 2>&1; ufw allow from 127.0.0.1 to any port 8080 proto tcp >/dev/null 2>&1; msg_ok "$(t "8080 Restrita à LAN." "8080 Restricted to LAN." "8080 Restringida a LAN.")" 8 40
                 fi
                 ;;
             3)
                 require_koha || continue
-                prompt_yes_no "Rotacionar" "Gerar nova senha forte para o banco de dados?" 8 60 || continue
+                prompt_yes_no "$(t "Rotacionar" "Rotate" "Rotar")" "$(t "Gerar nova senha forte para o banco de dados?" "Generate new strong password for the database?" "¿Generar nueva contraseña fuerte para la base de datos?")" 8 60 || continue
                 clear
                 local new_pass old_pass xml_bak
                 new_pass=$(python3 -c 'import secrets,string; print("".join(secrets.choice(string.ascii_letters+string.digits) for _ in range(32)))')
@@ -1700,9 +1695,9 @@ function_security_center() {
                     systemctl restart memcached koha-common >/dev/null 2>&1
                     koha-plack --restart "$INSTANCE" >/dev/null 2>&1
                     sed -i "s|Senha   / Password    : .*|Senha   / Password    : ${new_pass}|" /root/credenciais_koha.txt 2>/dev/null
-                    msg_ok "Senha do banco alterada: $new_pass" 8 60
+                    msg_ok "$(t "Senha do banco alterada: $new_pass" "Database password changed: $new_pass" "Contraseña de la base de datos cambiada: $new_pass")" 8 60
                 else
-                    msg_error "" "Falha ao rotacionar no MariaDB." 8 60
+                    msg_error "$(t "Erro" "Error" "Error")" "$(t "Falha ao rotacionar no MariaDB." "Failed to rotate in MariaDB." "Fallo al rotar en MariaDB.")" 8 60
                 fi
                 ;;
             4) dialog --title "UFW" --scrolltext --msgbox "$(ufw status verbose 2>/dev/null)" 20 70 ;;
@@ -1711,28 +1706,28 @@ function_security_center() {
 }
 
 # ======================================================================
-# 29. ATUALIZAÇÃO DO SISTEMA E DO KOHA
+# 28. ATUALIZAÇÃO DO SISTEMA E DO KOHA
 # ======================================================================
 function_update_system() {
-    prompt_yes_no "Atualizar" "Baixar e aplicar atualizações de SO e schema do Koha?" 8 60 || return 0
+    prompt_yes_no "$(t "Atualizar" "Update" "Actualizar")" "$(t "Baixar e aplicar atualizações de SO e schema do Koha?" "Download and apply OS and Koha schema updates?" "¿Descargar y aplicar actualizaciones de SO y esquema de Koha?")" 8 60 || return 0
     clear
     wait_for_apt_locks || return 1
     apt_update_indices || return 1
-    DEBIAN_FRONTEND=noninteractive apt-get upgrade "${APT_OPTS[@]}" || { msg_error "" "Falha no upgrade."; return 1; }
+    DEBIAN_FRONTEND=noninteractive apt-get upgrade "${APT_OPTS[@]}" || { msg_error "$(t "Erro" "Error" "Error")" "$(t "Falha no upgrade." "Upgrade failed." "Fallo en la actualización.")"; return 1; }
     
     if is_koha_installed; then
-        display_explanation "Aplicando migrações do schema..." "Upgrading Koha schema..."
-        koha-upgrade-schema "$INSTANCE" || { msg_error "" "Falha na migração."; return 1; }
+        display_explanation "$(t "Aplicando migrações do schema..." "Upgrading Koha schema..." "Actualizando esquema de Koha...")"
+        koha-upgrade-schema "$INSTANCE" || { msg_error "$(t "Erro" "Error" "Error")" "$(t "Falha na migração." "Migration failed." "Fallo en la migración.")"; return 1; }
         systemctl restart memcached apache2 koha-common >/dev/null 2>&1
         koha-plack --restart "$INSTANCE" >/dev/null 2>&1
         manage_koha_indexers start >/dev/null 2>&1
     fi
     apt-get clean -y >/dev/null; journalctl --vacuum-time=14d >/dev/null 2>&1
-    msg_ok "Sistema atualizado." 8 50
+    msg_ok "$(t "Sistema atualizado." "System updated." "Sistema actualizado.")" 8 50
 }
 
 # ======================================================================
-# 30. UTILITÁRIOS E MONITORAMENTO
+# 29. UTILITÁRIOS E MONITORAMENTO
 # ======================================================================
 function_validate_system() {
     clear
@@ -1743,12 +1738,12 @@ function_validate_system() {
 function_detailed_status() {
     local engine idx pend docs bibs plack
     engine=$(get_search_engine)
-    is_koha_indexer_running && idx="OK" || idx="Falha"
+    is_koha_indexer_running && idx="OK" || idx="$(t "Falha" "Failed" "Fallo")"
     plack=$(koha-plack --status "$INSTANCE" 2>/dev/null | tr '\n' ' ' | cut -c1-40)
     pend=$(get_pending_es_jobs 2>/dev/null) || pend="?"
     docs=$(get_total_es_documents)
     bibs=$(get_total_biblios 2>/dev/null) || bibs="?"
-    dialog --title "Status do Servidor" --msgbox "Koha: ${engine} | Plack: ${plack}\nFila Busca: $pend pendentes\nIndexação: $docs doc(s) / $bibs registro(s)\nRAM: $(free -h 2>/dev/null | awk 'NR==2{print $3" / "$2}')\nDisco: $(df -h / 2>/dev/null | awk 'NR==2{print $4" livres de "$2}')" 14 70
+    dialog --title "$(t "Status do Servidor" "Server Status" "Estado del Servidor")" --msgbox "Koha: ${engine} | Plack: ${plack}\n$(t "Fila Busca:" "Search Queue:" "Cola Búsqueda:") $pend $(t "pendentes" "pending" "pendientes")\n$(t "Indexação:" "Indexing:" "Indexación:") $docs doc(s) / $bibs $(t "registro(s)" "record(s)" "registro(s)")\nRAM: $(free -h 2>/dev/null | awk 'NR==2{print $3" / "$2}')\nDisco: $(df -h / 2>/dev/null | awk 'NR==2{print $4" livres de "$2}')" 14 70
 }
 
 function_run_mc() {
@@ -1758,113 +1753,124 @@ function_run_mc() {
 
 function_run_links() {
     command -v links >/dev/null 2>&1 || apt_install links
-    local opc; opc=$(dialog --title "Links" --menu "Acessar localmente:" 10 60 2 "1" "OPAC (80)" "2" "Staff (8080)" 3>&1 1>&2 2>&3) || return 0
+    local opc; opc=$(dialog --title "Links" --no-tags --menu "$(t "Acessar localmente:" "Access locally:" "Acceder localmente:")" 10 60 2 "1" " 1. OPAC (80)" "2" " 2. Staff (8080)" 3>&1 1>&2 2>&3) || return 0
     [ "$opc" = "1" ] && links http://localhost:80 || links http://localhost:8080
 }
 
 function_run_monitor() {
     command -v htop >/dev/null 2>&1 || apt_install htop nethogs
-    local opc; opc=$(dialog --title "Monitor" --menu "Ver:" 10 60 2 "1" "Htop (CPU/RAM)" "2" "Nethogs (Rede)" 3>&1 1>&2 2>&3) || return 0
+    local opc; opc=$(dialog --title "Monitor" --no-tags --menu "$(t "Ver:" "View:" "Ver:")" 10 60 2 "1" " 1. Htop (CPU/RAM)" "2" " 2. Nethogs (Rede)" 3>&1 1>&2 2>&3) || return 0
     [ "$opc" = "1" ] && htop || nethogs
 }
 
 function_view_logs() {
-    local opc; opc=$(dialog --title "Logs Apache" --menu "Acompanhar:" 10 60 2 "1" "Erros Staff" "2" "Erros OPAC" 3>&1 1>&2 2>&3) || return 0
-    clear; echo ">>> [CTRL+C] para sair <<<"
+    local opc; opc=$(dialog --title "Logs Apache" --no-tags --menu "$(t "Acompanhar:" "Monitor:" "Supervisar:")" 10 60 2 "1" " 1. $(t "Erros Staff" "Staff Errors" "Errores Staff")" "2" " 2. $(t "Erros OPAC" "OPAC Errors" "Errores OPAC")" 3>&1 1>&2 2>&3) || return 0
+    clear; echo ">>> [CTRL+C] $(t "para sair" "to exit" "para salir") <<<"
     [ "$opc" = "1" ] && tail -n 50 -f "/var/log/apache2/koha_${INSTANCE}_error.log" || tail -n 50 -f "/var/log/apache2/koha_${INSTANCE}_opac_error.log"
 }
 
 function_reboot_server() {
-    prompt_yes_no "Reiniciar" "Reiniciar servidor agora?" 8 60 && { clear; echo "Reiniciando..."; sleep 3; reboot; }
+    prompt_yes_no "$(t "Reiniciar" "Reboot" "Reiniciar")" "$(t "Reiniciar servidor agora?" "Reboot server now?" "¿Reiniciar servidor ahora?")" 8 60 && { clear; echo "$(t "Reiniciando..." "Rebooting..." "Reiniciando...")"; sleep 3; reboot; }
 }
 
 function_about() {
-    dialog --title "Sobre" --msgbox "Koha Easy Install & Tools v${PANEL_VERSION}\n\nDesenvolvido para ajudar bibliotecas a democratizar o acesso à gestão livre.\nRepositório: github.com/BibliotecaPalotina/koha-easy-install" 12 70
+    dialog --title "$(t "Sobre" "About" "Sobre")" --msgbox "Koha Easy Install & Tools v${PANEL_VERSION}\n\n$(t "Desenvolvido para ajudar bibliotecas a democratizar o acesso à gestão livre." "Developed to help libraries democratize access to free management." "Desarrollado para ayudar a las bibliotecas a democratizar el acceso a la gestión libre.")\nRepositório: github.com/BibliotecaPalotina/koha-easy-install" 12 70
 }
 
 # ======================================================================
-# 31. ATUALIZADOR AUTOMÁTICO DO SCRIPT
+# 30. ATUALIZADOR AUTOMÁTICO DO SCRIPT
 # ======================================================================
 function_autoupdate() {
-    prompt_yes_no "Atualizar Painel" "Baixar a última versão do painel do GitHub?" 8 60 || return 0
+    prompt_yes_no "$(t "Atualizar Painel" "Update Panel" "Actualizar Panel")" "$(t "Baixar a última versão do painel do GitHub?" "Download the latest panel version from GitHub?" "¿Descargar la última versión del panel desde GitHub?")" 8 60 || return 0
     clear
-    display_explanation "Baixando o painel..." "Downloading panel..."
+    display_explanation "$(t "Baixando o painel..." "Downloading panel..." "Descargando el panel...")"
     local target="/usr/local/bin/options.sh" tmp
     tmp="$(mktemp "/tmp/.options.sh.XXXXXX")"
     
     if curl -fsSL --retry 3 "$UPDATE_URL" -o "$tmp"; then
         if [ "$(stat -c %s "$tmp" 2>/dev/null || echo 0)" -lt 10240 ] || ! bash -n "$tmp" 2>/dev/null; then
-            rm -f "$tmp"; msg_error "" "Arquivo baixado é inválido ou tem erros de sintaxe."; return 1
+            rm -f "$tmp"; msg_error "$(t "Erro" "Error" "Error")" "$(t "Arquivo baixado é inválido ou tem erros de sintaxe." "Downloaded file is invalid or has syntax errors." "El archivo descargado es inválido o tiene errores de sintaxis.")"; return 1
         fi
         local backup="${target}.bak-$(date +%s)"
         [ -f "$target" ] && cp -p "$target" "$backup"
         mv -f "$tmp" "$target" && chmod 755 "$target"
-        msg_ok "Painel atualizado! Feche e abra novamente (sudo options.sh)." 8 60
+        msg_ok "$(t "Painel atualizado! Feche e abra novamente (sudo options.sh)." "Panel updated! Close and reopen (sudo options.sh)." "¡Panel actualizado! Cierre y vuelva a abrir (sudo options.sh).")" 8 60
         exit 0
     else
-        rm -f "$tmp"; msg_error "" "Falha no download."
+        rm -f "$tmp"; msg_error "$(t "Erro" "Error" "Error")" "$(t "Falha no download." "Download failed." "Fallo en la descarga.")"
     fi
 }
 
 # ======================================================================
-# 32. MENUS E SUBMENUS DA INTERFACE
+# 31. MENUS E SUBMENUS DA INTERFACE
 # ======================================================================
 sub_menu_backups() {
     while true; do
-        local c; c=$(dialog --clear --title "Backups & Nuvem" --cancel-button "Voltar" --menu "Ações:" 14 74 4 \
-            "1" "Gerar backup manual local agora" "2" "Enviar via SCP manual agora" \
-            "3" "Configurar envio SCP Automático" "4" "Configurar Nuvem Rclone (G-Drive)" 3>&1 1>&2 2>&3) || break
+        local c; c=$(dialog --clear --no-tags --title "$(t "Backups & Nuvem" "Backups & Cloud" "Copias & Nube")" --cancel-button "$(t "Voltar" "Back" "Volver")" --menu "$(t "Ações:" "Actions:" "Acciones:")" 14 74 4 \
+            "1" " 1. $(t "Gerar backup manual local agora" "Generate manual local backup now" "Generar copia manual local ahora")" \
+            "2" " 2. $(t "Enviar via SCP manual agora" "Send via SCP manually now" "Enviar vía SCP manualmente ahora")" \
+            "3" " 3. $(t "Configurar envio SCP Automático" "Configure Automatic SCP transfer" "Configurar envío SCP Automático")" \
+            "4" " 4. $(t "Configurar Nuvem Rclone (G-Drive)" "Configure Rclone Cloud (G-Drive)" "Configurar Nube Rclone (G-Drive)")" 3>&1 1>&2 2>&3) || break
         case "$c" in 1) function_manual_backup ;; 2) function_send_manual_scp_backup ;; 3) function_configure_automatic_scp_backup ;; 4) function_configure_rclone ;; esac
     done
 }
 
 sub_menu_search_engine() {
     while true; do
-        local c; c=$(dialog --clear --title "Busca & Indexação" --cancel-button "Voltar" --menu "Ações:" 12 74 2 \
-            "1" "Alternar motor (Zebra <-> Elasticsearch)" "2" "Reparar/Reconstruir indexação travada" 3>&1 1>&2 2>&3) || break
+        local c; c=$(dialog --clear --no-tags --title "$(t "Busca & Indexação" "Search & Indexing" "Búsqueda e Indexación")" --cancel-button "$(t "Voltar" "Back" "Volver")" --menu "$(t "Ações:" "Actions:" "Acciones:")" 12 74 2 \
+            "1" " 1. $(t "Alternar motor (Zebra <-> Elasticsearch)" "Toggle engine (Zebra <-> Elasticsearch)" "Cambiar motor (Zebra <-> Elasticsearch)")" \
+            "2" " 2. $(t "Reparar/Reconstruir indexação travada" "Repair/Rebuild stuck indexing" "Reparar/Reconstruir indexación atascada")" 3>&1 1>&2 2>&3) || break
         case "$c" in 1) function_toggle_search_engine ;; 2) function_repair_indexing ;; esac
     done
 }
 
 sub_menu_maintenance() {
     while true; do
-        local c; c=$(dialog --clear --title "Manutenção" --cancel-button "Voltar" --menu "Ferramentas:" 20 74 12 \
-            "1" "Diagnóstico e reparo do banco (DBA)" "2" "Dimensionamento do servidor (Tuning)" \
-            "3" "Tarefas Agendadas (Cron)" "4" "Central de Segurança (Fail2ban/UFW)" \
-            "5" "Atualizar sistema e Koha" "6" "Validar integridade do ambiente" \
-            "7" "Status detalhado" "8" "Explorador de Arquivos (MC)" \
-            "9" "Navegador Web Local (Links)" "10" "Monitoramento de recursos (htop/nethogs)" \
-            "11" "Auditoria de logs ao vivo" "12" "Atualizar este painel" 3>&1 1>&2 2>&3) || break
+        local c; c=$(dialog --clear --no-tags --title "$(t "Manutenção" "Maintenance" "Mantenimiento")" --cancel-button "$(t "Voltar" "Back" "Volver")" --menu "$(t "Ferramentas:" "Tools:" "Herramientas:")" 20 74 12 \
+            "1"  "  1. $(t "Diagnóstico e reparo do banco (DBA)" "Database diagnostics and repair (DBA)" "Diagnóstico y reparación de BD (DBA)")" \
+            "2"  "  2. $(t "Dimensionamento do servidor (Tuning)" "Server sizing (Tuning)" "Dimensionamiento del servidor (Tuning)")" \
+            "3"  "  3. $(t "Tarefas Agendadas (Cron)" "Scheduled Tasks (Cron)" "Tareas Programadas (Cron)")" \
+            "4"  "  4. $(t "Central de Segurança (Fail2ban/UFW)" "Security Center (Fail2ban/UFW)" "Centro de Seguridad (Fail2ban/UFW)")" \
+            "5"  "  5. $(t "Atualizar sistema e Koha" "Update system and Koha" "Actualizar sistema y Koha")" \
+            "6"  "  6. $(t "Validar integridade do ambiente" "Validate environment integrity" "Validar integridad del entorno")" \
+            "7"  "  7. $(t "Status detalhado" "Detailed status" "Estado detallado")" \
+            "8"  "  8. $(t "Explorador de Arquivos (MC)" "File Explorer (MC)" "Explorador de Archivos (MC)")" \
+            "9"  "  9. $(t "Navegador Web Local (Links)" "Local Web Browser (Links)" "Navegador Web Local (Links)")" \
+            "10" " 10. $(t "Monitoramento de recursos (htop/nethogs)" "Resource monitoring (htop/nethogs)" "Monitorización de recursos (htop/nethogs)")" \
+            "11" " 11. $(t "Auditoria de logs ao vivo" "Live log auditing" "Auditoría de registros en vivo")" \
+            "12" " 12. $(t "Atualizar este painel" "Update this panel" "Actualizar este panel")" 3>&1 1>&2 2>&3) || break
         case "$c" in 1) function_validate_repair_database ;; 2) function_size_server ;; 3) function_manage_crons ;; 4) function_security_center ;; 5) function_update_system ;; 6) function_validate_system ;; 7) function_detailed_status ;; 8) function_run_mc ;; 9) function_run_links ;; 10) function_run_monitor ;; 11) function_view_logs ;; 12) function_autoupdate ;; esac
     done
 }
 
 sub_menu_public_web() {
     while true; do
-        local c; c=$(dialog --clear --title "Publicação Web" --cancel-button "Voltar" --menu "Ações:" 14 74 4 \
-            "1" "Cloudflare Tunnel (HTTPS)" "2" "Tailscale Funnel (Rápido)" \
-            "3" "Certificado SSL Certbot (Let's Encrypt)" "4" "SEO: Google Search Console" 3>&1 1>&2 2>&3) || break
+        local c; c=$(dialog --clear --no-tags --title "$(t "Publicação Web" "Web Publication" "Publicación Web")" --cancel-button "$(t "Voltar" "Back" "Volver")" --menu "$(t "Ações:" "Actions:" "Acciones:")" 14 74 4 \
+            "1" " 1. $(t "Cloudflare Tunnel (HTTPS)" "Cloudflare Tunnel (HTTPS)" "Cloudflare Tunnel (HTTPS)")" \
+            "2" " 2. $(t "Tailscale Funnel (Rápido)" "Tailscale Funnel (Fast)" "Tailscale Funnel (Rápido)")" \
+            "3" " 3. $(t "Certificado SSL Certbot (Let's Encrypt)" "SSL Certificate Certbot (Let's Encrypt)" "Certificado SSL Certbot (Let's Encrypt)")" \
+            "4" " 4. $(t "SEO: Google Search Console" "SEO: Google Search Console" "SEO: Google Search Console")" 3>&1 1>&2 2>&3) || break
         case "$c" in 1) function_configure_cloudflare ;; 2) function_configure_tailscale ;; 3) function_configure_ssl ;; 4) function_google_search_console ;; esac
     done
 }
 
 main_menu() {
     while true; do
-        local c; c=$(dialog --clear --backtitle "Koha Easy Install & Tools v${PANEL_VERSION}" --title "MENU PRINCIPAL" --cancel-button "Sair" --menu "Gerenciamento do Koha ILS:" 22 80 14 \
-            "1" "Instalar servidor Koha" \
-            "2" "Ver credenciais" \
-            "3" "Restaurar banco de dados (Rollback Seguro)" \
-            "4" "Central de Backups" \
-            "5" "Busca e Indexação" \
-            "6" "Central de Manutenção" \
-            "7" "Publicação Web (HTTPS/Túneis)" \
-            "8" "Interoperabilidade (SIP2 / Z39.50)" \
-            "9" "Idiomas do Koha" \
-            "10" "E-mails e avisos automáticos" \
-            "11" "Criar Superbibliotecário" \
-            "12" "Ajuste Rápido de RAM (Tuning)" \
-            "13" "Sobre o programa" \
-            "14" "Sair do Painel" 3>&1 1>&2 2>&3)
+        local c; c=$(dialog --clear --no-tags --backtitle "Koha Easy Install & Tools v${PANEL_VERSION}" --title " $(t "MENU PRINCIPAL" "MAIN MENU" "MENÚ PRINCIPAL") " --cancel-button "$(t "Sair" "Exit" "Salir")" --menu "$(t "Gerenciamento do Koha ILS:" "Koha ILS Management:" "Gestión de Koha ILS:")" 22 80 14 \
+            "1"  "  1. $(t "Instalar servidor Koha" "Install Koha server" "Instalar servidor Koha")" \
+            "2"  "  2. $(t "Ver credenciais" "View credentials" "Ver credenciales")" \
+            "3"  "  3. $(t "Restaurar banco de dados (Rollback Seguro)" "Restore database (Secure Rollback)" "Restaurar base de datos (Rollback Seguro)")" \
+            "4"  "  4. $(t "Central de Backups" "Backup Center" "Centro de Copias de Seguridad")" \
+            "5"  "  5. $(t "Busca e Indexação" "Search and Indexing" "Búsqueda e Indexación")" \
+            "6"  "  6. $(t "Central de Manutenção" "Maintenance Center" "Centro de Mantenimiento")" \
+            "7"  "  7. $(t "Publicação Web (HTTPS/Túneis)" "Web Publication (HTTPS/Tunnels)" "Publicación Web (HTTPS/Túneles)")" \
+            "8"  "  8. $(t "Interoperabilidade (SIP2 / Z39.50)" "Interoperability (SIP2 / Z39.50)" "Interoperabilidad (SIP2 / Z39.50)")" \
+            "9"  "  9. $(t "Idiomas do Koha" "Koha Languages" "Idiomas de Koha")" \
+            "10" " 10. $(t "E-mails e avisos automáticos" "Emails and automatic notices" "Correos y avisos automáticos")" \
+            "11" " 11. $(t "Criar Superbibliotecário" "Create Superlibrarian" "Crear Superbibliotecario")" \
+            "12" " 12. $(t "Ajuste Rápido de RAM (Tuning)" "Quick RAM Adjustment (Tuning)" "Ajuste Rápido de RAM (Tuning)")" \
+            "13" " 13. $(t "Sobre o programa" "About the program" "Sobre el programa")" \
+            "14" " 14. $(t "Sair do Painel" "Exit Panel" "Salir del Panel")" 3>&1 1>&2 2>&3)
         [ $? -ne 0 ] || [ -z "$c" ] && { clear; return 0; }
         
         clear
